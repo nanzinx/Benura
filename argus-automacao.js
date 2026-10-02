@@ -118,7 +118,10 @@ const proxTransf = new Map();
 
 // ----------------------------- CLIENTE HTTP -----------------------------
 async function api(endpoint, body = {}, timeout = 3000) {
-  if (Date.now() < globalRateLimitUntil) return { codStatus: -1, classe: 'erro', descStatus: 'Global Rate Limited' };
+  // Exceção: permite tentar desligar robôs mesmo em Rate Limit, pois é uma ação de emergência
+  if (Date.now() < globalRateLimitUntil && endpoint !== 'deslogaroperador') {
+    return { codStatus: -1, classe: 'erro', descStatus: 'Global Rate Limited' };
+  }
 
   if (CFG.dryRun && ['transferiroperadorgrupo', 'deslogaroperador', 'logaroperadorvirtual'].includes(endpoint)) {
     log(`[DRY_RUN] POST /${endpoint}`, JSON.stringify(body));
@@ -356,19 +359,34 @@ async function avaliarRobos() {
       reavaliarPendente = false;
       const agora = Date.now();
       
-      const humanos = [...uraRamais].filter(r => {
+      // Verifica falhas de visibilidade (erros na API ou status velhos por falha de leitura)
+      const falhaNaArgus = [...uraRamais].some(r => {
         const info = uraStatusInfo.get(r);
-        return info && info.classe !== 'offline' && info.classe !== 'erro';
+        return !info || info.classe === 'erro' || (agora - info.ts > 6000);
       });
 
-      // A regra "sem humanos -> desligar" foi expressamente removida.
-      if (humanos.length === 0) continue; 
+      // Verifica se a URA está VAZIA ou se TODOS os humanos nela estão comprovadamente offline
+      const URAVaziaOuTodosOffline = uraRamais.size === 0 || [...uraRamais].every(r => {
+        const info = uraStatusInfo.get(r);
+        return info && info.classe === 'offline';
+      });
 
-      // Se há status velhos (> 6s), não age, para não derrubar/ligar robôs cegamente.
-      if (humanos.some(r => agora - uraStatusInfo.get(r).ts > 6000)) {
-        dbg('Ignorando avaliarRobos pois há status desatualizados');
+      // Se a Argus estiver caindo (falha de leitura) ou não houver humanos logados,
+      // derrubamos os robôs IMEDIATAMENTE para não gerar fila/callbacks.
+      if (falhaNaArgus || URAVaziaOuTodosOffline) {
+        if (robosEstado !== 'off') {
+          if (CFG.debug && falhaNaArgus) log('ALERTA: Falha de visibilidade (Argus caindo). Desligando robôs por segurança.');
+          await desligarRobos();
+        }
         continue;
       }
+
+      const humanos = [...uraRamais].filter(r => {
+        const info = uraStatusInfo.get(r);
+        return info && info.classe !== 'offline';
+      });
+
+      if (humanos.length === 0) continue;
 
       const todosOcupados = humanos.every(r => uraStatusInfo.get(r).classe === 'atendimento');
 
