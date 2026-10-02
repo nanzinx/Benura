@@ -190,14 +190,19 @@ async function loopUra() {
     uraStatus.set(ramal, classe);
 
     const m = movidos[ramal];
-    if (m && Date.now() - m.entrouEm >= CFG.tempoMs && classe !== 'atendimento' && !travados.has(ramal)) {
-      travados.add(ramal);
-      try {
-        if (await transferir(ramal, m.origemGrupoId)) {
-          delete movidos[ramal]; uraRamais.delete(ramal); uraStatus.delete(ramal); salvar();
-          log(`URA->ATIVO ramal=${ramal} destino=${m.origemGrupoId}`);
-        } else log(`falha ao devolver ${ramal} ao grupo ${m.origemGrupoId}`);
-      } finally { travados.delete(ramal); }
+    if (m && !travados.has(ramal)) {
+      const tempoExpirou = Date.now() - m.entrouEm >= CFG.tempoMs && classe !== 'atendimento';
+      const deslogou = classe === 'offline';
+
+      if (tempoExpirou || deslogou) {
+        travados.add(ramal);
+        try {
+          if (await transferir(ramal, m.origemGrupoId)) {
+            delete movidos[ramal]; uraRamais.delete(ramal); uraStatus.delete(ramal); salvar();
+            log(`URA->ATIVO ramal=${ramal} destino=${m.origemGrupoId} (motivo: ${deslogou ? 'offline' : 'tempo expirado'})`);
+          } else log(`falha ao devolver ${ramal} ao grupo ${m.origemGrupoId}`);
+        } finally { travados.delete(ramal); }
+      }
     }
   });
   await avaliarRobos();
@@ -211,9 +216,8 @@ async function avaliarRobos() {
     const humanos = [...uraRamais].filter(r => uraStatus.get(r) !== 'offline');
 
     if (humanos.length === 0) {
-      // Fallback de segurança: se a URA ficar completamente sem humanos logados, 
-      // religamos os robôs para garantir que o canal não fique morto.
-      if (CFG.reativarRobos && robosEstado === 'off') await religarRobos();
+      // Se não há humanos logados na URA, garantir que todos os robôs sejam desligados
+      if (robosEstado !== 'off') await desligarRobos();
       return;
     }
 
