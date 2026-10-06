@@ -388,9 +388,11 @@ async function avaliarRobos() {
 
       if (humanos.length === 0) continue;
 
-      const todosOcupados = humanos.every(r => uraStatusInfo.get(r).classe === 'atendimento');
+      // Se não houver NINGUÉM livre (todos em atendimento, pausa, almoço, tabulação), 
+      // a URA não tem quem atenda. Cortamos os robôs para evitar fila/callback.
+      const nenhumLivre = humanos.every(r => uraStatusInfo.get(r).classe !== 'livre');
 
-      if (todosOcupados) {
+      if (nenhumLivre) {
         if (robosEstado !== 'off') await desligarRobos();
       } else if (CFG.reativarRobos && robosEstado === 'off') {
         if (agora - robosOffDesde >= CFG.minRobosOffMs) await religarRobos();
