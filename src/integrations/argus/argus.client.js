@@ -11,7 +11,7 @@
  * então não é re-tentado e vira `ArgusAutenticacaoError`.
  */
 
-const { requisitar, comRetry, HttpError } = require('../../utils/http-client');
+const { requisitar, comRetry, HttpError, ehRetentavel } = require('../../utils/http-client');
 
 class ArgusError extends Error {
   constructor(mensagem, { comando, resposta, cause } = {}) {
@@ -31,11 +31,34 @@ class ArgusAutenticacaoError extends ArgusError {
   }
 }
 
+/**
+ * A Argus pediu para desacelerar (HTTP 429). Enquanto durar a pausa, os
+ * comandos falham na hora, sem rede — exceto os de emergência.
+ */
+class ArgusLimiteError extends ArgusError {
+  constructor(comando, ateMs) {
+    super(`Argus em pausa por limite de requisições até ${new Date(ateMs).toISOString()} (/${comando} não enviado).`, { comando });
+    this.name = 'ArgusLimiteError';
+  }
+}
+
+/** Comandos de emergência: seguem mesmo durante a pausa de limite (derrubar robôs evita fila na URA). */
+const PERMITIDOS_NA_PAUSA = new Set(['deslogaroperador']);
+
+/** 429 não é re-tentado na hora: vira pausa global. */
+const retentavelNaArgus = (e) => ehRetentavel(e) && e.status !== 429;
+
 /** Tipos de usuário em /listarusuarios. */
 const TipoUsuario = Object.freeze({ ADMINISTRATIVO: 1, OPERADOR: 2 });
 
 /** Tipos de grupo em /listargrupos. */
 const TipoGrupo = Object.freeze({ OPERACIONAL: 1, VIRTUAL_DTMF: 2, VIRTUAL_FLASH: 3 });
+
+/** Resposta com codStatus diferente de 1. */
+const recusa = (comando, resposta) => new ArgusError(
+  `Argus /${comando} recusou o comando: ${resposta?.descStatus || 'codStatus ' + resposta?.codStatus}`,
+  { comando, resposta },
+);
 
 /** Converte uma falha HTTP no erro de domínio da Argus. */
 function traduzirErro(comando, e) {
@@ -52,25 +75,26 @@ class ArgusClient {
   constructor(cfg, logger) {
     this.cfg = cfg;
     this.log = logger;
+    this.pausaAte = 0;
   }
 
   /**
    * Executa um comando na Argus.
+   * @param {string} nome
+   * @param {object} [corpo]
+   * @param {{ timeoutMs?: number, tentativas?: number }} [opcoes]
    * @returns {Promise<object>} Resposta com codStatus === 1
-   * @throws {ArgusAutenticacaoError|ArgusError}
+   * @throws {ArgusAutenticacaoError|ArgusLimiteError|ArgusError}
    */
-  async comando(nome, corpo = {}, { timeoutMs = this.cfg.timeoutMs } = {}) {
-    const resposta = await this.enviar(nome, corpo, timeoutMs);
+  async comando(nome, corpo = {}, opcoes = {}) {
+    const resposta = await this.enviar(nome, corpo, opcoes);
     if (resposta?.codStatus === 1) return resposta;
-
-    throw new ArgusError(
-      `Argus /${nome} recusou o comando: ${resposta?.descStatus || 'codStatus ' + resposta?.codStatus}`,
-      { comando: nome, resposta },
-    );
+    throw recusa(nome, resposta);
   }
 
-  /** POST com retry; erros de transporte viram ArgusError/ArgusAutenticacaoError. */
-  async enviar(nome, corpo, timeoutMs) {
+  /** POST com retry; erros de transporte viram ArgusError/ArgusAutenticacaoError/ArgusLimiteError. */
+  async enviar(nome, corpo, { timeoutMs = this.cfg.timeoutMs, tentativas = this.cfg.tentativas } = {}) {
+    this.exigirForaDaPausa(nome);
     const requisicao = () => requisitar(`${this.cfg.baseUrl}/${nome}`, {
       metodo: 'POST',
       headers: { 'Token-Signature': this.cfg.token },
@@ -79,12 +103,49 @@ class ArgusClient {
     });
     try {
       return await comRetry(requisicao, {
-        tentativas: this.cfg.tentativas,
+        tentativas,
+        retentavel: retentavelNaArgus,
         aoFalhar: (e, n) => this.log.debug(`${nome}: tentativa ${n} falhou (${e.message})`),
       });
     } catch (e) {
-      throw traduzirErro(nome, e);
+      throw this.traduzirFalha(nome, e);
     }
+  }
+
+  exigirForaDaPausa(nome) {
+    if (Date.now() >= this.pausaAte || PERMITIDOS_NA_PAUSA.has(nome)) return;
+    throw new ArgusLimiteError(nome, this.pausaAte);
+  }
+
+  traduzirFalha(nome, e) {
+    if (!(e instanceof HttpError) || e.status !== 429) return traduzirErro(nome, e);
+    this.pausaAte = Date.now() + (this.cfg.pausaLimiteMs ?? 5000);
+    this.log.aviso(`Argus pediu para desacelerar (HTTP 429). Pausa global até ${new Date(this.pausaAte).toISOString()}.`);
+    return new ArgusLimiteError(nome, this.pausaAte);
+  }
+
+  // ───────────────────────────── Operadores ─────────────────────────────
+
+  /**
+   * Status de um operador.
+   * @returns {Promise<object|null>} statusOperador, ou null se não está logado
+   * @throws {ArgusError} quando a Argus não respondeu ou respondeu codStatus -1
+   */
+  async statusOperador(ramal) {
+    const resposta = await this.enviar('statusoperador', { ramal: String(ramal) }, { timeoutMs: 2000, tentativas: 1 });
+    if (resposta?.codStatus === 1 && resposta.statusOperador) return resposta.statusOperador;
+    if (resposta?.codStatus === -1) throw recusa('statusoperador', resposta);
+    return null; // demais códigos: operador não logado
+  }
+
+  /** Desconecta um operador ou operador virtual. Emergencial: segue mesmo durante a pausa de limite. */
+  deslogarOperador(ramal) {
+    return this.comando('deslogaroperador', { ramal: String(ramal) }, { timeoutMs: 1500, tentativas: 1 });
+  }
+
+  /** Aciona todos os operadores virtuais ativos de um grupo. */
+  logarOperadoresVirtuais(idGrupoUsuario) {
+    return this.comando('logaroperadorvirtual', { idGrupoUsuario }, { timeoutMs: 2000 });
   }
 
   /**
@@ -151,4 +212,6 @@ class ArgusClient {
   }
 }
 
-module.exports = { ArgusClient, ArgusError, ArgusAutenticacaoError, TipoUsuario, TipoGrupo };
+module.exports = {
+  ArgusClient, ArgusError, ArgusAutenticacaoError, ArgusLimiteError, TipoUsuario, TipoGrupo,
+};

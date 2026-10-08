@@ -10,12 +10,20 @@
 const path = require('path');
 const { METRICAS } = require('../integrations/carrossel/carrossel.mapper');
 
-// dotenv é opcional: se não estiver instalado, seguimos só com process.env.
-try {
-  require('dotenv').config();
-} catch {
-  /* dotenv ausente — sem problema */
+/**
+ * Carrega o .env, a menos que BENURA_SEM_DOTENV=1 (usado pela simulação no PM2
+ * para não misturar um .env de produção com a configuração simulada).
+ * dotenv é opcional: se não estiver instalado, seguimos só com process.env.
+ */
+function carregarDotenv() {
+  if (process.env.BENURA_SEM_DOTENV === '1') return;
+  try {
+    require('dotenv').config();
+  } catch {
+    /* dotenv ausente — sem problema */
+  }
 }
+carregarDotenv();
 
 const env = (nome, padrao = '') => {
   const v = process.env[nome];
@@ -32,6 +40,11 @@ const envBool = (nome, padrao = false) => {
 };
 const semBarraFinal = (url) => url.replace(/\/+$/, '');
 const envListaNum = (nome) => env(nome, '').split(',').map((x) => x.trim()).filter(Boolean).map(Number);
+const envLista = (nome, padrao) => env(nome, padrao).split(',').map((x) => x.trim()).filter(Boolean);
+const envListaTexto = (nome, padrao) => env(nome, padrao).toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);
+
+/** Raiz do projeto: padrão dos arquivos do rodízio (mesmo lugar do argus-automacao.js original). */
+const RAIZ = path.resolve(__dirname, '..', '..');
 
 /**
  * Lê e valida a configuração.
@@ -80,6 +93,29 @@ function carregarConfig(overrides = {}) {
       dryRun: envBool('DRY_RUN'),
     },
 
+    // --- Rodízio Ativo ↔ URA e robôs (argus-automacao.js) ---
+    // Mesmos nomes de variável do script original, para o .env existente continuar valendo.
+    rodizio: {
+      grupoUraDefinido: env('GRUPO_URA_ID') !== '',
+      grupoRobosId: envNum('GRUPO_ROBOS_URA_ID', 0),
+      tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
+      pollAtivoMs: envNum('POLL_ATIVO_MS', 3000),
+      pollUraMs: envNum('POLL_URA_MS', 500),
+      refreshGruposMs: envNum('REFRESH_GRUPOS_MS', 30_000),
+      reativarRobos: env('REATIVAR_ROBOS', 'true') !== 'false',
+      minRobosDesligadosMs: envNum('MIN_ROBOS_OFF_MS', 3000),
+      concorrencia: envNum('CONCORRENCIA', 20),
+      carenciaWebhookMs: envNum('WEBHOOK_GRACE_MS', 1500),
+      descricoesStatus: {
+        livres: envListaTexto('STATUS_LIVRE', 'livre,disponivel'),
+        atendimento: envListaTexto('STATUS_ATENDIMENTO', 'em atendimento,falando,conversa'),
+      },
+      // Nomes próprios para não colidir com o roteador (que usa PORT e STATE_FILE).
+      porta: envNum('RODIZIO_PORT', 3000),
+      arquivoEstado: env('RODIZIO_STATE_FILE', path.join(RAIZ, 'state.json')),
+      arquivoTrava: env('RODIZIO_LOCK_FILE', path.join(RAIZ, 'argus.lock')),
+    },
+
     // --- Regras de negócio ---
     regras: {
       metaDiaria: envNum('META_DIARIA', 50_000),
@@ -110,6 +146,21 @@ function carregarConfig(overrides = {}) {
     debug: envBool('DEBUG'),
     arquivoEstado: env('STATE_FILE', path.join(process.cwd(), 'state-vendas.json')),
     arquivoAuditoria: env('AUDITORIA_FILE', path.join(process.cwd(), 'auditoria-cadastro.jsonl')),
+  };
+
+  // --- Atualizador da produção (atualizador.js) ---
+  // Depois do objeto acima porque as URLs de saúde usam as portas dos serviços.
+  cfg.atualizador = {
+    diretorio: RAIZ,
+    branch: env('ATUALIZADOR_BRANCH', 'main'),
+    intervaloMs: envNum('ATUALIZADOR_INTERVALO_MS', 60_000),
+    apps: envLista('ATUALIZADOR_APPS', 'benura-roteador,benura-rodizio'),
+    healthUrls: envLista('ATUALIZADOR_HEALTH_URLS',
+      `http://localhost:${cfg.http.porta}/health,http://localhost:${cfg.rodizio.porta}/health`),
+    healthTimeoutMs: envNum('ATUALIZADOR_HEALTH_TIMEOUT_MS', 30_000),
+    porta: envNum('ATUALIZADOR_PORT', 3002),
+    arquivoLog: env('ATUALIZADOR_LOG_FILE', path.join(RAIZ, 'logs', 'deploy.jsonl')),
+    arquivoTrava: env('ATUALIZADOR_LOCK_FILE', path.join(RAIZ, 'atualizador.lock')),
   };
 
   return Object.freeze(mesclarProfundo(cfg, overrides));
@@ -158,11 +209,49 @@ function validarConfig(cfg, { escopo = 'roteador' } = {}) {
     fatais.push(`FUSO_HORARIO inválido: "${cfg.agenda.fusoHorario}".`);
   }
 
+  if (escopo === 'rodizio') return validarRodizio(cfg);
+  if (escopo === 'atualizador') return validarAtualizador(cfg, fatais);
   if (escopo === 'argus') {
     const relevantes = /ARGUS|GRUPO/;
     return { fatais: fatais.filter((f) => relevantes.test(f)), avisos: [] };
   }
   return { fatais, avisos };
+}
+
+/** Validação do rodízio: os grupos são obrigatórios e sem valor padrão (um erro aqui mexe na URA). */
+function validarRodizio(cfg) {
+  const fatais = [];
+  const avisos = [];
+  const { rodizio: r, argus: a } = cfg;
+
+  if (!a.token) fatais.push('ARGUS_TOKEN é obrigatório.');
+  if (!r.grupoUraDefinido) fatais.push('GRUPO_URA_ID é obrigatório.');
+  if (!r.grupoRobosId) fatais.push('GRUPO_ROBOS_URA_ID é obrigatório.');
+  if (!a.gruposAtivosIds.length) fatais.push('GRUPOS_ATIVOS_IDS é obrigatório (whitelist dos grupos do Ativo).');
+  if (a.gruposAtivosIds.includes(a.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');
+  if (r.grupoRobosId === a.grupoUraId) fatais.push('GRUPO_ROBOS_URA_ID não pode ser igual a GRUPO_URA_ID.');
+  if (r.tempoNaUraMs <= 0) fatais.push('TEMPO_MIN deve ser maior que zero.');
+  if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: o webhook do rodízio aceita chamadas sem autenticação.');
+  return { fatais, avisos };
+}
+
+const urlValida = (u) => {
+  try {
+    return Boolean(new URL(u));
+  } catch {
+    return false;
+  }
+};
+
+/** Validação do atualizador; reaproveita as checagens de horário e fuso já feitas. */
+function validarAtualizador(cfg, fataisGerais) {
+  const a = cfg.atualizador;
+  const fatais = fataisGerais.filter((f) => /HORARIO|FUSO/.test(f));
+  if (a.intervaloMs < 10_000) fatais.push('ATUALIZADOR_INTERVALO_MS deve ser de pelo menos 10000 (10 s).');
+  if (!a.apps.length) fatais.push('ATUALIZADOR_APPS vazio: informe os apps do PM2 a recarregar.');
+  const invalidas = a.healthUrls.filter((u) => !urlValida(u));
+  if (invalidas.length) fatais.push(`ATUALIZADOR_HEALTH_URLS com URL inválida: ${invalidas.join(', ')}`);
+  return { fatais, avisos: [] };
 }
 
 module.exports = { carregarConfig, validarConfig };

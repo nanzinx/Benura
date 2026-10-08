@@ -22,7 +22,14 @@ const dataLocal = (fusoHorario, agora = new Date()) => partes(agora, fusoHorario
 /** @returns {string} Hora no formato HH:MM no fuso informado. */
 const horaLocal = (fusoHorario, agora = new Date()) => partes(agora, fusoHorario).hora;
 
+const DIAS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+/** @returns {number} Dia da semana no fuso informado (0 = domingo … 6 = sábado). */
+const diaDaSemanaLocal = (fusoHorario, agora = new Date()) => DIAS[
+  new Intl.DateTimeFormat('en-US', { timeZone: fusoHorario, weekday: 'short' }).format(agora)
+];
+
 /** Verifica se `hora` (HH:MM) está no intervalo [inicio, fim]. */
 const dentroDoIntervalo = (hora, inicio, fim) => hora >= inicio && hora <= fim;
 
-module.exports = { dataLocal, horaLocal, dentroDoIntervalo };
+module.exports = { dataLocal, horaLocal, diaDaSemanaLocal, dentroDoIntervalo };

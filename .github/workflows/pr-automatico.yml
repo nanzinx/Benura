@@ -1,0 +1,78 @@
+# PR automático — todo push numa branch de trabalho abre (uma vez) um PR para a main
+# e, se AUTO_MERGE_ATIVO=true, liga o merge automático: o GitHub mescla sozinho quando
+# os checks do CI passam E alguém aprova (exigência da proteção da branch main).
+#
+# Branches wip/** ficam fora (rascunho). Veja "Esteira automática" no README.
+name: PR automático
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - 'wip/**'
+
+concurrency:
+  group: pr-automatico-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  abrir-pr:
+    name: abrir-pr
+    # Push que apaga a branch não abre PR.
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Abrir PR (se ainda não existir)
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          numero=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$numero" ]; then
+            echo "PR #$numero já está aberto para $BRANCH."
+            echo "numero=$numero" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch --quiet origin main
+          commits=$(git log origin/main..HEAD --format='- %s')
+          if [ -z "$commits" ]; then
+            echo "Nenhum commit novo em relação à main; nada a abrir."
+            exit 0
+          fi
+
+          titulo=$(git log -1 --format=%s)
+          {
+            echo "## Commits"
+            echo
+            echo "$commits"
+            echo
+            echo "---"
+            echo "_PR aberto automaticamente pela esteira (workflow \`pr-automatico\`). O merge acontece sozinho quando o CI passa e alguém aprova._"
+          } > corpo-pr.md
+
+          url=$(gh pr create --base main --head "$BRANCH" --title "$titulo" --body-file corpo-pr.md)
+          echo "PR aberto: $url"
+          echo "numero=${url##*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Ligar merge automático
+        if: ${{ vars.AUTO_MERGE_ATIVO == 'true' && steps.pr.outputs.numero != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMERO: ${{ steps.pr.outputs.numero }}
+        run: gh pr merge --auto --merge "$NUMERO"
+
+      - name: Merge automático desligado
+        if: ${{ vars.AUTO_MERGE_ATIVO != 'true' && steps.pr.outputs.numero != '' }}
+        run: echo "AUTO_MERGE_ATIVO não está 'true' nas variáveis do repositório; o PR fica aguardando merge manual."

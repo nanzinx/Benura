@@ -21,6 +21,7 @@ const { RoteamentoService } = require('./services/roteamento.service');
 const { Agendador } = require('./services/agendador');
 const { criarControllers } = require('./http/controllers');
 const { criarServidor } = require('./http/server');
+const { registrarDesligamento, fecharServidor, escutar } = require('./utils/ciclo-de-vida');
 
 /**
  * Monta a camada da Argus (cliente, diretório de usuários e discadora).
@@ -114,13 +115,6 @@ async function aquecerArgus({ diretorio, discadora, log }) {
   await discadora.verificarGruposConfigurados();
 }
 
-function escutar(servidor, porta) {
-  return new Promise((resolve, reject) => {
-    servidor.once('error', reject);
-    servidor.listen(porta, resolve);
-  });
-}
-
 /** Inicia a aplicação. Encerra o processo se a configuração for inválida. */
 async function iniciar() {
   const app = criarApp();
@@ -136,37 +130,15 @@ async function iniciar() {
   log.info(`HTTP na porta ${cfg.http.porta}: GET /health, GET /status, POST /recarregar, POST /webhook/venda`);
 
   agendador.iniciar();
-  registrarDesligamento(app);
-  return app;
-}
-
-function registrarDesligamento({ log, agendador, servidor, roteamento }) {
-  let encerrando = false;
-  const encerrar = async (motivo, codigo = 0) => {
-    if (encerrando) return;
-    encerrando = true;
-    log.info(`Encerrando (${motivo})...`);
-
-    // Força saída se algo travar no desligamento.
-    setTimeout(() => process.exit(codigo || 1), 10_000).unref();
-    try {
-      await agendador.parar();
-      await new Promise((r) => servidor.close(r));
-      await roteamento.repositorio.aguardarEscritas();
-      log.info('Estado salvo. Até logo.');
-    } catch (e) {
-      log.erro('Erro durante o desligamento:', e);
-    }
-    process.exit(codigo);
-  };
-
-  process.on('SIGINT', () => encerrar('SIGINT'));
-  process.on('SIGTERM', () => encerrar('SIGTERM'));
-  process.on('uncaughtException', (e) => {
-    log.erro('Exceção não tratada:', e);
-    encerrar('uncaughtException', 1);
+  registrarDesligamento({
+    logger: log,
+    etapas: [
+      () => agendador.parar(),
+      () => fecharServidor(servidor),
+      () => roteamento.repositorio.aguardarEscritas(),
+    ],
   });
-  process.on('unhandledRejection', (e) => log.erro('Promise rejeitada não tratada:', e));
+  return app;
 }
 
 module.exports = { criarApp, iniciar, montarArgus };

@@ -22,10 +22,12 @@ function tokenValido(recebido, esperado) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/** Token em `Authorization: Bearer`, `X-Webhook-Token` ou `?token=` (a Argus só permite configurar a URL). */
 function extrairToken(req) {
   const auth = req.headers.authorization || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7);
-  return req.headers['x-webhook-token'] || null;
+  if (req.headers['x-webhook-token']) return req.headers['x-webhook-token'];
+  return new URL(req.url, 'http://localhost').searchParams.get('token');
 }
 
 async function lerCorpoJson(req, limiteBytes) {
@@ -55,9 +57,12 @@ function responder(res, status, corpo) {
   res.end(JSON.stringify(corpo, null, 2));
 }
 
+/** Rota com `prefixo: true` atende o caminho e tudo abaixo dele (ex.: /webhook, /webhook/argus). */
+const casaCaminho = (rota, pathname) => (rota.prefixo ? pathname.startsWith(rota.caminho) : pathname === rota.caminho);
+
 function encontrarRota(rotas, req) {
   const { pathname } = new URL(req.url, 'http://localhost');
-  const rota = rotas.find((r) => r.metodo === req.method && r.caminho === pathname);
+  const rota = rotas.find((r) => r.metodo === req.method && casaCaminho(r, pathname));
   if (!rota) throw new ErroHttp(404, 'Rota não encontrada');
   return rota;
 }
@@ -67,21 +72,23 @@ function autorizar(rota, req, tokenAdmin) {
   if (!tokenValido(extrairToken(req), tokenAdmin)) throw new ErroHttp(401, 'Token inválido ou ausente');
 }
 
+/** Rotas do roteador de vendas. */
+const rotasDoRoteador = (controllers) => [
+  { metodo: 'GET', caminho: '/health', handler: controllers.health },
+  { metodo: 'GET', caminho: '/status', handler: controllers.status },
+  { metodo: 'POST', caminho: '/recarregar', handler: controllers.recarregar, protegida: true },
+  { metodo: 'POST', caminho: '/webhook/venda', handler: controllers.webhookVenda, protegida: true },
+];
+
 /**
  * @param {object} deps
- * @param {ReturnType<import('./controllers').criarControllers>} deps.controllers
+ * @param {ReturnType<import('./controllers').criarControllers>} [deps.controllers] - Controladores do roteador
+ * @param {Array<{ metodo, caminho, handler, protegida?, prefixo? }>} [deps.rotas] - Ou rotas explícitas
  * @param {{ tokenAdmin: string, limiteCorpoBytes: number }} deps.cfg
  * @param {object} deps.logger
  * @returns {http.Server}
  */
-function criarServidor({ controllers, cfg, logger }) {
-  const rotas = [
-    { metodo: 'GET', caminho: '/health', handler: controllers.health },
-    { metodo: 'GET', caminho: '/status', handler: controllers.status },
-    { metodo: 'POST', caminho: '/recarregar', handler: controllers.recarregar, protegida: true },
-    { metodo: 'POST', caminho: '/webhook/venda', handler: controllers.webhookVenda, protegida: true },
-  ];
-
+function criarServidor({ controllers, rotas = rotasDoRoteador(controllers), cfg, logger }) {
   /** Roteia, autoriza, lê o corpo e chama o controlador. Lança ErroHttp. */
   async function atender(req) {
     const rota = encontrarRota(rotas, req);

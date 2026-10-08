@@ -4,7 +4,7 @@
 |---|---|
 | `roteador-vendas.js` | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
 | `cadastrar-operador.js` | Prepara e confere o cadastro de operadores na Argus a partir do login no **Vanguard** |
-| `argus-automacao.js` | Rodízio Ativo ↔ URA por atendimento e liga/desliga dos robôs da URA |
+| `argus-automacao.js` | Rodízio Ativo ↔ URA por atendimento e liga/desliga dos robôs da URA (lógica em `src/rodizio/`) |
 
 ## Roteador de Vendas
 
@@ -20,6 +20,7 @@ cp .env.example .env   # URL do Carrossel, token da Argus, GRUPO_URA_ID e GRUPOS
 npm start
 ```
 Desenvolvimento sem rede: `npm run dev` (Carrossel e Argus simulados em memória).
+Simulação completa com PM2: veja [Rodando com PM2](#rodando-com-pm2).
 Com mock HTTP de Carrossel + Argus: `npm run mock` e veja `.env.example`.
 Testes: `npm test`.
 
@@ -37,6 +38,8 @@ src/integrations/argus/            client HTTP → DiretorioOperadores (usuário
 src/integrations/vanguard/         fonte de dados de funcionários (hoje: manual)
 src/services/cadastro-operador.service.js  planejar / conferir cadastro de operador
 src/repositories/                  estado diário, exceções de ramal, auditoria (JSONL)
+src/rodizio/                       rodízio Ativo ↔ URA e robôs (regras puras em src/domain/rodizio.js)
+src/utils/                         HTTP com retry, persistência atômica, trava de processo, laços periódicos
 ```
 
 ### Independência da URA
@@ -112,3 +115,113 @@ Saída em JSON com `--json`; código de saída 0 = ok, 2 = precisa de atenção,
 | POST | `/webhook/venda` | token | `{ "ramal": "1004", "valor": 1500 }` |
 
 Token: `Authorization: Bearer <WEBHOOK_TOKEN>` ou `X-Webhook-Token: <WEBHOOK_TOKEN>`.
+
+## Rodízio Ativo ↔ URA e robôs (`argus-automacao.js`)
+
+### Regras
+1. **Ativo → URA**: operador do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
+2. **URA → Ativo**: depois de `TEMPO_MIN` minutos (fora de atendimento), ou na hora se ficar offline, volta ao **grupo de origem**.
+   Só volta quem o próprio rodízio colocou na URA — quem já era da URA, ou foi colocado lá pelo roteador ou à mão, não é tocado.
+3. **Robôs**: desligados quando ninguém na URA pode atender (todos ocupados/em pausa, URA vazia ou toda offline, ou a Argus sem responder);
+   religados quando algum humano fica livre (após `MIN_ROBOS_OFF_MS`).
+4. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
+
+### Testes de comportamento
+`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em 15 cenários (ida, volta, robôs, webhook, correções).
+A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js` — foi assim que a
+refatoração foi comparada com o script original.
+
+### Correções em relação ao script original
+- **HTTP 403** (token inválido) era tratado como limite de requisições e o script pausava para sempre em silêncio; agora é um erro claro sobre o token. Limite de requisições de verdade é o **429**.
+- **Trava órfã**: depois de uma queda abrupta, `argus.lock` impedia o reinício (o PM2 ficava em loop). Agora a trava guarda o PID e é reaproveitada se o processo dono não existe mais.
+- **Webhook tipo 5**: a documentação da Argus escreve `FidConclusaoDerivacao` no exemplo; os dois nomes são aceitos.
+- **Rodada lenta**: o alerta de ciclo lento nunca disparava; agora avisa quando uma rodada passa de 5 s.
+
+### Mudança de configuração
+A porta e os arquivos passaram a ter nomes próprios, para rodar ao lado do roteador com o mesmo `.env`:
+`RODIZIO_PORT` (padrão 3000, antes `PORT`), `RODIZIO_STATE_FILE` (padrão `state.json`) e `RODIZIO_LOCK_FILE` (padrão `argus.lock`).
+As demais variáveis continuam com o mesmo nome. O `state.json` existente é aproveitado.
+
+## Rodando com PM2
+
+O PM2 já vem como dependência de desenvolvimento: depois do `npm install`, os comandos abaixo funcionam
+sem instalar nada global (Windows, Linux ou macOS). Requer Node.js 22 LTS ou superior.
+
+### Simulação local (sem Carrossel nem Argus reais)
+
+Sobe dois processos: `benura-mock` (imita as APIs do Carrossel e da Argus na porta 8081) e
+`benura-roteador-sim` (o roteador de verdade, na porta 3001, apontando para o mock).
+O `.env` **não** é lido nessa simulação, então um `.env` de produção na pasta não interfere.
+
+```bash
+npm install
+npm run sim:iniciar              # sobe tudo (e limpa o estado da simulação anterior)
+npm run sim:status               # quem está na URA e no Ativo
+npm run sim:logs                 # acompanha os logs (Ctrl+C para sair)
+npm run sim:venda -- 1006 2500   # simula uma venda do ramal 1006 via webhook
+npm run sim:parar                # derruba tudo
+```
+
+O que acontece na simulação:
+1. **Carga inicial**: quem vendeu mais de R$ 50 mil "ontem" vai para a URA (1001, 1002, 1003); os demais ficam no Ativo, cada um no grupo do seu supervisor.
+2. **Após 2 min**: RICARDO MENDES (1004) vende no "Carrossel" e o roteador o sobe para a URA sozinho. **Após 5 min**: JULIANA ALVES (1005).
+3. **Webhook**: `sim:venda` promove na hora quem estiver no Ativo.
+
+Estado e logs da simulação ficam em `.simulacao/`. `npx pm2 monit` abre um painel com CPU, memória e logs.
+
+### Produção
+
+Usa o `.env` (copie de `.env.example`).
+
+```bash
+npm run pm2:iniciar      # sobe o benura-roteador e o benura-rodizio
+npx pm2 start ecosystem.config.js --only benura-rodizio   # só um deles
+npx pm2 logs
+npm run pm2:parar
+```
+
+Sem configuração válida o roteador não sobe: o motivo aparece em `logs/roteador.err.log` e o PM2 tenta de novo com espera crescente.
+O desligamento é gracioso (o estado do dia é salvo antes de sair), inclusive no Windows.
+Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, use o pacote `pm2-installer`.
+
+## Esteira automática
+
+```
+push numa branch ──► CI (testes Linux + Windows + cenários)
+        │
+        └──► PR aberto sozinho para a main ──► merge automático quando CI verde + 1 aprovação
+                                                        │
+                       máquina de produção ◄────────────┘  atualizador busca a main a cada minuto
+                       (fora do expediente)                  testa, recarrega e confere o /health;
+                                                             se falhar, volta sozinho à versão anterior
+```
+
+- **Toda branch** entra na esteira, exceto `main` e `wip/**` (use `wip/` para rascunhos que não devem virar PR).
+- **CI** (`.github/workflows/ci.yml`): `unitarios-linux`, `unitarios-windows` e `cenarios` rodam em todo push e PR.
+- **PR automático** (`.github/workflows/pr-automatico.yml`): abre um PR por branch (uma vez) e liga o merge automático.
+  O merge só acontece com os três checks verdes **e** uma aprovação humana.
+- **Deploy** (`atualizador.js`): roda **na máquina de produção** e *busca* a `main` — não precisa de IP público, porta aberta nem SSH.
+  Só atualiza fora do expediente (dias úteis fora de `HORARIO_CARGA`–`HORARIO_FIM`; sábado e domingo livres).
+  Antes de recarregar, roda `npm test` na própria máquina; depois, espera o `/health` dos serviços. Qualquer falha volta ao commit anterior.
+  Não atualiza se houver alteração local em arquivo versionado ou se a cópia local divergiu da `main`.
+  Histórico em `logs/deploy.jsonl`; estado em `GET http://localhost:3002/health`.
+
+### Configuração única no GitHub (precisa de admin do repositório)
+1. **Settings → General → Pull Requests**: marque **Allow auto-merge** (e, se quiser, *Automatically delete head branches*).
+2. **Settings → Actions → General → Workflow permissions**: **Read and write permissions** e **Allow GitHub Actions to create and approve pull requests**.
+3. **Settings → Branches → Add branch protection rule** (ou *Rulesets*) para `main`:
+   - *Require a pull request before merging* → *Require approvals*: **1** → *Dismiss stale pull request approvals when new commits are pushed*;
+   - *Require status checks to pass*: `unitarios-linux`, `unitarios-windows`, `cenarios` (aparecem na busca depois do primeiro CI).
+4. **Settings → Secrets and variables → Actions → Variables**: crie `AUTO_MERGE_ATIVO` = `true` — **só depois do passo 3**.
+   Sem essa variável os PRs continuam abrindo sozinhos, mas o merge fica manual (trava de segurança).
+
+### Ligar o deploy quando houver produção
+Na máquina de produção (Windows ou Linux), com o repositório clonado, `.env` preenchido e os serviços no PM2:
+```bash
+npm run pm2:iniciar              # roteador + rodízio
+npm run atualizador:iniciar      # liga o deploy automático
+npm run atualizador:agora        # uma verificação agora (respeita a janela)
+npm run atualizador:agora -- --ignorar-janela   # emergência: atualiza mesmo no expediente
+npm run atualizador:parar        # desliga
+```
+
