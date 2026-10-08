@@ -6,7 +6,7 @@
  *
  *  Este servidor simula:
  *  1. API do Carrossel (GET /ranking/vendedores)
- *  2. API da Discadora Argus (POST /apiargus/cmd/listargrupos e /transferiroperadorgrupo)
+ *  2. API da Discadora Argus (POST /apiargus/cmd/listargrupos, /listarusuarios, /transferiroperadorgrupo)
  *
  *  Use para testar o roteador-vendas.js sem precisar das APIs reais.
  *
@@ -14,7 +14,7 @@
  *    1. Inicie este mock:     node test/mock-vendas.js
  *    2. Em outro terminal:    ARGUS_TOKEN=mock ARGUS_BASE=http://localhost:8081/apiargus/cmd \
  *                             CARROSSEL_API_URL=http://localhost:8081 \
- *                             VENDEDORES_RAMAIS_FILE=vendedores-ramais.example.json \
+ *                             GRUPO_URA_ID=2 GRUPOS_ATIVOS_IDS=1,3 \
  *                             DEBUG=1 node roteador-vendas.js
  *
  *  Porta padrão: 8081
@@ -33,18 +33,11 @@ const inicio = Date.now();
 // Registro de transferências realizadas (para verificação)
 const transferencias = [];
 
-// Grupos da Argus: 1 = Ativo, 2 = URA, 9 = Treinamento (grupo "externo")
-// O ramal 1007 começa em Treinamento para simular um ajuste manual.
-const grupos = [
-  { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['1001', '1002', '1004', '1005', '1006', '1008'] },
-  { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['1003'] },
-  { idGrupoUsuario: 9, idTipoGrupo: 1, ramaisOperadores: ['1007'] },
-];
-
-function moverRamal(ramal, destinoId) {
-  for (const g of grupos) g.ramaisOperadores = g.ramaisOperadores.filter((r) => r !== ramal);
-  grupos.find((g) => g.idGrupoUsuario === destinoId)?.ramaisOperadores.push(ramal);
-}
+// ── Argus: mesma simulação do cliente mock (src/integrations/argus/argus.mock-client.js) ──
+// Grupos: 1 GABRIEL - COMERCIAL e 3 MAYSA - COMERCIAL (Ativo), 2 URA, 9 TREINAMENTO.
+// Use GRUPO_URA_ID=2 GRUPOS_ATIVOS_IDS=1,3 no roteador.
+const { criarDadosArgus, gruposDe, transferir } = require('../src/integrations/argus/argus.mock-client');
+const argus = criarDadosArgus();
 
 http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -64,33 +57,26 @@ http.createServer((req, res) => {
     }
 
     // ══════════════════════════════════════════════════════════
-    // API Argus — POST /apiargus/cmd/listargrupos
+    // API Argus — POST /apiargus/cmd/{listargrupos|listarusuarios|transferiroperadorgrupo}
     // ══════════════════════════════════════════════════════════
-    if (url.pathname.endsWith('listargrupos') && req.method === 'POST') {
+    if (url.pathname.endsWith('/listargrupos') && req.method === 'POST') {
       res.writeHead(200);
-      return res.end(JSON.stringify({ codStatus: 1, grupos }));
+      return res.end(JSON.stringify({ codStatus: 1, grupos: gruposDe(argus) }));
     }
 
-    // ══════════════════════════════════════════════════════════
-    // API Argus — POST /apiargus/cmd/transferiroperadorgrupo
-    // ══════════════════════════════════════════════════════════
-    if (url.pathname.endsWith('transferiroperadorgrupo') && req.method === 'POST') {
-      const dados = body ? JSON.parse(body) : {};
-      const destino = dados.idGrupoUsuarioDestino === 2 ? 'URA' : 'ATIVO';
-      const ramais = dados.ramaisOperadores || [];
-
-      console.log(`[MOCK] ARGUS: Transferindo ${ramais.join(', ')} → ${destino} (grupo ${dados.idGrupoUsuarioDestino})`);
-
-      ramais.forEach((r) => moverRamal(String(r), dados.idGrupoUsuarioDestino));
-      transferencias.push({
-        timestamp: new Date().toISOString(),
-        ramais,
-        destino,
-        grupoId: dados.idGrupoUsuarioDestino,
-      });
-
+    if (url.pathname.endsWith('/listarusuarios') && req.method === 'POST') {
       res.writeHead(200);
-      return res.end(JSON.stringify({ codStatus: 1, qtdeTransferidos: ramais.length }));
+      return res.end(JSON.stringify({ codStatus: 1, usuarios: argus.usuarios }));
+    }
+
+    if (url.pathname.endsWith('/transferiroperadorgrupo') && req.method === 'POST') {
+      const dados = body ? JSON.parse(body) : {};
+      const resposta = transferir(argus, dados);
+      console.log(`[MOCK] ARGUS: ${(dados.ramaisOperadores || []).join(', ')} → grupo ${dados.idGrupoUsuarioDestino}`
+        + ` (${resposta.qtdeTransferidos} ok, ${resposta.qtdeFalhas} falha)`);
+      transferencias.push({ timestamp: new Date().toISOString(), ...dados, resposta });
+      res.writeHead(200);
+      return res.end(JSON.stringify(resposta));
     }
 
     // ══════════════════════════════════════════════════════════
@@ -112,6 +98,7 @@ http.createServer((req, res) => {
   console.log('  Endpoints disponíveis:');
   console.log(`  GET  /ranking/vendedores               (Carrossel)`);
   console.log(`  POST /apiargus/cmd/listargrupos`);
+  console.log(`  POST /apiargus/cmd/listarusuarios`);
   console.log(`  POST /apiargus/cmd/transferiroperadorgrupo`);
   console.log(`  GET  /transferencias                   (log de ações)`);
   console.log('');

@@ -7,7 +7,9 @@
  *   registrarVenda()        → mesmo gatilho, disparado por webhook
  *
  * Não conhece HTTP, Argus nem o formato da API do Carrossel: depende apenas
- * dos serviços injetados (CarrosselService, DiscadoraService, EstadoRepository).
+ * dos serviços injetados. É aqui que os dois sistemas se encontram: o
+ * Carrossel identifica vendedores pelo nome e o DiretorioOperadores traduz
+ * o nome para o ramal da Argus.
  */
 
 const { Fila } = require('../domain/fila');
@@ -32,16 +34,18 @@ class RoteamentoService {
    * @param {import('../integrations/carrossel/carrossel.service').CarrosselService} deps.carrossel
    * @param {import('../integrations/argus/discadora.service').DiscadoraService} deps.discadora
    * @param {import('../repositories/estado.repository').EstadoRepository} deps.repositorio
-   * @param {import('../repositories/cadastro-ramais.repository').CadastroRamaisRepository} deps.cadastro
+   * @param {import('../integrations/argus/diretorio-operadores.service').DiretorioOperadores} deps.diretorio
    * @param {{ hoje(): string }} deps.relogio
    * @param {{ metaDiaria: number }} deps.regras
    * @param {object} deps.logger
    */
-  constructor({ carrossel, discadora, repositorio, cadastro, relogio, regras, logger }) {
+  constructor({ carrossel, discadora, repositorio, diretorio, relogio, regras, logger }) {
     this.carrossel = carrossel;
     this.discadora = discadora;
     this.repositorio = repositorio;
-    this.cadastro = cadastro;
+    this.diretorio = diretorio;
+    /** Nomes sem ramal já avisados (evita repetir o aviso a cada ciclo). */
+    this.semRamalAvisados = new Set();
     this.relogio = relogio;
     this.regras = regras;
     this.log = logger;
@@ -92,13 +96,18 @@ class RoteamentoService {
       }
       // O dia útil anterior sempre tem vendas; lista vazia indica relatórios
       // ausentes no Carrossel (scraper falhou), não um dia sem vendas.
-      if (vendasOntem.vendedores.length + vendasOntem.naoCadastrados.length === 0) {
+      if (vendasOntem.vendedores.length === 0) {
         throw new CargaInicialError('Carga inicial adiada: o Carrossel não retornou vendas do dia anterior.');
       }
 
-      const vendedores = this.montarUniversoDoDia(vendasOntem.vendedores);
+      let vendedores;
+      try {
+        vendedores = await this.montarUniversoDoDia(vendasOntem.vendedores);
+      } catch (e) {
+        throw new CargaInicialError(`Carga inicial adiada: ${e.message}`, e);
+      }
       if (vendedores.length === 0) {
-        throw new CargaInicialError('Carga inicial adiada: nenhum vendedor com ramal cadastrado.');
+        throw new CargaInicialError('Carga inicial adiada: nenhum vendedor identificado na Argus.');
       }
 
       this.log.info(`Carga inicial: vendas de ${vendasOntem.diaOntem || 'ontem (dia útil anterior)'}, `
@@ -142,17 +151,43 @@ class RoteamentoService {
   }
 
   /**
-   * Todos os vendedores cadastrados participam da carga. Como o Carrossel só
-   * lista quem vendeu, quem está no cadastro mas não veio na lista vendeu R$ 0.
+   * Universo da carga: todos os operadores que estão na URA ou no Ativo hoje
+   * (pela Argus), mais as exceções do arquivo de ramais. Como o Carrossel só
+   * lista quem vendeu, quem não aparece nele vendeu R$ 0.
    */
-  montarUniversoDoDia(vendasOntem) {
-    const porRamal = new Map(vendasOntem.map((v) => [v.ramal, v]));
-    for (const c of this.cadastro.atualizar().listar()) {
+  async montarUniversoDoDia(vendasOntem) {
+    await this.diretorio.atualizar({ forcar: true });
+    const porRamal = new Map(this.resolverRamais(vendasOntem).map((v) => [v.ramal, v]));
+
+    const candidatos = [
+      ...this.diretorio.vendedoresGerenciados(),
+      ...this.diretorio.listarExcecoesRamal(),
+    ];
+    for (const c of candidatos) {
       if (!porRamal.has(c.ramal)) {
         porRamal.set(c.ramal, { nome: c.nome, chave: c.chave, equipe: 'Sem venda ontem', totalVendas: 0, ramal: c.ramal });
       }
     }
     return [...porRamal.values()];
+  }
+
+  /**
+   * Associa o ramal da Argus a cada vendedor do Carrossel (pelo nome).
+   * Quem não for encontrado é ignorado, com um aviso por nome.
+   */
+  resolverRamais(vendedores) {
+    const resolvidos = [];
+    for (const v of vendedores) {
+      const ramal = this.diretorio.ramalPorNome(v.nome);
+      if (ramal) {
+        resolvidos.push({ ...v, ramal });
+      } else if (!this.semRamalAvisados.has(v.chave)) {
+        this.semRamalAvisados.add(v.chave);
+        this.log.aviso(`"${v.nome}" está no Carrossel mas não foi encontrado(a) entre os operadores ativos da Argus; `
+          + 'será ignorado(a). Se o nome for diferente na Argus, adicione-o ao arquivo de exceções de ramal.');
+      }
+    }
+    return resolvidos;
   }
 
   // ───────────────────────────── Monitoramento ─────────────────────────────
@@ -169,7 +204,10 @@ class RoteamentoService {
 
       await this.reprocessarPendentes();
 
-      const { vendedores, origem } = await this.carrossel.listarVendas('hoje');
+      const vendasHoje = await this.carrossel.listarVendas('hoje');
+      await this.diretorio.atualizar();
+      const vendedores = this.resolverRamais(vendasHoje.vendedores);
+      const { origem } = vendasHoje;
       let promovidos = 0;
 
       for (const v of vendedores) {
@@ -249,18 +287,24 @@ class RoteamentoService {
    * @returns {Promise<boolean>} true se a discadora ficou consistente com a decisão
    */
   async sincronizar(ramal, registro, motivo) {
-    const { resultado, grupoAnterior, erro } = await this.discadora.moverPara(ramal, registro.fila);
+    const { resultado, grupoAnterior, grupoDestino, erro } = await this.discadora.moverPara(ramal, registro.fila);
 
     registro.tentativasSync = (registro.tentativasSync || 0) + 1;
     registro.ultimoResultado = resultado;
+    registro.grupoDestino = grupoDestino ?? null;
     registro.atualizadoEm = new Date().toISOString();
     registro.sincronizado = resultado !== Resultado.FALHA;
 
-    const sufixo = grupoAnterior != null ? ` (grupo anterior: ${grupoAnterior})` : '';
+    const sufixo = [
+      grupoAnterior != null ? `grupo anterior: ${grupoAnterior}` : null,
+      grupoDestino != null && grupoDestino !== grupoAnterior ? `destino: ${grupoDestino}` : null,
+    ].filter(Boolean).join(', ');
     if (resultado === Resultado.FALHA) {
       this.log.erro(`✗ ${registro.nome} (ramal ${ramal}) → ${registro.fila} falhou: ${erro}. Será re-tentado.`);
+    } else if (resultado === Resultado.SEM_GRUPO_ATIVO) {
+      this.log.aviso(`⚠ ${registro.nome} (ramal ${ramal}) → ${registro.fila}: grupo do supervisor não identificado; mantido onde está.`);
     } else {
-      this.log.info(`✓ ${registro.nome} (ramal ${ramal}) → ${registro.fila}: ${resultado} — ${motivo}${sufixo}`);
+      this.log.info(`✓ ${registro.nome} (ramal ${ramal}) → ${registro.fila}: ${resultado} — ${motivo}${sufixo ? ` (${sufixo})` : ''}`);
     }
     return registro.sincronizado;
   }

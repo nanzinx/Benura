@@ -3,23 +3,23 @@
 | Script | O que faz |
 |---|---|
 | `roteador-vendas.js` | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
+| `cadastrar-operador.js` | Prepara e confere o cadastro de operadores na Argus a partir do login no **Vanguard** |
 | `argus-automacao.js` | Rodízio Ativo ↔ URA por atendimento e liga/desliga dos robôs da URA |
 
 ## Roteador de Vendas
 
 ### Regras de negócio
-1. **Carga inicial** (primeiro ciclo do expediente): quem vendeu **mais** que `META_DIARIA` no dia útil anterior vai para a URA; os demais (inclusive quem não vendeu nada), para o Ativo.
+1. **Carga inicial** (primeiro ciclo do expediente): quem vendeu **mais** que `META_DIARIA` no dia útil anterior vai para a URA; os demais (inclusive quem não vendeu nada), para o Ativo — o grupo **do próprio supervisor**.
 2. **Gatilho**: quem está no Ativo e faz qualquer venda hoje sobe para a URA e fica lá até o fim do dia.
 3. **Reset**: no dia seguinte (no fuso `FUSO_HORARIO`) o ciclo recomeça.
 
 ### Como rodar
 ```bash
 npm install
-cp .env.example .env   # ajuste URL do Carrossel, token da Argus e IDs de grupo
-cp vendedores-ramais.example.json vendedores-ramais.json   # nome → ramal de cada vendedor
+cp .env.example .env   # URL do Carrossel, token da Argus, GRUPO_URA_ID e GRUPOS_ATIVOS_IDS
 npm start
 ```
-Desenvolvimento sem rede: `npm run dev` (dados mock + DRY_RUN).
+Desenvolvimento sem rede: `npm run dev` (Carrossel e Argus simulados em memória).
 Com mock HTTP de Carrossel + Argus: `npm run mock` e veja `.env.example`.
 Testes: `npm test`.
 
@@ -33,8 +33,10 @@ src/services/roteamento.service.js casos de uso: carga inicial, monitoramento, w
 src/services/agendador.js          loop único, sem sobreposição, respeita expediente
 src/domain/                        regras puras (meta, gatilho)
 src/integrations/carrossel/        client HTTP → mapper (anti-corrupção) → service (fallback)
-src/integrations/argus/            client HTTP → DiscadoraService (isola a URA)
-src/repositories/                  estado diário (JSON atômico + .bak) e cadastro nome → ramal
+src/integrations/argus/            client HTTP → DiretorioOperadores (usuários) → DiscadoraService (isola a URA)
+src/integrations/vanguard/         fonte de dados de funcionários (hoje: manual)
+src/services/cadastro-operador.service.js  planejar / conferir cadastro de operador
+src/repositories/                  estado diário, exceções de ramal, auditoria (JSONL)
 ```
 
 ### Independência da URA
@@ -44,6 +46,7 @@ O `DiscadoraService` é a única porta para a Argus e segue estas regras:
 - **Grupos externos respeitados**: quem foi colocado manualmente em outro grupo (treinamento, supervisão…) não é puxado de volta (`RESPEITAR_GRUPOS_EXTERNOS=1`).
 - **Sem reconciliação contínua**: o roteador só age em eventos (carga do dia, venda detectada), nunca "corrige" a URA periodicamente.
 - **Falhas não derrubam nada**: transferências que falharam ficam pendentes e são re-tentadas (até 5×/dia).
+- **Ativo = grupo do supervisor**: o Ativo são vários grupos (`GRUPOS_ATIVOS_IDS`), um por supervisor. Quem já está em qualquer um deles fica onde está; quem volta da URA vai para o grupo do próprio supervisor.
 
 ### API do Carrossel
 Consome `GET {CARROSSEL_API_URL}/ranking/vendedores` do Carrosel-BenApi, que devolve
@@ -54,17 +57,53 @@ Consome `GET {CARROSSEL_API_URL}/ranking/vendedores` do Carrosel-BenApi, que dev
 - Se o Carrossel responder `ultimaExtracao: "Erro"` ou vier sem vendas de ontem, a carga do dia é adiada e tentada de novo.
 - Só `src/integrations/carrossel/carrossel.mapper.js` conhece esse formato.
 
-### Cadastro nome → ramal (`vendedores-ramais.json`)
-O Carrossel identifica vendedores **só pelo nome**; a Argus só entende **ramal**. O arquivo faz a ponte:
-```json
-{ "ANA CLARA SOUZA": "1001", "RICARDO MENDES": "1004" }
-```
-- Nomes devem ser os mesmos do Carrossel (coluna *Agente*); acento, maiúsculas e espaços extras são ignorados.
-- Só quem está no cadastro é roteado. Quem aparece no Carrossel sem cadastro gera um aviso no log e é ignorado.
-- Quem está no cadastro e não aparece no "ontem" do Carrossel vendeu R$ 0 e vai para o Ativo.
-- O arquivo é relido automaticamente quando muda; se ficar inválido, a versão anterior continua valendo.
+### Vendedor do Carrossel → ramal da Argus (automático)
+O Carrossel identifica vendedores **só pelo nome**; a Argus só entende **ramal**. A ponte é feita
+automaticamente pelo `/listarusuarios` da Argus, que traz nome, login, ramal, grupo e supervisor de todos os usuários.
+- Nomes são comparados sem acento, maiúsculas ou espaços extras.
+- **Universo da carga**: operadores ativos que estão hoje na URA ou em algum grupo do Ativo. Quem não aparece no "ontem" do Carrossel vendeu R$ 0.
+- **Grupo de cada supervisor**: inferido pelo grupo do Ativo onde está a maioria dos operadores dele (não depende do nome do grupo).
+- **Exceções** (opcionais, relidas a quente):
+  - `vendedores-ramais.json` — nome no Carrossel diferente do nome na Argus, ou homônimos: `{ "NOME NO CARROSSEL": "2266111" }`
+  - `supervisores-grupos.json` — supervisor cujo grupo não é identificado: `{ "NOME DO SUPERVISOR": 12 }`
 
-### Endpoints HTTP
+## Cadastro de operadores (Vanguard → Argus)
+
+A **API da Argus não tem comando para criar usuários**, então o fluxo é semiautomático: o script
+prepara tudo, a pessoa só copia a ficha no programa da Argus, e o script confere depois.
+
+```bash
+# 1. Gera a ficha (verifica duplicidade, descobre supervisor, grupo e campanha)
+npm run cadastro -- planejar YASMIN.FERREIRA@36241 \
+  --nome "YASMIN FERREIRA DE JESUS" --supervisor "MAYSA DE FATIMA SIQUEIRA DOS SANTOS CARNEIRO"
+
+# 2. Argus › Config. › Usuários Operadores › Novo Usuário Operador — copiar a ficha
+
+# 3. Confere grupo e supervisor; --corrigir transfere para o grupo certo pela API
+npm run cadastro -- conferir YASMIN.FERREIRA@36241 \
+  --supervisor "MAYSA DE FATIMA SIQUEIRA DOS SANTOS CARNEIRO" --corrigir
+```
+
+| Vanguard (Sistema Corban) | Argus |
+|---|---|
+| Usuário `YASMIN.FERREIRA@36241` | Login `YASMIN.FERREIRA` (sem o `@agência`) |
+| Agência `36241 - MAYSA ...` | Supervisor MAYSA → grupo do Ativo dela |
+| Perfil "Operador Call Center" | Usuário Operador |
+
+**Planejar** retorna `PRONTO_PARA_CADASTRO`, `PENDENTE` (falta decidir supervisor/grupo), `JA_EXISTE`
+(login já existe — se inativo, reative em vez de criar) ou `BLOQUEADO` (perfil não-operador, inativo no Vanguard, login inválido).
+Também avisa sobre homônimos e sugere o próximo "Ramal Integração" livre.
+
+**Conferir** retorna `OK`, `CORRIGIDO`, `DIVERGENTE`, `INCONCLUSIVO` ou `NAO_ENCONTRADO`. Nunca tira da URA
+quem está lá (pode ser o rodízio). Supervisor errado vira pendência: a API não altera supervisor.
+
+Toda execução vai para `auditoria-cadastro.jsonl` (uma linha JSON por evento, com quem executou).
+Saída em JSON com `--json`; código de saída 0 = ok, 2 = precisa de atenção, 1 = erro.
+
+**Dados do Vanguard**: por enquanto informados com `--nome`/`--supervisor`. Quando o Carrossel ganhar a rota
+`GET /api/funcionarios/:login`, basta uma fonte nova com o mesmo contrato de `src/integrations/vanguard/fonte-manual.js`.
+
+### Endpoints HTTP do roteador
 | Método | Rota | Auth | Descrição |
 |---|---|---|---|
 | GET | `/health` | — | saúde do serviço |

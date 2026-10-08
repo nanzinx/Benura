@@ -19,9 +19,12 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [] } =
       return { vendedores: vendas[periodo], naoCadastrados: [], diaOntem: '07/10/2026', origem: 'api' };
     },
   };
-  const cadastro = {
-    atualizar() { return this; },
-    listar: () => cadastrados.map((ramal) => ({ nome: `V${ramal}`, chave: `V${ramal}`, ramal })),
+  // Diretório da Argus: nome "V<ramal>" → ramal; `cadastrados` = operadores na URA/Ativo.
+  const diretorio = {
+    atualizar: async () => diretorio,
+    ramalPorNome: (nome) => (/^V\d+$/.test(nome) ? nome.slice(1) : null),
+    vendedoresGerenciados: () => cadastrados.map((ramal) => ({ nome: `V${ramal}`, chave: `V${ramal}`, ramal })),
+    listarExcecoesRamal: () => [],
   };
   const discadora = {
     async moverPara(ramal, fila) {
@@ -37,7 +40,7 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [] } =
     aguardarEscritas: async () => {},
   };
   const svc = new RoteamentoService({
-    carrossel, discadora, repositorio, cadastro, relogio, regras: { metaDiaria: 50_000 }, logger: loggerNulo,
+    carrossel, discadora, repositorio, diretorio, relogio, regras: { metaDiaria: 50_000 }, logger: loggerNulo,
   }).inicializar();
   return { svc, movimentos, salvos, vendas };
 }
@@ -58,7 +61,7 @@ test('carga inicial distribui e marca o dia', async () => {
   assert.ok(svc.cargaInicialFeitaHoje());
 });
 
-test('cadastrado sem venda ontem (fora da lista do Carrossel) vai para o Ativo', async () => {
+test('operador da Argus sem venda ontem (fora da lista do Carrossel) vai para o Ativo', async () => {
   const { svc, movimentos } = montar({ ontem: [v('1', 72_500)], cadastrados: ['1', '7'] });
   const r = await svc.executarCargaInicial();
   assert.deepEqual(r, { ura: 1, ativo: 1, falhas: 0 });
@@ -119,6 +122,12 @@ test('webhook valida entrada e promove vendedor do Ativo', async () => {
   const r = await ctx.svc.registrarVenda({ ramal: 4, valor: '1.500,00' });
   assert.deepEqual(r, { aceito: true, promovido: true });
   assert.equal(ctx.svc.estado.vendedores['4'].vendaQueDisparou, 1500);
+});
+
+test('vendedor do Carrossel sem ramal na Argus é ignorado', async () => {
+  const ctx = montar({ ontem: [v('1', 10), { nome: 'DESCONHECIDO', chave: 'DESCONHECIDO', equipe: 'E', totalVendas: 99_999 }] });
+  const r = await ctx.svc.executarCargaInicial();
+  assert.deepEqual(r, { ura: 0, ativo: 1, falhas: 0 });
 });
 
 test('vendedor novo (fora da carga) que vende é promovido', async () => {

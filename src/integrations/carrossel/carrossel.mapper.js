@@ -29,6 +29,7 @@
  */
 
 const { paraNumero } = require('../../utils/moeda');
+const { normalizarNome } = require('../../utils/texto');
 
 const PERIODOS = Object.freeze(['hoje', 'ontem', 'semanal', 'mensal']);
 
@@ -40,19 +41,6 @@ class RespostaCarrosselInvalidaError extends Error {
     super(mensagem);
     this.name = 'RespostaCarrosselInvalidaError';
   }
-}
-
-/**
- * Normaliza um nome para comparação: maiúsculas, sem acento, espaços simples.
- * "  Joao  da Silva " e "JOÃO DA SILVA" → "JOAO DA SILVA"
- */
-function normalizarNome(nome) {
-  return String(nome || '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toUpperCase();
 }
 
 /**

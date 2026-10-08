@@ -4,17 +4,25 @@
  * Mantido sem dependências para facilitar o deploy.
  */
 
-function criarLogger({ debug = false, escopo = '' } = {}) {
+/**
+ * @param {object} [opcoes]
+ * @param {boolean} [opcoes.debug]
+ * @param {string} [opcoes.escopo]
+ * @param {boolean} [opcoes.tudoNoStderr] - Envia todos os níveis para o stderr,
+ *        deixando o stdout livre para a saída de ferramentas de linha de comando.
+ */
+function criarLogger({ debug = false, escopo = '', tudoNoStderr = false } = {}) {
   const prefixo = escopo ? `[${escopo}]` : '';
   const ts = () => new Date().toISOString();
+  const out = tudoNoStderr ? console.error : console.log;
 
   return {
-    info: (...a) => console.log(ts(), '[INFO]', prefixo, ...a),
+    info: (...a) => out(ts(), '[INFO]', prefixo, ...a),
     aviso: (...a) => console.warn(ts(), '[AVISO]', prefixo, ...a),
     erro: (...a) => console.error(ts(), '[ERRO]', prefixo, ...a),
-    debug: (...a) => { if (debug) console.log(ts(), '[DEBUG]', prefixo, ...a); },
-    /** Cria um logger filho com outro escopo, herdando o nível de debug. */
-    filho: (novoEscopo) => criarLogger({ debug, escopo: novoEscopo }),
+    debug: (...a) => { if (debug) out(ts(), '[DEBUG]', prefixo, ...a); },
+    /** Cria um logger filho com outro escopo, herdando as opções. */
+    filho: (novoEscopo) => criarLogger({ debug, escopo: novoEscopo, tudoNoStderr }),
   };
 }
 

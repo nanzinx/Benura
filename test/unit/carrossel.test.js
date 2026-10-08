@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { mapearRanking, normalizarNome, RespostaCarrosselInvalidaError } = require('../../src/integrations/carrossel/carrossel.mapper');
+const { mapearRanking, RespostaCarrosselInvalidaError } = require('../../src/integrations/carrossel/carrossel.mapper');
+const { normalizarNome } = require('../../src/utils/texto');
 const { CarrosselService, CarrosselIndisponivelError } = require('../../src/integrations/carrossel/carrossel.service');
 const { CadastroRamaisRepository } = require('../../src/repositories/cadastro-ramais.repository');
 const { loggerNulo } = require('../../src/utils/logger');
@@ -66,19 +67,7 @@ test('cadastro mantém a versão anterior se o arquivo for corrompido', () => {
   assert.equal(repo.atualizar().ramalDe('ANA'), '1');
 });
 
-test('CarrosselService resolve ramais e separa não cadastrados', async () => {
-  const { repo } = cadastroTemp({ 'JOAO DA SILVA': '1001' });
-  const svc = new CarrosselService({
-    client: { buscarRankingVendedores: async () => ranking() }, cadastro: repo, metrica: 'vendaConcluida', logger: loggerNulo,
-  });
-  const r = await svc.listarVendas('ontem');
-  assert.deepEqual(r.vendedores.map((v) => [v.ramal, v.totalVendas]), [['1001', 60000]]);
-  assert.deepEqual(r.naoCadastrados, ['Sem Cadastro']);
-  assert.equal(r.origem, 'api');
-});
-
 test('CarrosselService usa o último resultado válido quando a API cai', async () => {
-  const { repo } = cadastroTemp({ 'FULANO DE TAL': '9' });
   let falhar = false;
   const client = {
     async buscarRankingVendedores() {
@@ -86,7 +75,7 @@ test('CarrosselService usa o último resultado válido quando a API cai', async 
       return ranking();
     },
   };
-  const svc = new CarrosselService({ client, cadastro: repo, metrica: 'vendaConcluida', logger: loggerNulo });
+  const svc = new CarrosselService({ client, metrica: 'vendaConcluida', logger: loggerNulo });
 
   assert.equal((await svc.listarVendas('hoje')).origem, 'api');
   falhar = true;

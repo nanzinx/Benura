@@ -12,6 +12,8 @@ const { CarrosselClient } = require('./integrations/carrossel/carrossel.client')
 const { CarrosselMockClient } = require('./integrations/carrossel/carrossel.mock-client');
 const { CarrosselService } = require('./integrations/carrossel/carrossel.service');
 const { ArgusClient } = require('./integrations/argus/argus.client');
+const { ArgusMockClient } = require('./integrations/argus/argus.mock-client');
+const { DiretorioOperadores } = require('./integrations/argus/diretorio-operadores.service');
 const { DiscadoraService } = require('./integrations/argus/discadora.service');
 const { EstadoRepository } = require('./repositories/estado.repository');
 const { CadastroRamaisRepository } = require('./repositories/cadastro-ramais.repository');
@@ -19,6 +21,34 @@ const { RoteamentoService } = require('./services/roteamento.service');
 const { Agendador } = require('./services/agendador');
 const { criarControllers } = require('./http/controllers');
 const { criarServidor } = require('./http/server');
+
+/**
+ * Monta a camada da Argus (cliente, diretório de usuários e discadora).
+ * Compartilhada pelo roteador e pelo cadastro de operadores.
+ */
+function montarArgus(cfg, log) {
+  const argusClient = cfg.usarMock
+    ? new ArgusMockClient(log.filho('argus-mock'))
+    : new ArgusClient(cfg.argus, log.filho('argus'));
+
+  const diretorio = new DiretorioOperadores({
+    client: argusClient,
+    cfg: cfg.argus,
+    excecoesRamal: new CadastroRamaisRepository({ arquivo: cfg.arquivoRamais, logger: log.filho('excecoes') }),
+    arquivoSupervisoresGrupos: cfg.arquivoSupervisoresGrupos,
+    logger: log.filho('diretorio'),
+  });
+
+  const discadora = new DiscadoraService({
+    client: argusClient,
+    cfg: cfg.argus,
+    diretorio,
+    respeitarGruposExternos: cfg.regras.respeitarGruposExternos,
+    logger: log.filho('discadora'),
+  });
+
+  return { argusClient, diretorio, discadora };
+}
 
 /**
  * Cria a aplicação com todas as dependências conectadas.
@@ -30,24 +60,15 @@ function criarApp(overrides) {
 
   const relogio = { hoje: () => dataLocal(cfg.agenda.fusoHorario) };
 
-  const carrosselClient = cfg.carrossel.usarMock
+  const carrosselClient = cfg.usarMock
     ? new CarrosselMockClient(log.filho('carrossel-mock'))
     : new CarrosselClient(cfg.carrossel, log.filho('carrossel'));
-  const cadastro = new CadastroRamaisRepository({ arquivo: cfg.arquivoRamais, logger: log.filho('cadastro') });
-
-  const discadora = new DiscadoraService({
-    client: new ArgusClient(cfg.argus, log.filho('argus')),
-    cfg: cfg.argus,
-    respeitarGruposExternos: cfg.regras.respeitarGruposExternos,
-    logger: log.filho('discadora'),
-  });
+  const { argusClient, diretorio, discadora } = montarArgus(cfg, log);
 
   const roteamento = new RoteamentoService({
-    carrossel: new CarrosselService({
-      client: carrosselClient, cadastro, metrica: cfg.carrossel.metrica, logger: log.filho('carrossel'),
-    }),
+    carrossel: new CarrosselService({ client: carrosselClient, metrica: cfg.carrossel.metrica, logger: log.filho('carrossel') }),
     discadora,
-    cadastro,
+    diretorio,
     repositorio: new EstadoRepository({ arquivo: cfg.arquivoEstado, logger: log.filho('estado') }),
     relogio,
     regras: cfg.regras,
@@ -61,13 +82,13 @@ function criarApp(overrides) {
     logger: log.filho('http'),
   });
 
-  return { cfg, log, discadora, roteamento, agendador, servidor };
+  return { cfg, log, argusClient, diretorio, discadora, roteamento, agendador, servidor };
 }
 
 /** Inicia a aplicação. Encerra o processo se a configuração for inválida. */
 async function iniciar() {
   const app = criarApp();
-  const { cfg, log, discadora, roteamento, agendador, servidor } = app;
+  const { cfg, log, diretorio, discadora, roteamento, agendador, servidor } = app;
 
   const { fatais, avisos } = validarConfig(cfg);
   avisos.forEach((a) => log.aviso(a));
@@ -78,10 +99,15 @@ async function iniciar() {
 
   log.info('Roteador de Vendas — Carrossel ↔ Argus');
   log.info(`Meta: ${formatarReais(cfg.regras.metaDiaria)} | Expediente: ${cfg.agenda.horarioCarga}–${cfg.agenda.horarioFim} | `
-    + `Carrossel: ${cfg.carrossel.usarMock ? 'MOCK' : cfg.carrossel.baseUrl + cfg.carrossel.rotaRanking} (${cfg.carrossel.metrica}) | Argus: ${cfg.argus.dryRun ? 'DRY_RUN' : cfg.argus.baseUrl}`);
+    + `Grupos Ativo: ${cfg.argus.gruposAtivosIds.join(',')} | URA: ${cfg.argus.grupoUraId} | `
+    + `Carrossel: ${cfg.usarMock ? 'MOCK' : cfg.carrossel.baseUrl + cfg.carrossel.rotaRanking} (${cfg.carrossel.metrica}) | Argus: ${cfg.usarMock ? 'MOCK' : cfg.argus.baseUrl}${cfg.argus.dryRun ? ' (DRY_RUN)' : ''}`);
 
   roteamento.inicializar();
-  roteamento.cadastro.atualizar();
+  try {
+    await diretorio.atualizar({ forcar: true });
+  } catch (e) {
+    log.aviso(`${e.message}. O roteador seguirá tentando nos próximos ciclos.`);
+  }
   await discadora.verificarGruposConfigurados();
 
   await new Promise((resolve, reject) => {
@@ -124,4 +150,4 @@ function registrarDesligamento({ log, agendador, servidor, roteamento }) {
   process.on('unhandledRejection', (e) => log.erro('Promise rejeitada não tratada:', e));
 }
 
-module.exports = { criarApp, iniciar };
+module.exports = { criarApp, iniciar, montarArgus };

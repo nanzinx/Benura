@@ -31,6 +31,7 @@ const envBool = (nome, padrao = false) => {
   return ['1', 'true', 'sim', 'yes'].includes(v.toLowerCase());
 };
 const semBarraFinal = (url) => url.replace(/\/+$/, '');
+const envListaNum = (nome) => env(nome, '').split(',').map((x) => x.trim()).filter(Boolean).map(Number);
 
 /**
  * Lê e valida a configuração.
@@ -54,22 +55,28 @@ function carregarConfig(overrides = {}) {
       esquemaAuth: env('CARROSSEL_ESQUEMA_AUTH', ''),
       timeoutMs: envNum('CARROSSEL_TIMEOUT_MS', 15_000),
       tentativas: envNum('CARROSSEL_TENTATIVAS', 3),
-      usarMock: envBool('USAR_MOCK'),
     },
 
-    // Cadastro nome (Carrossel) → ramal (Argus). Ver vendedores-ramais.example.json.
+    // Exceções opcionais. O ramal e o grupo de cada um vêm do /listarusuarios da Argus;
+    // estes arquivos só corrigem casos que a descoberta automática não resolve.
     arquivoRamais: env('VENDEDORES_RAMAIS_FILE', path.join(process.cwd(), 'vendedores-ramais.json')),
+    arquivoSupervisoresGrupos: env('SUPERVISORES_GRUPOS_FILE', path.join(process.cwd(), 'supervisores-grupos.json')),
 
     // --- Discadora Argus ---
     argus: {
       baseUrl: semBarraFinal(env('ARGUS_BASE', 'https://argus.app.br/apiargus/cmd')),
       token: env('ARGUS_TOKEN'),
       grupoUraId: envNum('GRUPO_URA_ID', 2),
-      grupoAtivoId: envNum('GRUPO_ATIVO_ID', 1),
+      // Grupos do Ativo (um por supervisor). Mesmo formato do argus-automacao.js.
+      gruposAtivosIds: envListaNum('GRUPOS_ATIVOS_IDS').length
+        ? envListaNum('GRUPOS_ATIVOS_IDS')
+        : envListaNum('GRUPO_ATIVO_ID'),
       timeoutMs: envNum('ARGUS_TIMEOUT_MS', 5_000),
       tentativas: envNum('ARGUS_TENTATIVAS', 2),
       // Cache curto da lista de grupos: evita martelar a Argus a cada venda.
       cacheGruposMs: envNum('ARGUS_CACHE_GRUPOS_MS', 15_000),
+      // Cache do diretório de usuários (/listarusuarios).
+      cacheDiretorioMs: envNum('ARGUS_CACHE_DIRETORIO_MS', 5 * 60_000),
       dryRun: envBool('DRY_RUN'),
     },
 
@@ -98,8 +105,11 @@ function carregarConfig(overrides = {}) {
       limiteCorpoBytes: envNum('HTTP_LIMITE_CORPO', 64 * 1024),
     },
 
+    // Simula Carrossel e Argus em memória (desenvolvimento, sem rede).
+    usarMock: envBool('USAR_MOCK'),
     debug: envBool('DEBUG'),
     arquivoEstado: env('STATE_FILE', path.join(process.cwd(), 'state-vendas.json')),
+    arquivoAuditoria: env('AUDITORIA_FILE', path.join(process.cwd(), 'auditoria-cadastro.jsonl')),
   };
 
   return Object.freeze(mesclarProfundo(cfg, overrides));
@@ -119,17 +129,23 @@ function mesclarProfundo(base, extra) {
  * Valida a configuração e retorna a lista de problemas encontrados.
  * Problemas fatais impedem a inicialização; avisos apenas são logados.
  *
+ * @param {object} cfg
+ * @param {{ escopo?: 'roteador'|'argus' }} [opcoes] - 'argus' valida só o necessário
+ *        para ferramentas que usam apenas a Argus (ex.: cadastro de operadores).
  * @returns {{ fatais: string[], avisos: string[] }}
  */
-function validarConfig(cfg) {
+function validarConfig(cfg, { escopo = 'roteador' } = {}) {
   const fatais = [];
   const avisos = [];
   const horaValida = (h) => /^([01]\d|2[0-3]):[0-5]\d$/.test(h);
 
-  if (!cfg.argus.dryRun && !cfg.argus.token) fatais.push('ARGUS_TOKEN é obrigatório (ou use DRY_RUN=1).');
-  if (!cfg.carrossel.usarMock && !cfg.carrossel.baseUrl) fatais.push('CARROSSEL_API_URL é obrigatório (ou use USAR_MOCK=1).');
+  if (!cfg.usarMock && !cfg.argus.token) fatais.push('ARGUS_TOKEN é obrigatório (ou use USAR_MOCK=1).');
+  if (!cfg.usarMock && !cfg.carrossel.baseUrl) fatais.push('CARROSSEL_API_URL é obrigatório (ou use USAR_MOCK=1).');
   if (!METRICAS.includes(cfg.carrossel.metrica)) fatais.push(`CARROSSEL_METRICA inválida: "${cfg.carrossel.metrica}" (use ${METRICAS.join(', ')}).`);
-  if (cfg.argus.grupoUraId === cfg.argus.grupoAtivoId) fatais.push('GRUPO_URA_ID e GRUPO_ATIVO_ID não podem ser iguais.');
+  if (!cfg.argus.gruposAtivosIds.length || cfg.argus.gruposAtivosIds.some((id) => !Number.isInteger(id))) {
+    fatais.push('GRUPOS_ATIVOS_IDS é obrigatório: IDs dos grupos do Ativo separados por vírgula (ex.: 3,5,7).');
+  }
+  if (cfg.argus.gruposAtivosIds.includes(cfg.argus.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');
   if (!horaValida(cfg.agenda.horarioCarga)) fatais.push(`HORARIO_CARGA inválido: "${cfg.agenda.horarioCarga}" (use HH:MM).`);
   if (!horaValida(cfg.agenda.horarioFim)) fatais.push(`HORARIO_FIM inválido: "${cfg.agenda.horarioFim}" (use HH:MM).`);
   if (cfg.regras.metaDiaria <= 0) fatais.push('META_DIARIA deve ser maior que zero.');
@@ -142,6 +158,10 @@ function validarConfig(cfg) {
     fatais.push(`FUSO_HORARIO inválido: "${cfg.agenda.fusoHorario}".`);
   }
 
+  if (escopo === 'argus') {
+    const relevantes = /ARGUS|GRUPO/;
+    return { fatais: fatais.filter((f) => relevantes.test(f)), avisos: [] };
+  }
   return { fatais, avisos };
 }
 

@@ -3,7 +3,7 @@
  * Serviço de integração com o Carrossel.
  *
  * Expõe operações em linguagem de negócio ("vendas de ontem", "vendas de hoje")
- * já com o ramal de cada vendedor resolvido, e garante resiliência:
+ * e garante resiliência:
  *  - erros de rede/HTTP/formato viram `CarrosselIndisponivelError`;
  *  - mantém o último resultado válido de cada período como fallback.
  */
@@ -21,35 +21,27 @@ class CarrosselService {
   /**
    * @param {object} deps
    * @param {{ buscarRankingVendedores(): Promise<*> }} deps.client
-   * @param {import('../../repositories/cadastro-ramais.repository').CadastroRamaisRepository} deps.cadastro
    * @param {string} deps.metrica - Campo da linha GERAL usado como total (ex.: vendaConcluida)
    * @param {object} deps.logger
    * @param {number} [deps.validadeFallbackMs] - Idade máxima do cache de fallback
    */
-  constructor({ client, cadastro, metrica, logger, validadeFallbackMs = 10 * 60_000 }) {
+  constructor({ client, metrica, logger, validadeFallbackMs = 10 * 60_000 }) {
     this.client = client;
-    this.cadastro = cadastro;
     this.metrica = metrica;
     this.log = logger;
     this.validadeFallbackMs = validadeFallbackMs;
     /** @type {Map<string, { resultado: object, em: number }>} */
     this.ultimoValido = new Map();
-    /** Nomes sem ramal já avisados (evita repetir o aviso a cada ciclo). */
-    this.naoCadastradosAvisados = new Set();
   }
 
   /**
-   * Lista as vendas de um período, com o ramal de cada vendedor.
-   *
-   * Vendedores sem cadastro de ramal vêm em `naoCadastrados` e NÃO em `vendedores`.
-   * Lembre-se: o Carrossel só lista quem vendeu no período.
+   * Lista as vendas de um período (o Carrossel só lista quem vendeu nele).
    *
    * @param {'hoje'|'ontem'} periodo
    * @param {object} [opcoes]
    * @param {boolean} [opcoes.permitirFallback=true]
    * @returns {Promise<{
-   *   vendedores: Array<{ nome, chave, equipe, totalVendas, ramal }>,
-   *   naoCadastrados: string[],
+   *   vendedores: Array<{ nome, chave, equipe, totalVendas }>,
    *   diaOntem: string|null,
    *   ultimaExtracao: string|null,
    *   origem: 'api'|'fallback'
@@ -74,27 +66,10 @@ class CarrosselService {
       this.log.aviso(`${ranking.descartados} registro(s) do Carrossel ignorado(s) por não terem nome.`);
     }
 
-    this.cadastro.atualizar();
-    const vendedores = [];
-    const naoCadastrados = [];
-    for (const v of ranking.vendedores) {
-      const ramal = this.cadastro.ramalDe(v.nome);
-      if (ramal) {
-        vendedores.push({ ...v, ramal });
-      } else {
-        naoCadastrados.push(v.nome);
-        if (!this.naoCadastradosAvisados.has(v.chave)) {
-          this.naoCadastradosAvisados.add(v.chave);
-          this.log.aviso(`Vendedor "${v.nome}" está no Carrossel mas não tem ramal cadastrado; será ignorado.`);
-        }
-      }
-    }
-
-    this.log.debug(`Carrossel "${periodo}": ${vendedores.length} com ramal, ${naoCadastrados.length} sem cadastro `
-      + `(extração: ${ranking.ultimaExtracao}).`);
+    this.log.debug(`Carrossel "${periodo}": ${ranking.vendedores.length} vendedor(es) (extração: ${ranking.ultimaExtracao}).`);
 
     const resultado = {
-      vendedores, naoCadastrados, diaOntem: ranking.diaOntem, ultimaExtracao: ranking.ultimaExtracao,
+      vendedores: ranking.vendedores, diaOntem: ranking.diaOntem, ultimaExtracao: ranking.ultimaExtracao,
     };
     this.ultimoValido.set(periodo, { resultado, em: Date.now() });
     return { ...resultado, origem: 'api' };

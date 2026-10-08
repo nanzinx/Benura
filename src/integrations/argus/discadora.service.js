@@ -25,6 +25,12 @@
  *  5. CONFIGURAÇÃO, NÃO CÓDIGO.
  *     IDs de grupo vêm da configuração; mudanças estruturais na URA exigem
  *     só ajuste de variáveis de ambiente.
+ *
+ *  6. "ATIVO" É O GRUPO DO SUPERVISOR.
+ *     O Ativo não é um grupo só: cada supervisor tem o seu (GABRIEL - COMERCIAL,
+ *     MAYSA - COMERCIAL...). Quem já está em qualquer grupo do Ativo fica onde
+ *     está; quem precisa voltar da URA vai para o grupo do próprio supervisor,
+ *     descoberto pelo DiretorioOperadores.
  */
 
 const { Fila } = require('../../domain/fila');
@@ -33,6 +39,7 @@ const Resultado = Object.freeze({
   TRANSFERIDO: 'TRANSFERIDO',
   JA_NO_DESTINO: 'JA_NO_DESTINO',
   GRUPO_EXTERNO: 'GRUPO_EXTERNO', // ignorado para respeitar ajuste manual
+  SEM_GRUPO_ATIVO: 'SEM_GRUPO_ATIVO', // não foi possível descobrir o grupo do supervisor
   SIMULADO: 'SIMULADO', // DRY_RUN
   FALHA: 'FALHA',
 });
@@ -42,16 +49,19 @@ class DiscadoraService {
    * @param {object} deps
    * @param {import('./argus.client').ArgusClient} deps.client
    * @param {object} deps.cfg - Seção `argus` da configuração
+   * @param {import('./diretorio-operadores.service').DiretorioOperadores} deps.diretorio
    * @param {boolean} deps.respeitarGruposExternos
    * @param {object} deps.logger
    */
-  constructor({ client, cfg, respeitarGruposExternos, logger }) {
+  constructor({ client, cfg, diretorio, respeitarGruposExternos, logger }) {
     this.client = client;
     this.cfg = cfg;
+    this.diretorio = diretorio;
     this.respeitarGruposExternos = respeitarGruposExternos;
     this.log = logger;
     this.cache = { mapa: null, em: 0, ids: new Set() };
-    this.grupoPorFila = { [Fila.URA]: cfg.grupoUraId, [Fila.ATIVO]: cfg.grupoAtivoId };
+    this.gruposAtivos = new Set(cfg.gruposAtivosIds);
+    this.gruposGerenciados = new Set([cfg.grupoUraId, ...cfg.gruposAtivosIds]);
   }
 
   /**
@@ -59,9 +69,6 @@ class DiscadoraService {
    * @returns {Promise<Map<string, number>|null>} null se a Argus não respondeu
    */
   async mapaDeGrupos({ forcar = false } = {}) {
-    // DRY_RUN sem token = modo offline: não há Argus para consultar.
-    if (this.cfg.dryRun && !this.cfg.token) return null;
-
     const fresco = Date.now() - this.cache.em < this.cfg.cacheGruposMs;
     if (!forcar && fresco) return this.cache.mapa; // inclui falha recente (mapa null)
 
@@ -94,15 +101,40 @@ class DiscadoraService {
     const mapa = await this.mapaDeGrupos({ forcar: true });
     if (!mapa) return null;
 
-    const faltando = Object.entries(this.grupoPorFila)
-      .filter(([, id]) => !this.cache.ids.has(id))
-      .map(([fila, id]) => `${fila} (id=${id})`);
-
+    const faltando = [...this.gruposGerenciados].filter((id) => !this.cache.ids.has(id));
     if (faltando.length) {
-      this.log.erro(`Grupo(s) configurado(s) não existe(m) na Argus: ${faltando.join(', ')}. Verifique GRUPO_URA_ID/GRUPO_ATIVO_ID.`);
+      this.log.erro(`Grupo(s) configurado(s) não existe(m) na Argus: ${faltando.join(', ')}. Verifique GRUPO_URA_ID/GRUPOS_ATIVOS_IDS.`);
       return false;
     }
     return true;
+  }
+
+  /**
+   * Grupo destino para uma fila.
+   *  - URA: o grupo da URA.
+   *  - ATIVO: se já está num grupo do Ativo, ele mesmo (não mexe); senão,
+   *    o grupo do supervisor; se só existe um grupo do Ativo, esse.
+   * @returns {Promise<number|null>}
+   */
+  async destinoDaFila(ramal, fila, grupoAtual) {
+    if (fila === Fila.URA) return this.cfg.grupoUraId;
+    if (fila !== Fila.ATIVO) throw new Error(`Fila desconhecida: ${fila}`);
+    if (this.gruposAtivos.has(grupoAtual)) return grupoAtual;
+
+    try {
+      await this.diretorio?.atualizar();
+      // Sem leitura de grupos agora: usa o grupo que o diretório conhece, para
+      // não trocar de supervisor quem já está no Ativo.
+      if (grupoAtual === undefined) {
+        const conhecido = this.diretorio?.operadorPorRamal(ramal)?.vinculos.find((v) => this.gruposAtivos.has(v.idGrupo));
+        if (conhecido) return conhecido.idGrupo;
+      }
+      const doSupervisor = this.diretorio?.grupoAtivoDoOperador(ramal);
+      if (doSupervisor != null) return doSupervisor;
+    } catch (e) {
+      this.log.aviso(`Não foi possível consultar o supervisor do ramal ${ramal}: ${e.message}`);
+    }
+    return this.gruposAtivos.size === 1 ? [...this.gruposAtivos][0] : null;
   }
 
   /**
@@ -110,39 +142,53 @@ class DiscadoraService {
    *
    * @param {string} ramal
    * @param {'URA'|'ATIVO'} fila
-   * @returns {Promise<{ resultado: string, grupoAnterior: number|null|undefined, erro?: string }>}
+   * @returns {Promise<{ resultado: string, grupoAnterior: number|null|undefined, grupoDestino?: number, erro?: string }>}
    */
   async moverPara(ramal, fila) {
-    const destinoId = this.grupoPorFila[fila];
-    if (destinoId === undefined) throw new Error(`Fila desconhecida: ${fila}`);
-
     const mapa = await this.mapaDeGrupos();
     // undefined = não deu para verificar; null = ramal não está em nenhum grupo.
     const grupoAnterior = mapa ? (mapa.get(ramal) ?? null) : undefined;
 
-    if (grupoAnterior === destinoId) {
-      return { resultado: Resultado.JA_NO_DESTINO, grupoAnterior };
-    }
-
-    const gerenciados = Object.values(this.grupoPorFila);
-    const emGrupoExterno = grupoAnterior != null && !gerenciados.includes(grupoAnterior);
+    const emGrupoExterno = grupoAnterior != null && !this.gruposGerenciados.has(grupoAnterior);
     if (emGrupoExterno && this.respeitarGruposExternos) {
       this.log.info(`Ramal ${ramal} está no grupo ${grupoAnterior} (não gerenciado). Mantido onde está.`);
       return { resultado: Resultado.GRUPO_EXTERNO, grupoAnterior };
     }
 
+    const destinoId = await this.destinoDaFila(ramal, fila, grupoAnterior);
+    if (destinoId == null) {
+      this.log.aviso(`Ramal ${ramal}: grupo do Ativo indefinido (supervisor sem grupo identificável). `
+        + 'Defina-o em SUPERVISORES_GRUPOS_FILE.');
+      return { resultado: Resultado.SEM_GRUPO_ATIVO, grupoAnterior };
+    }
+    return this.transferirParaGrupo(ramal, destinoId, { grupoAnterior, rotulo: fila });
+  }
+
+  /**
+   * Transfere um ramal para um grupo específico (idempotente, respeita DRY_RUN).
+   * @returns {Promise<{ resultado: string, grupoAnterior, grupoDestino: number, erro?: string }>}
+   */
+  async transferirParaGrupo(ramal, destinoId, { grupoAnterior, rotulo = `grupo ${destinoId}` } = {}) {
+    if (grupoAnterior === undefined) {
+      const mapa = await this.mapaDeGrupos();
+      grupoAnterior = mapa ? (mapa.get(ramal) ?? null) : undefined;
+    }
+    const base = { grupoAnterior, grupoDestino: destinoId };
+
+    if (grupoAnterior === destinoId) return { ...base, resultado: Resultado.JA_NO_DESTINO };
+
     if (this.cfg.dryRun) {
-      this.log.info(`[DRY_RUN] Transferiria ramal ${ramal} → ${fila} (grupo ${destinoId}).`);
-      return { resultado: Resultado.SIMULADO, grupoAnterior };
+      this.log.info(`[DRY_RUN] Transferiria ramal ${ramal} → ${rotulo} (grupo ${destinoId}).`);
+      return { ...base, resultado: Resultado.SIMULADO };
     }
 
     try {
       await this.client.transferirOperador(ramal, destinoId);
       this.invalidarCache();
-      return { resultado: Resultado.TRANSFERIDO, grupoAnterior };
+      return { ...base, resultado: Resultado.TRANSFERIDO };
     } catch (e) {
-      this.log.erro(`Falha ao transferir ramal ${ramal} → ${fila}: ${e.message}`);
-      return { resultado: Resultado.FALHA, grupoAnterior, erro: e.message };
+      this.log.erro(`Falha ao transferir ramal ${ramal} → ${rotulo}: ${e.message}`);
+      return { ...base, resultado: Resultado.FALHA, erro: e.message };
     }
   }
 }

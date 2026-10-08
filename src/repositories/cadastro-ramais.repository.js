@@ -1,10 +1,11 @@
 'use strict';
 /**
- * Cadastro de vendedores: liga o NOME usado no Carrossel ao RAMAL da Argus.
+ * Exceções do cadastro nome → ramal (opcional).
  *
- * O Carrossel identifica vendedores só pelo nome do agente; a Argus só
- * entende ramais. Este arquivo é a ponte entre os dois e também define
- * QUAIS vendedores o roteador gerencia (quem não está aqui não é tocado).
+ * O ramal de cada vendedor é descoberto automaticamente pelo /listarusuarios
+ * da Argus (DiretorioOperadores). Este arquivo só é necessário quando o nome
+ * no Carrossel difere do nome na Argus, ou para incluir alguém que não está
+ * nos grupos gerenciados. As entradas daqui têm prioridade.
  *
  * Formatos aceitos (JSON):
  *   { "ANA CLARA SOUZA": "1001", "Ricardo Mendes": 1004 }
@@ -15,7 +16,7 @@
  */
 
 const fs = require('fs');
-const { normalizarNome } = require('../integrations/carrossel/carrossel.mapper');
+const { normalizarNome } = require('../utils/texto');
 
 class CadastroRamaisRepository {
   /**
@@ -41,7 +42,9 @@ class CadastroRamaisRepository {
       stat = fs.statSync(this.arquivo);
     } catch (e) {
       if (this.mtimeMs !== 0) {
-        this.log.erro(`Cadastro de ramais não encontrado em ${this.arquivo} (${e.code}). Nenhum vendedor será roteado.`);
+        if (e.code !== 'ENOENT') this.log.aviso(`Não foi possível ler ${this.arquivo} (${e.code}).`);
+        else if (this.porChave.size) this.log.info(`${this.arquivo} removido; sem exceções de ramal.`);
+        this.porChave = new Map();
         this.mtimeMs = 0;
       }
       return this;
@@ -72,7 +75,7 @@ class CadastroRamaisRepository {
 
       this.porChave = mapa;
       this.mtimeMs = stat.mtimeMs;
-      this.log.info(`Cadastro de ramais carregado: ${mapa.size} vendedor(es).`);
+      this.log.info(`Exceções de ramal carregadas: ${mapa.size} vendedor(es).`);
     } catch (e) {
       this.log.erro(`Cadastro de ramais inválido (${e.message}). Mantendo a versão anterior (${this.porChave.size} vendedores).`);
       this.mtimeMs = stat.mtimeMs; // não tenta reler o mesmo arquivo quebrado a cada ciclo
