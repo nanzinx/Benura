@@ -75,7 +75,8 @@ test('verificarGruposConfigurados detecta grupo inexistente', async () => {
 });
 
 test('ATIVO sem leitura de grupos: não troca de supervisor quem já está no Ativo', async () => {
-  const { discadora, client } = montarArgusMock();
+  const { discadora, diretorio, client } = montarArgusMock();
+  await diretorio.atualizar(); // no boot o diretório já foi carregado
   client.listarGrupos = async () => { throw new Error('Argus fora'); };
   const r = await discadora.moverPara('1005', 'ATIVO'); // está no grupo 3 (Maysa)
   assert.equal(r.grupoDestino, 3);
