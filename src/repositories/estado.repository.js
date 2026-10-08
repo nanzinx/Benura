@@ -24,8 +24,7 @@
  * }
  */
 
-const fs = require('fs');
-const { lerJson } = require('../utils/arquivo-json');
+const { lerComBackup, GravadorJsonAtomico } = require('../utils/persistencia-json');
 
 const VERSAO = 2;
 const estadoVazio = () => ({ versao: VERSAO, data: '', vendedores: {} });
@@ -39,31 +38,18 @@ class EstadoRepository {
   constructor({ arquivo, logger }) {
     this.arquivo = arquivo;
     this.log = logger;
-    this.filaEscrita = Promise.resolve();
+    this.gravador = new GravadorJsonAtomico(arquivo, logger);
   }
 
   /** @returns {object} Estado carregado (ou vazio). Nunca lança. */
   carregar() {
-    const principal = this.ler(this.arquivo);
-    if (principal) return principal;
-
-    const backup = this.ler(`${this.arquivo}.bak`);
-    if (backup) {
-      this.log.aviso('Estado principal ilegível; recuperado a partir do .bak.');
-      return backup;
-    }
+    const { dados, origem, erro } = lerComBackup(this.arquivo);
+    if (erro) this.log.aviso(`Não foi possível ler ${this.arquivo}: ${erro.message}`);
+    if (origem === 'backup') this.log.aviso('Estado principal ilegível; recuperado a partir do .bak.');
+    if (origem) return this.normalizar(dados);
 
     this.log.info('Nenhum estado salvo encontrado; iniciando do zero.');
     return estadoVazio();
-  }
-
-  /** @returns {object|null} Estado normalizado, ou null se o arquivo não existe/é ilegível. */
-  ler(caminho) {
-    const { dados, erro } = lerJson(caminho);
-    if (!erro) return this.normalizar(dados);
-
-    if (erro.code !== 'ENOENT') this.log.aviso(`Não foi possível ler ${caminho}: ${erro.message}`);
-    return null;
   }
 
   /** Aceita o formato atual e o legado (vendedoresUra/vendedoresAtivo/historico). */
@@ -101,23 +87,12 @@ class EstadoRepository {
    * (falhas são logadas; o estado em memória continua válido).
    */
   salvar(estado) {
-    const conteudo = JSON.stringify(estado, null, 2);
-    this.filaEscrita = this.filaEscrita.then(async () => {
-      try {
-        const tmp = `${this.arquivo}.tmp`;
-        await fs.promises.writeFile(tmp, conteudo);
-        await fs.promises.rename(tmp, this.arquivo);
-        await fs.promises.copyFile(this.arquivo, `${this.arquivo}.bak`);
-      } catch (e) {
-        this.log.erro(`Falha ao salvar estado em ${this.arquivo}: ${e.message}`);
-      }
-    });
-    return this.filaEscrita;
+    return this.gravador.salvar(estado);
   }
 
   /** Aguarda escritas pendentes (usado no desligamento). */
   aguardarEscritas() {
-    return this.filaEscrita;
+    return this.gravador.aguardar();
   }
 }
 

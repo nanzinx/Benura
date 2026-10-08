@@ -115,17 +115,18 @@ const ehRetentavel = (erro) => !(erro instanceof HttpError) || erro.retentavel;
  * @param {number} [opcoes.tentativas=3]
  * @param {number} [opcoes.baseMs=500]
  * @param {(erro: Error, tentativa: number) => void} [opcoes.aoFalhar]
+ * @param {(erro: Error) => boolean} [opcoes.retentavel] - Decide se o erro vale nova tentativa
  * @returns {Promise<T>}
  */
-async function comRetry(fn, { tentativas = 3, baseMs = 500, aoFalhar } = {}) {
+async function comRetry(fn, { tentativas = 3, baseMs = 500, aoFalhar, retentavel = ehRetentavel } = {}) {
   for (let tentativa = 1; ; tentativa++) {
     const r = await capturar(fn);
     if (r.ok) return r.valor;
-    if (tentativa >= tentativas || !ehRetentavel(r.erro)) throw r.erro;
+    if (tentativa >= tentativas || !retentavel(r.erro)) throw r.erro;
 
     aoFalhar?.(r.erro, tentativa);
     await esperar(baseMs * 2 ** (tentativa - 1) + Math.floor(Math.random() * 100));
   }
 }
 
-module.exports = { HttpError, requisitar, comRetry, esperar };
+module.exports = { HttpError, requisitar, comRetry, esperar, ehRetentavel };

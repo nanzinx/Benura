@@ -4,7 +4,7 @@
 |---|---|
 | `roteador-vendas.js` | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
 | `cadastrar-operador.js` | Prepara e confere o cadastro de operadores na Argus a partir do login no **Vanguard** |
-| `argus-automacao.js` | Rodízio Ativo ↔ URA por atendimento e liga/desliga dos robôs da URA |
+| `argus-automacao.js` | Rodízio Ativo ↔ URA por atendimento e liga/desliga dos robôs da URA (lógica em `src/rodizio/`) |
 
 ## Roteador de Vendas
 
@@ -38,6 +38,8 @@ src/integrations/argus/            client HTTP → DiretorioOperadores (usuário
 src/integrations/vanguard/         fonte de dados de funcionários (hoje: manual)
 src/services/cadastro-operador.service.js  planejar / conferir cadastro de operador
 src/repositories/                  estado diário, exceções de ramal, auditoria (JSONL)
+src/rodizio/                       rodízio Ativo ↔ URA e robôs (regras puras em src/domain/rodizio.js)
+src/utils/                         HTTP com retry, persistência atômica, trava de processo, laços periódicos
 ```
 
 ### Independência da URA
@@ -114,6 +116,32 @@ Saída em JSON com `--json`; código de saída 0 = ok, 2 = precisa de atenção,
 
 Token: `Authorization: Bearer <WEBHOOK_TOKEN>` ou `X-Webhook-Token: <WEBHOOK_TOKEN>`.
 
+## Rodízio Ativo ↔ URA e robôs (`argus-automacao.js`)
+
+### Regras
+1. **Ativo → URA**: operador do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
+2. **URA → Ativo**: depois de `TEMPO_MIN` minutos (fora de atendimento), ou na hora se ficar offline, volta ao **grupo de origem**.
+   Só volta quem o próprio rodízio colocou na URA — quem já era da URA, ou foi colocado lá pelo roteador ou à mão, não é tocado.
+3. **Robôs**: desligados quando ninguém na URA pode atender (todos ocupados/em pausa, URA vazia ou toda offline, ou a Argus sem responder);
+   religados quando algum humano fica livre (após `MIN_ROBOS_OFF_MS`).
+4. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
+
+### Testes de comportamento
+`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em 15 cenários (ida, volta, robôs, webhook, correções).
+A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js` — foi assim que a
+refatoração foi comparada com o script original.
+
+### Correções em relação ao script original
+- **HTTP 403** (token inválido) era tratado como limite de requisições e o script pausava para sempre em silêncio; agora é um erro claro sobre o token. Limite de requisições de verdade é o **429**.
+- **Trava órfã**: depois de uma queda abrupta, `argus.lock` impedia o reinício (o PM2 ficava em loop). Agora a trava guarda o PID e é reaproveitada se o processo dono não existe mais.
+- **Webhook tipo 5**: a documentação da Argus escreve `FidConclusaoDerivacao` no exemplo; os dois nomes são aceitos.
+- **Rodada lenta**: o alerta de ciclo lento nunca disparava; agora avisa quando uma rodada passa de 5 s.
+
+### Mudança de configuração
+A porta e os arquivos passaram a ter nomes próprios, para rodar ao lado do roteador com o mesmo `.env`:
+`RODIZIO_PORT` (padrão 3000, antes `PORT`), `RODIZIO_STATE_FILE` (padrão `state.json`) e `RODIZIO_LOCK_FILE` (padrão `argus.lock`).
+As demais variáveis continuam com o mesmo nome. O `state.json` existente é aproveitado.
+
 ## Rodando com PM2
 
 O PM2 já vem como dependência de desenvolvimento: depois do `npm install`, os comandos abaixo funcionam
@@ -146,8 +174,9 @@ Estado e logs da simulação ficam em `.simulacao/`. `npx pm2 monit` abre um pai
 Usa o `.env` (copie de `.env.example`).
 
 ```bash
-npm run pm2:iniciar      # sobe o benura-roteador
-npx pm2 logs benura-roteador
+npm run pm2:iniciar      # sobe o benura-roteador e o benura-rodizio
+npx pm2 start ecosystem.config.js --only benura-rodizio   # só um deles
+npx pm2 logs
 npm run pm2:parar
 ```
 

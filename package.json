@@ -1,7 +1,7 @@
 {
   "name": "benura",
   "version": "2.0.0",
-  "description": "Automações da discadora Argus: roteador de vendas (Carrossel ↔ URA) e rodízio Ativo/URA",
+  "description": "Automações da discadora Argus: roteador de vendas (Carrossel → URA), rodízio Ativo ↔ URA com controle de robôs e cadastro de operadores",
   "private": true,
   "main": "roteador-vendas.js",
   "engines": {
@@ -20,7 +20,8 @@
     "sim:venda": "node scripts/simulacao.js venda",
     "sim:parar": "pm2 delete ecosystem.simulacao.config.js",
     "pm2:iniciar": "pm2 start ecosystem.config.js",
-    "pm2:parar": "pm2 delete ecosystem.config.js"
+    "pm2:parar": "pm2 delete ecosystem.config.js",
+    "test:cenarios": "node test/rodizio/cenarios.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5"
