@@ -32,14 +32,16 @@ class RoteamentoService {
    * @param {import('../integrations/carrossel/carrossel.service').CarrosselService} deps.carrossel
    * @param {import('../integrations/argus/discadora.service').DiscadoraService} deps.discadora
    * @param {import('../repositories/estado.repository').EstadoRepository} deps.repositorio
-   * @param {{ hoje(): string, ontem(): string }} deps.relogio
+   * @param {import('../repositories/cadastro-ramais.repository').CadastroRamaisRepository} deps.cadastro
+   * @param {{ hoje(): string }} deps.relogio
    * @param {{ metaDiaria: number }} deps.regras
    * @param {object} deps.logger
    */
-  constructor({ carrossel, discadora, repositorio, relogio, regras, logger }) {
+  constructor({ carrossel, discadora, repositorio, cadastro, relogio, regras, logger }) {
     this.carrossel = carrossel;
     this.discadora = discadora;
     this.repositorio = repositorio;
+    this.cadastro = cadastro;
     this.relogio = relogio;
     this.regras = regras;
     this.log = logger;
@@ -71,7 +73,8 @@ class RoteamentoService {
   // ───────────────────────────── Carga inicial ─────────────────────────────
 
   /**
-   * Distribui os vendedores entre URA e Ativo com base nas vendas de ontem.
+   * Distribui os vendedores entre URA e Ativo com base nas vendas do dia útil
+   * anterior ("ontem" no Carrossel).
    *
    * Se o Carrossel estiver indisponível, lança `CargaInicialError` e NÃO marca
    * o dia como processado — o agendador tenta de novo no próximo ciclo.
@@ -81,18 +84,25 @@ class RoteamentoService {
    */
   executarCargaInicial() {
     return this.exclusivo(async () => {
-      const ontem = this.relogio.ontem();
-      this.log.info(`Carga inicial: vendas de ${ontem}, meta ${formatarReais(this.regras.metaDiaria)}.`);
-
-      let vendedores;
+      let vendasOntem;
       try {
-        ({ vendedores } = await this.carrossel.listarVendas(ontem, { permitirFallback: false }));
+        vendasOntem = await this.carrossel.listarVendas('ontem', { permitirFallback: false });
       } catch (e) {
         throw new CargaInicialError(`Carga inicial adiada: ${e.message}`, e);
       }
-      if (vendedores.length === 0) {
-        throw new CargaInicialError('Carga inicial adiada: o Carrossel não retornou vendedores.');
+      // O dia útil anterior sempre tem vendas; lista vazia indica relatórios
+      // ausentes no Carrossel (scraper falhou), não um dia sem vendas.
+      if (vendasOntem.vendedores.length + vendasOntem.naoCadastrados.length === 0) {
+        throw new CargaInicialError('Carga inicial adiada: o Carrossel não retornou vendas do dia anterior.');
       }
+
+      const vendedores = this.montarUniversoDoDia(vendasOntem.vendedores);
+      if (vendedores.length === 0) {
+        throw new CargaInicialError('Carga inicial adiada: nenhum vendedor com ramal cadastrado.');
+      }
+
+      this.log.info(`Carga inicial: vendas de ${vendasOntem.diaOntem || 'ontem (dia útil anterior)'}, `
+        + `meta ${formatarReais(this.regras.metaDiaria)}, extração do Carrossel: ${vendasOntem.ultimaExtracao}.`);
 
       const { ura, ativo } = distribuirCargaInicial(vendedores, this.regras.metaDiaria);
       this.log.info(`${vendedores.length} vendedor(es): ${ura.length} → URA, ${ativo.length} → Ativo.`);
@@ -131,6 +141,20 @@ class RoteamentoService {
     });
   }
 
+  /**
+   * Todos os vendedores cadastrados participam da carga. Como o Carrossel só
+   * lista quem vendeu, quem está no cadastro mas não veio na lista vendeu R$ 0.
+   */
+  montarUniversoDoDia(vendasOntem) {
+    const porRamal = new Map(vendasOntem.map((v) => [v.ramal, v]));
+    for (const c of this.cadastro.atualizar().listar()) {
+      if (!porRamal.has(c.ramal)) {
+        porRamal.set(c.ramal, { nome: c.nome, chave: c.chave, equipe: 'Sem venda ontem', totalVendas: 0, ramal: c.ramal });
+      }
+    }
+    return [...porRamal.values()];
+  }
+
   // ───────────────────────────── Monitoramento ─────────────────────────────
 
   /**
@@ -145,7 +169,7 @@ class RoteamentoService {
 
       await this.reprocessarPendentes();
 
-      const { vendedores, origem } = await this.carrossel.listarVendas(this.relogio.hoje());
+      const { vendedores, origem } = await this.carrossel.listarVendas('hoje');
       let promovidos = 0;
 
       for (const v of vendedores) {

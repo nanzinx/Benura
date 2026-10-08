@@ -7,17 +7,21 @@ const { distribuirCargaInicial } = require('../../src/domain/regras-roteamento')
 const { estadoVazio } = require('../../src/repositories/estado.repository');
 const { loggerNulo } = require('../../src/utils/logger');
 
-const relogio = { hoje: () => '2026-10-08', ontem: () => '2026-10-07' };
+const relogio = { hoje: () => '2026-10-08' };
 
-function montar({ ontem = [], hoje = [], falharRamais = [] } = {}) {
+function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [] } = {}) {
   const movimentos = [];
   const salvos = [];
-  const vendas = { '2026-10-07': ontem, '2026-10-08': hoje };
+  const vendas = { ontem, hoje };
   const carrossel = {
-    async listarVendas(data) {
-      if (vendas[data] === null) throw new Error('Carrossel fora');
-      return { vendedores: vendas[data], origem: 'api' };
+    async listarVendas(periodo) {
+      if (vendas[periodo] === null) throw new Error('Carrossel fora');
+      return { vendedores: vendas[periodo], naoCadastrados: [], diaOntem: '07/10/2026', origem: 'api' };
     },
+  };
+  const cadastro = {
+    atualizar() { return this; },
+    listar: () => cadastrados.map((ramal) => ({ nome: `V${ramal}`, chave: `V${ramal}`, ramal })),
   };
   const discadora = {
     async moverPara(ramal, fila) {
@@ -33,7 +37,7 @@ function montar({ ontem = [], hoje = [], falharRamais = [] } = {}) {
     aguardarEscritas: async () => {},
   };
   const svc = new RoteamentoService({
-    carrossel, discadora, repositorio, relogio, regras: { metaDiaria: 50_000 }, logger: loggerNulo,
+    carrossel, discadora, repositorio, cadastro, relogio, regras: { metaDiaria: 50_000 }, logger: loggerNulo,
   }).inicializar();
   return { svc, movimentos, salvos, vendas };
 }
@@ -54,6 +58,14 @@ test('carga inicial distribui e marca o dia', async () => {
   assert.ok(svc.cargaInicialFeitaHoje());
 });
 
+test('cadastrado sem venda ontem (fora da lista do Carrossel) vai para o Ativo', async () => {
+  const { svc, movimentos } = montar({ ontem: [v('1', 72_500)], cadastrados: ['1', '7'] });
+  const r = await svc.executarCargaInicial();
+  assert.deepEqual(r, { ura: 1, ativo: 1, falhas: 0 });
+  assert.deepEqual(movimentos, [['1', 'URA'], ['7', 'ATIVO']]);
+  assert.equal(svc.estado.vendedores['7'].vendaOntem, 0);
+});
+
 test('carga inicial é adiada (sem marcar o dia) se o Carrossel falhar ou vier vazio', async () => {
   const a = montar({ ontem: null });
   await assert.rejects(a.svc.executarCargaInicial(), CargaInicialError);
@@ -71,13 +83,13 @@ test('monitoramento promove quem está no Ativo e vendeu hoje, uma única vez', 
 
   assert.equal((await ctx.svc.monitorarVendas()).promovidos, 0);
 
-  ctx.vendas['2026-10-08'] = [v('1', 900), v('2', 1)];
+  ctx.vendas.hoje = [v('1', 900), v('2', 1)];
   assert.equal((await ctx.svc.monitorarVendas()).promovidos, 1);
   assert.deepEqual(ctx.movimentos, [['2', 'URA']]);
   assert.equal(ctx.svc.estado.vendedores['2'].promovidoNoDia, true);
 
   // Já está na URA: nova venda não gera nova transferência.
-  ctx.vendas['2026-10-08'] = [v('2', 5000)];
+  ctx.vendas.hoje = [v('2', 5000)];
   assert.equal((await ctx.svc.monitorarVendas()).promovidos, 0);
   assert.equal(ctx.movimentos.length, 1);
 });

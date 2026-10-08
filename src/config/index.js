@@ -8,6 +8,7 @@
  */
 
 const path = require('path');
+const { METRICAS } = require('../integrations/carrossel/carrossel.mapper');
 
 // dotenv é opcional: se não estiver instalado, seguimos só com process.env.
 try {
@@ -39,20 +40,25 @@ const semBarraFinal = (url) => url.replace(/\/+$/, '');
  */
 function carregarConfig(overrides = {}) {
   const cfg = {
-    // --- API do Carrossel (fonte dos dados de vendas) ---
+    // --- API do Carrossel (repositório Carrosel-BenApi) ---
     carrossel: {
-      baseUrl: semBarraFinal(env('CARROSSEL_API_URL', env('SITE_VENDAS_URL', 'https://carrossel.benconsig.com/api'))),
+      // Ex.: http://servidor-do-carrossel:4115 (sem barra no final)
+      baseUrl: semBarraFinal(env('CARROSSEL_API_URL', env('SITE_VENDAS_URL', ''))),
+      rotaRanking: env('CARROSSEL_ROTA_RANKING', '/ranking/vendedores'),
+      // Campo da linha "GERAL" usado como total vendido. vendaConcluida é o
+      // mesmo que o Carrossel usa para a meta diária de R$ 50 mil.
+      metrica: env('CARROSSEL_METRICA', 'vendaConcluida'),
+      // /ranking/vendedores hoje é aberto; preencha se a API passar a exigir token.
       token: env('CARROSSEL_API_TOKEN', env('SITE_VENDAS_TOKEN', '')),
-      // Contrato da API é configurável para não exigir mudança de código
-      // caso a rota ou a autenticação do Carrossel mudem.
-      rotaVendedores: env('CARROSSEL_ROTA_VENDEDORES', '/vendedores'),
-      parametroData: env('CARROSSEL_PARAM_DATA', 'data'),
       headerAuth: env('CARROSSEL_HEADER_AUTH', 'Authorization'),
-      esquemaAuth: env('CARROSSEL_ESQUEMA_AUTH', 'Bearer'),
-      timeoutMs: envNum('CARROSSEL_TIMEOUT_MS', 10_000),
+      esquemaAuth: env('CARROSSEL_ESQUEMA_AUTH', ''),
+      timeoutMs: envNum('CARROSSEL_TIMEOUT_MS', 15_000),
       tentativas: envNum('CARROSSEL_TENTATIVAS', 3),
       usarMock: envBool('USAR_MOCK'),
     },
+
+    // Cadastro nome (Carrossel) → ramal (Argus). Ver vendedores-ramais.example.json.
+    arquivoRamais: env('VENDEDORES_RAMAIS_FILE', path.join(process.cwd(), 'vendedores-ramais.json')),
 
     // --- Discadora Argus ---
     argus: {
@@ -122,12 +128,12 @@ function validarConfig(cfg) {
 
   if (!cfg.argus.dryRun && !cfg.argus.token) fatais.push('ARGUS_TOKEN é obrigatório (ou use DRY_RUN=1).');
   if (!cfg.carrossel.usarMock && !cfg.carrossel.baseUrl) fatais.push('CARROSSEL_API_URL é obrigatório (ou use USAR_MOCK=1).');
+  if (!METRICAS.includes(cfg.carrossel.metrica)) fatais.push(`CARROSSEL_METRICA inválida: "${cfg.carrossel.metrica}" (use ${METRICAS.join(', ')}).`);
   if (cfg.argus.grupoUraId === cfg.argus.grupoAtivoId) fatais.push('GRUPO_URA_ID e GRUPO_ATIVO_ID não podem ser iguais.');
   if (!horaValida(cfg.agenda.horarioCarga)) fatais.push(`HORARIO_CARGA inválido: "${cfg.agenda.horarioCarga}" (use HH:MM).`);
   if (!horaValida(cfg.agenda.horarioFim)) fatais.push(`HORARIO_FIM inválido: "${cfg.agenda.horarioFim}" (use HH:MM).`);
   if (cfg.regras.metaDiaria <= 0) fatais.push('META_DIARIA deve ser maior que zero.');
   if (cfg.agenda.pollVendasMs < 5_000) avisos.push('POLL_VENDAS_MS < 5s pode sobrecarregar a API do Carrossel.');
-  if (!cfg.carrossel.usarMock && !cfg.carrossel.token) avisos.push('CARROSSEL_API_TOKEN vazio: requisições irão sem autenticação.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: /webhook/venda e /recarregar estão sem autenticação.');
 
   try {

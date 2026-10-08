@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Cliente HTTP da API do Carrossel (repositório Carrosel-BenApi).
+ * Cliente HTTP da API do Carrossel (Carrosel-BenApi).
  *
  * Responsabilidade única: falar HTTP com a API e devolver o payload cru.
  * Normalização fica no mapper; regras de negócio ficam nos serviços.
@@ -19,26 +19,25 @@ class CarrosselClient {
   }
 
   headers() {
+    // ngrok-free exibe uma página de aviso para clientes sem este header.
+    const headers = { 'ngrok-skip-browser-warning': '1' };
     const { token, headerAuth, esquemaAuth } = this.cfg;
-    if (!token) return {};
-    return { [headerAuth]: esquemaAuth ? `${esquemaAuth} ${token}` : token };
+    if (token) headers[headerAuth] = esquemaAuth ? `${esquemaAuth} ${token}` : token;
+    return headers;
   }
 
   /**
-   * Busca as vendas consolidadas de todos os vendedores em uma data.
+   * Busca o ranking consolidado de vendedores (todos os períodos).
    *
-   *   GET {baseUrl}{rotaVendedores}?{parametroData}=YYYY-MM-DD
+   *   GET {baseUrl}{rotaRanking}   (padrão: /ranking/vendedores)
    *
-   * @param {string} data - YYYY-MM-DD
    * @returns {Promise<*>} Payload cru da API
    * @throws {HttpError}
    */
-  async buscarVendasPorData(data) {
-    const url = new URL(`${this.cfg.baseUrl}${this.cfg.rotaVendedores}`);
-    url.searchParams.set(this.cfg.parametroData, data);
-
+  async buscarRankingVendedores() {
+    const url = `${this.cfg.baseUrl}${this.cfg.rotaRanking}`;
     return comRetry(
-      () => requisitar(url.toString(), { headers: this.headers(), timeoutMs: this.cfg.timeoutMs }),
+      () => requisitar(url, { headers: this.headers(), timeoutMs: this.cfg.timeoutMs }),
       {
         tentativas: this.cfg.tentativas,
         aoFalhar: (e, n) => this.log.aviso(`Tentativa ${n} falhou (${e.message}). Tentando novamente...`),

@@ -1,100 +1,119 @@
 'use strict';
 /**
- * Anti-corruption layer da API do Carrossel.
+ * Anti-corruption layer da API do Carrossel (Carrosel-BenApi).
  *
- * Converte o payload cru da API no modelo interno `Vendedor`:
- *   { id, nome, ramal, equipe, totalVendas }
+ * É o ÚNICO ponto do sistema que conhece o formato da resposta de
+ * `GET /ranking/vendedores`, que tem esta forma:
  *
- * É o ÚNICO ponto do sistema que conhece os nomes de campos do Carrossel.
- * Se a API mudar o formato, ajuste apenas os aliases abaixo.
+ *   {
+ *     "hoje":    [ Vendedor, ... ],
+ *     "ontem":   [ Vendedor, ... ],   // dia ÚTIL anterior (pula fim de semana/feriado)
+ *     "semanal": [ ... ], "mensal": [ ... ],
+ *     "ultimaExtracao": "08/10/2026 10:42:00" | "Erro" | "Desconhecida",
+ *     "diaOntem": "07/10/2026"
+ *   }
+ *
+ *   Vendedor = {
+ *     "nome": "FULANO DE TAL",
+ *     "performance": [
+ *       { "Equipe": "GERAL", "vendaConcluida": 1234.5, "vendaGeral": ..., "Integrado": ..., ... },
+ *       { "Equipe": "Equipe X", ... }
+ *     ],
+ *     "ranking-geral": 1, "ranking-integrado": 3
+ *   }
+ *
+ * Observações sobre a API:
+ *  - Vendedores identificados apenas por NOME (sem ramal).
+ *  - Cada período lista só quem teve venda nele: quem não vendeu não aparece.
+ *  - Em erro interno a API responde 200 com listas vazias e ultimaExtracao "Erro".
  */
 
 const { paraNumero } = require('../../utils/moeda');
 
-/** Aliases aceitos para cada campo interno, em ordem de prioridade. */
-const ALIASES = Object.freeze({
-  id: ['id', 'vendedor_id', 'vendedorId', 'seller_id', 'sellerId', 'idVendedor'],
-  nome: ['nome', 'nome_vendedor', 'nomeVendedor', 'vendedor', 'name', 'full_name'],
-  ramal: ['ramal', 'extension', 'extension_number', 'ramalArgus', 'ramal_argus'],
-  equipe: ['equipe', 'equipe_nome', 'equipeNome', 'team', 'team_name', 'supervisor'],
-  totalVendas: [
-    'totalVendas', 'total_vendas', 'total', 'valorTotal', 'valor_total',
-    'total_sales_amount', 'vendas', 'valor',
-  ],
-});
+const PERIODOS = Object.freeze(['hoje', 'ontem', 'semanal', 'mensal']);
 
-/** Chaves comuns que envolvem a lista de registros na resposta. */
-const CHAVES_LISTA = ['data', 'vendedores', 'items', 'results', 'resultado', 'ranking', 'carrossel'];
+/** Métricas aceitas (campos da linha GERAL de `performance`). */
+const METRICAS = Object.freeze(['vendaConcluida', 'vendaGeral', 'Integrado', 'vendaPendente']);
 
-const primeiro = (obj, chaves) => {
-  for (const k of chaves) {
-    if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return obj[k];
+class RespostaCarrosselInvalidaError extends Error {
+  constructor(mensagem) {
+    super(mensagem);
+    this.name = 'RespostaCarrosselInvalidaError';
   }
-  return undefined;
-};
-
-/**
- * Extrai o array de registros de qualquer formato de resposta suportado:
- *   [ ... ] | { data: [ ... ] } | { data: { vendedores: [ ... ] } } | ...
- *
- * @returns {Array<object>}
- * @throws {TypeError} quando não há lista reconhecível
- */
-function extrairLista(payload, profundidade = 0) {
-  if (Array.isArray(payload)) return payload;
-  if (payload && typeof payload === 'object' && profundidade < 3) {
-    for (const k of CHAVES_LISTA) {
-      if (payload[k] !== undefined) return extrairLista(payload[k], profundidade + 1);
-    }
-  }
-  throw new TypeError('Resposta do Carrossel em formato desconhecido (lista de vendedores não encontrada)');
 }
 
 /**
- * Normaliza um registro cru.
- * @returns {object|null} Vendedor normalizado, ou null se não tiver ramal.
+ * Normaliza um nome para comparação: maiúsculas, sem acento, espaços simples.
+ * "  Joao  da Silva " e "JOÃO DA SILVA" → "JOAO DA SILVA"
  */
-function mapearVendedor(raw) {
-  if (!raw || typeof raw !== 'object') return null;
+function normalizarNome(nome) {
+  return String(nome || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
 
-  // Alguns formatos aninham o vendedor: { vendedor: { nome, ramal }, total: 10 }
-  const fonte = raw.vendedor && typeof raw.vendedor === 'object' ? { ...raw, ...raw.vendedor } : raw;
+/**
+ * Converte um vendedor cru do Carrossel no modelo interno.
+ * @returns {{ nome: string, chave: string, equipe: string, totalVendas: number }|null}
+ */
+function mapearVendedor(raw, metrica) {
+  if (!raw || typeof raw !== 'object' || !raw.nome) return null;
 
-  const ramal = primeiro(fonte, ALIASES.ramal);
-  if (ramal === undefined) return null;
+  const performance = Array.isArray(raw.performance) ? raw.performance : [];
+  const geral = performance.find((p) => p?.Equipe === 'GERAL');
+  const equipes = performance.filter((p) => p?.Equipe && p.Equipe !== 'GERAL').map((p) => p.Equipe);
 
-  const nome = primeiro(fonte, ALIASES.nome);
   return {
-    id: primeiro(fonte, ALIASES.id) ?? null,
-    nome: typeof nome === 'string' ? nome.trim() : `Ramal ${ramal}`,
-    ramal: String(ramal).trim(),
-    equipe: primeiro(fonte, ALIASES.equipe) ?? 'Sem equipe',
-    totalVendas: paraNumero(primeiro(fonte, ALIASES.totalVendas)),
+    nome: String(raw.nome).trim(),
+    chave: normalizarNome(raw.nome),
+    equipe: equipes.join(', ') || 'Sem equipe',
+    totalVendas: paraNumero(geral?.[metrica]),
   };
 }
 
 /**
- * Converte o payload em lista de vendedores únicos por ramal.
- * Se a API devolver várias linhas para o mesmo ramal (ex.: uma por venda),
- * os valores são somados.
+ * Extrai e normaliza um período da resposta de /ranking/vendedores.
  *
- * @returns {{ vendedores: object[], descartados: number }}
+ * @param {object} payload - Resposta crua
+ * @param {'hoje'|'ontem'} periodo
+ * @param {string} metrica - Campo da linha GERAL usado como total de vendas
+ * @returns {{ vendedores: object[], ultimaExtracao: string|null, diaOntem: string|null, descartados: number }}
+ * @throws {RespostaCarrosselInvalidaError}
  */
-function mapearResposta(payload) {
-  const lista = extrairLista(payload);
-  const porRamal = new Map();
-  let descartados = 0;
-
-  for (const raw of lista) {
-    const v = mapearVendedor(raw);
-    if (!v) { descartados++; continue; }
-
-    const existente = porRamal.get(v.ramal);
-    if (existente) existente.totalVendas += v.totalVendas;
-    else porRamal.set(v.ramal, v);
+function mapearRanking(payload, periodo, metrica) {
+  if (!PERIODOS.includes(periodo)) throw new RangeError(`Período inválido: ${periodo}`);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new RespostaCarrosselInvalidaError('Resposta do Carrossel não é um objeto de ranking.');
+  }
+  if (payload.ultimaExtracao === 'Erro') {
+    throw new RespostaCarrosselInvalidaError('O Carrossel reportou erro ao processar seus relatórios (ultimaExtracao = "Erro").');
+  }
+  if (!Array.isArray(payload[periodo])) {
+    throw new RespostaCarrosselInvalidaError(`Resposta do Carrossel sem a lista "${periodo}".`);
   }
 
-  return { vendedores: [...porRamal.values()], descartados };
+  // Soma por nome normalizado, caso o mesmo agente apareça mais de uma vez.
+  const porChave = new Map();
+  let descartados = 0;
+  for (const raw of payload[periodo]) {
+    const v = mapearVendedor(raw, metrica);
+    if (!v) { descartados++; continue; }
+    const existente = porChave.get(v.chave);
+    if (existente) existente.totalVendas += v.totalVendas;
+    else porChave.set(v.chave, v);
+  }
+
+  return {
+    vendedores: [...porChave.values()],
+    ultimaExtracao: payload.ultimaExtracao ?? null,
+    diaOntem: payload.diaOntem ?? null,
+    descartados,
+  };
 }
 
-module.exports = { mapearResposta, mapearVendedor, extrairLista, ALIASES };
+module.exports = {
+  mapearRanking, mapearVendedor, normalizarNome, PERIODOS, METRICAS, RespostaCarrosselInvalidaError,
+};

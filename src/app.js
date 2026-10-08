@@ -6,7 +6,7 @@
 
 const { carregarConfig, validarConfig } = require('./config');
 const { criarLogger } = require('./utils/logger');
-const { dataLocal, subtrairDias } = require('./utils/datas');
+const { dataLocal } = require('./utils/datas');
 const { formatarReais } = require('./utils/moeda');
 const { CarrosselClient } = require('./integrations/carrossel/carrossel.client');
 const { CarrosselMockClient } = require('./integrations/carrossel/carrossel.mock-client');
@@ -14,6 +14,7 @@ const { CarrosselService } = require('./integrations/carrossel/carrossel.service
 const { ArgusClient } = require('./integrations/argus/argus.client');
 const { DiscadoraService } = require('./integrations/argus/discadora.service');
 const { EstadoRepository } = require('./repositories/estado.repository');
+const { CadastroRamaisRepository } = require('./repositories/cadastro-ramais.repository');
 const { RoteamentoService } = require('./services/roteamento.service');
 const { Agendador } = require('./services/agendador');
 const { criarControllers } = require('./http/controllers');
@@ -27,14 +28,12 @@ function criarApp(overrides) {
   const cfg = carregarConfig(overrides);
   const log = criarLogger({ debug: cfg.debug });
 
-  const relogio = {
-    hoje: () => dataLocal(cfg.agenda.fusoHorario),
-    ontem: () => subtrairDias(dataLocal(cfg.agenda.fusoHorario), 1),
-  };
+  const relogio = { hoje: () => dataLocal(cfg.agenda.fusoHorario) };
 
   const carrosselClient = cfg.carrossel.usarMock
-    ? new CarrosselMockClient({ obterHoje: relogio.hoje }, log.filho('carrossel-mock'))
+    ? new CarrosselMockClient(log.filho('carrossel-mock'))
     : new CarrosselClient(cfg.carrossel, log.filho('carrossel'));
+  const cadastro = new CadastroRamaisRepository({ arquivo: cfg.arquivoRamais, logger: log.filho('cadastro') });
 
   const discadora = new DiscadoraService({
     client: new ArgusClient(cfg.argus, log.filho('argus')),
@@ -44,8 +43,11 @@ function criarApp(overrides) {
   });
 
   const roteamento = new RoteamentoService({
-    carrossel: new CarrosselService({ client: carrosselClient, logger: log.filho('carrossel') }),
+    carrossel: new CarrosselService({
+      client: carrosselClient, cadastro, metrica: cfg.carrossel.metrica, logger: log.filho('carrossel'),
+    }),
     discadora,
+    cadastro,
     repositorio: new EstadoRepository({ arquivo: cfg.arquivoEstado, logger: log.filho('estado') }),
     relogio,
     regras: cfg.regras,
@@ -76,9 +78,10 @@ async function iniciar() {
 
   log.info('Roteador de Vendas — Carrossel ↔ Argus');
   log.info(`Meta: ${formatarReais(cfg.regras.metaDiaria)} | Expediente: ${cfg.agenda.horarioCarga}–${cfg.agenda.horarioFim} | `
-    + `Carrossel: ${cfg.carrossel.usarMock ? 'MOCK' : cfg.carrossel.baseUrl} | Argus: ${cfg.argus.dryRun ? 'DRY_RUN' : cfg.argus.baseUrl}`);
+    + `Carrossel: ${cfg.carrossel.usarMock ? 'MOCK' : cfg.carrossel.baseUrl + cfg.carrossel.rotaRanking} (${cfg.carrossel.metrica}) | Argus: ${cfg.argus.dryRun ? 'DRY_RUN' : cfg.argus.baseUrl}`);
 
   roteamento.inicializar();
+  roteamento.cadastro.atualizar();
   await discadora.verificarGruposConfigurados();
 
   await new Promise((resolve, reject) => {

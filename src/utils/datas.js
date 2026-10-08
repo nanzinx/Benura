@@ -22,17 +22,7 @@ const dataLocal = (fusoHorario, agora = new Date()) => partes(agora, fusoHorario
 /** @returns {string} Hora no formato HH:MM no fuso informado. */
 const horaLocal = (fusoHorario, agora = new Date()) => partes(agora, fusoHorario).hora;
 
-/**
- * Subtrai dias de uma data YYYY-MM-DD (aritmética de calendário, sem fuso).
- * @returns {string} YYYY-MM-DD
- */
-function subtrairDias(dataIso, dias) {
-  const [a, m, d] = dataIso.split('-').map(Number);
-  const dt = new Date(Date.UTC(a, m - 1, d - dias));
-  return dt.toISOString().slice(0, 10);
-}
-
 /** Verifica se `hora` (HH:MM) está no intervalo [inicio, fim]. */
 const dentroDoIntervalo = (hora, inicio, fim) => hora >= inicio && hora <= fim;
 
-module.exports = { dataLocal, horaLocal, subtrairDias, dentroDoIntervalo };
+module.exports = { dataLocal, horaLocal, dentroDoIntervalo };

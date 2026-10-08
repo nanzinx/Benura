@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { paraNumero, formatarReais } = require('../../src/utils/moeda');
-const { dataLocal, horaLocal, subtrairDias, dentroDoIntervalo } = require('../../src/utils/datas');
+const { dataLocal, horaLocal, dentroDoIntervalo } = require('../../src/utils/datas');
 
 test('paraNumero aceita número, string US e string BR', () => {
   assert.equal(paraNumero(12500), 12500);
@@ -23,11 +23,6 @@ test('dataLocal respeita o fuso (23h em SP ainda é o mesmo dia)', () => {
   assert.equal(dataLocal('America/Sao_Paulo', instante), '2026-10-08');
   assert.equal(horaLocal('America/Sao_Paulo', instante), '23:30');
   assert.equal(dataLocal('UTC', instante), '2026-10-09');
-});
-
-test('subtrairDias cruza mês e ano', () => {
-  assert.equal(subtrairDias('2026-03-01', 1), '2026-02-28');
-  assert.equal(subtrairDias('2026-01-01', 1), '2025-12-31');
 });
 
 test('dentroDoIntervalo é inclusivo', () => {

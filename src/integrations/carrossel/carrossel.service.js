@@ -3,12 +3,12 @@
  * Serviço de integração com o Carrossel.
  *
  * Expõe operações em linguagem de negócio ("vendas de ontem", "vendas de hoje")
- * e garante resiliência:
- *  - erros de rede/HTTP são convertidos em `CarrosselIndisponivelError`;
- *  - mantém o último resultado válido de cada data como fallback.
+ * já com o ramal de cada vendedor resolvido, e garante resiliência:
+ *  - erros de rede/HTTP/formato viram `CarrosselIndisponivelError`;
+ *  - mantém o último resultado válido de cada período como fallback.
  */
 
-const { mapearResposta } = require('./carrossel.mapper');
+const { mapearRanking } = require('./carrossel.mapper');
 
 class CarrosselIndisponivelError extends Error {
   constructor(mensagem, cause) {
@@ -20,57 +20,84 @@ class CarrosselIndisponivelError extends Error {
 class CarrosselService {
   /**
    * @param {object} deps
-   * @param {{ buscarVendasPorData(data: string): Promise<*> }} deps.client
+   * @param {{ buscarRankingVendedores(): Promise<*> }} deps.client
+   * @param {import('../../repositories/cadastro-ramais.repository').CadastroRamaisRepository} deps.cadastro
+   * @param {string} deps.metrica - Campo da linha GERAL usado como total (ex.: vendaConcluida)
    * @param {object} deps.logger
    * @param {number} [deps.validadeFallbackMs] - Idade máxima do cache de fallback
    */
-  constructor({ client, logger, validadeFallbackMs = 10 * 60_000 }) {
+  constructor({ client, cadastro, metrica, logger, validadeFallbackMs = 10 * 60_000 }) {
     this.client = client;
+    this.cadastro = cadastro;
+    this.metrica = metrica;
     this.log = logger;
     this.validadeFallbackMs = validadeFallbackMs;
-    /** @type {Map<string, { vendedores: object[], em: number }>} */
+    /** @type {Map<string, { resultado: object, em: number }>} */
     this.ultimoValido = new Map();
+    /** Nomes sem ramal já avisados (evita repetir o aviso a cada ciclo). */
+    this.naoCadastradosAvisados = new Set();
   }
 
   /**
-   * Lista vendedores e seus totais de venda numa data.
+   * Lista as vendas de um período, com o ramal de cada vendedor.
    *
-   * @param {string} data - YYYY-MM-DD
+   * Vendedores sem cadastro de ramal vêm em `naoCadastrados` e NÃO em `vendedores`.
+   * Lembre-se: o Carrossel só lista quem vendeu no período.
+   *
+   * @param {'hoje'|'ontem'} periodo
    * @param {object} [opcoes]
-   * @param {boolean} [opcoes.permitirFallback=true] - Usa o último resultado válido se a API falhar
-   * @returns {Promise<{ vendedores: object[], origem: 'api'|'fallback' }>}
+   * @param {boolean} [opcoes.permitirFallback=true]
+   * @returns {Promise<{
+   *   vendedores: Array<{ nome, chave, equipe, totalVendas, ramal }>,
+   *   naoCadastrados: string[],
+   *   diaOntem: string|null,
+   *   ultimaExtracao: string|null,
+   *   origem: 'api'|'fallback'
+   * }>}
    * @throws {CarrosselIndisponivelError}
    */
-  async listarVendas(data, { permitirFallback = true } = {}) {
+  async listarVendas(periodo, { permitirFallback = true } = {}) {
+    let ranking;
     try {
-      const payload = await this.client.buscarVendasPorData(data);
-      const { vendedores, descartados } = mapearResposta(payload);
-
-      if (descartados > 0) {
-        this.log.aviso(`${descartados} registro(s) do Carrossel ignorado(s) por não terem ramal.`);
-      }
-      this.log.debug(`Carrossel ${data}: ${vendedores.length} vendedor(es).`);
-
-      this.ultimoValido.set(data, { vendedores, em: Date.now() });
-      this.limparCacheAntigo(data);
-      return { vendedores, origem: 'api' };
+      const payload = await this.client.buscarRankingVendedores();
+      ranking = mapearRanking(payload, periodo, this.metrica);
     } catch (e) {
-      const cache = this.ultimoValido.get(data);
-      const cacheUtil = cache && Date.now() - cache.em <= this.validadeFallbackMs;
-
-      if (permitirFallback && cacheUtil) {
+      const cache = this.ultimoValido.get(periodo);
+      if (permitirFallback && cache && Date.now() - cache.em <= this.validadeFallbackMs) {
         this.log.aviso(`Carrossel indisponível (${e.message}); usando dados de ${new Date(cache.em).toISOString()}.`);
-        return { vendedores: cache.vendedores, origem: 'fallback' };
+        return { ...cache.resultado, origem: 'fallback' };
       }
-      throw new CarrosselIndisponivelError(`Falha ao consultar vendas de ${data} no Carrossel: ${e.message}`, e);
+      throw new CarrosselIndisponivelError(`Falha ao consultar vendas de "${periodo}" no Carrossel: ${e.message}`, e);
     }
-  }
 
-  /** Mantém só a data atual no cache para não crescer indefinidamente. */
-  limparCacheAntigo(dataAtual) {
-    for (const k of this.ultimoValido.keys()) {
-      if (k < dataAtual) this.ultimoValido.delete(k);
+    if (ranking.descartados > 0) {
+      this.log.aviso(`${ranking.descartados} registro(s) do Carrossel ignorado(s) por não terem nome.`);
     }
+
+    this.cadastro.atualizar();
+    const vendedores = [];
+    const naoCadastrados = [];
+    for (const v of ranking.vendedores) {
+      const ramal = this.cadastro.ramalDe(v.nome);
+      if (ramal) {
+        vendedores.push({ ...v, ramal });
+      } else {
+        naoCadastrados.push(v.nome);
+        if (!this.naoCadastradosAvisados.has(v.chave)) {
+          this.naoCadastradosAvisados.add(v.chave);
+          this.log.aviso(`Vendedor "${v.nome}" está no Carrossel mas não tem ramal cadastrado; será ignorado.`);
+        }
+      }
+    }
+
+    this.log.debug(`Carrossel "${periodo}": ${vendedores.length} com ramal, ${naoCadastrados.length} sem cadastro `
+      + `(extração: ${ranking.ultimaExtracao}).`);
+
+    const resultado = {
+      vendedores, naoCadastrados, diaOntem: ranking.diaOntem, ultimaExtracao: ranking.ultimaExtracao,
+    };
+    this.ultimoValido.set(periodo, { resultado, em: Date.now() });
+    return { ...resultado, origem: 'api' };
   }
 }
 
