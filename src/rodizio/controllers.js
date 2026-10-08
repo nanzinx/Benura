@@ -1,6 +1,9 @@
 'use strict';
 /**
- * Rotas HTTP do rodízio: saúde e webhook de atendimento da Argus.
+ * Rotas HTTP do rodízio: saúde e webhooks da Argus.
+ *
+ * Um único endereço recebe todos os webhooks configurados na Argus e os
+ * distribui: início de atendimento → rodízio; encerramento de URA → retorno da fila.
  */
 
 const { interpretarWebhook } = require('../domain/rodizio');
@@ -8,10 +11,11 @@ const { interpretarWebhook } = require('../domain/rodizio');
 /**
  * @param {object} deps
  * @param {import('./rodizio.service').RodizioService} deps.rodizio
+ * @param {import('../retorno-fila/retorno-fila.service').RetornoFilaService} [deps.retornoFila]
  * @param {{ ultimoCicloUra(): number, ultimoCicloAtivo(): number }} deps.ciclos
  * @param {object} deps.logger
  */
-function criarRotasDoRodizio({ rodizio, ciclos, logger }) {
+function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
   async function health() {
     return {
       status: 200,
@@ -25,16 +29,23 @@ function criarRotasDoRodizio({ rodizio, ciclos, logger }) {
     };
   }
 
-  /** Webhook da Argus: só interessa o início de atendimento de um operador. */
-  async function webhook({ corpo }) {
+  /** Início de atendimento de um operador → rodízio (URA e robôs). */
+  function encaminharAoRodizio(corpo) {
     const evento = interpretarWebhook(corpo);
-    const ok = { status: 200, corpo: { ok: true } };
-    if (!evento) {
-      logger.debug(`Webhook ignorado (tipo ${corpo?.idTipoWebhook ?? '?'}).`);
-      return ok;
-    }
-    rodizio.registrarAtendimento(evento.ramal);
-    return ok;
+    if (evento) rodizio.registrarAtendimento(evento.ramal);
+  }
+
+  /** Encerramento de URA → retorno da fila. Não bloqueia a resposta à Argus. */
+  function encaminharAoRetorno(corpo) {
+    if (!retornoFila) return;
+    retornoFila.processar(corpo).catch((e) => logger.erro(`Retorno da fila falhou: ${e.message}`));
+  }
+
+  async function webhook({ corpo }) {
+    logger.debug(`Webhook recebido (tipo ${corpo?.idTipoWebhook ?? '?'}).`);
+    encaminharAoRodizio(corpo);
+    encaminharAoRetorno(corpo);
+    return { status: 200, corpo: { ok: true } };
   }
 
   return [

@@ -92,10 +92,19 @@ function transferir(dados, { idGrupoUsuarioDestino, ramaisOperadores = [] }) {
   };
 }
 
+// Quem está logado na simulação: ANA livre, CARLOS em atendimento, DIEGO em pausa.
+const STATUS_INICIAL = {
+  1001: { descricaoStatus: 'Livre', descricaoPausa: '' },
+  1002: { descricaoStatus: 'Em atendimento', descricaoPausa: '' },
+  1008: { descricaoStatus: 'Pausa', descricaoPausa: 'Almoço' },
+};
+
 class ArgusMockClient {
   constructor(logger) {
     this.log = logger;
     this.dados = criarDadosArgus();
+    this.status = new Map(Object.entries(structuredClone(STATUS_INICIAL)));
+    this.leads = [];
   }
 
   async listarGrupos() {
@@ -115,6 +124,29 @@ class ArgusMockClient {
     this.log.info(`[MOCK] Argus: ramal ${ramal} → grupo ${grupoDestinoId}: ${r.operadores[0].descStatus}`);
     if (r.operadores[0].codStatus !== 1) throw new Error(r.operadores[0].descStatus);
     return r;
+  }
+
+  async statusOperador(ramal) {
+    return this.status.get(String(ramal)) || null;
+  }
+
+  async deslogarOperador(ramal) {
+    this.log.info(`[MOCK] Argus: ramal ${ramal} deslogado`);
+    this.status.delete(String(ramal));
+    return { codStatus: 1, descStatus: 'Operador deslogado' };
+  }
+
+  async incluirLead(hashSkill, lead) {
+    const nrLead = this.leads.length + 1;
+    this.leads.push({ hashSkill, nrLead, ...lead });
+    this.log.info(`[MOCK] Argus: lead ${nrLead} (${lead.telefone1}) incluído na skill ${hashSkill}`);
+    return { codStatus: 1, descStatus: 'Lead incluído', nrLead, idLote: 1 };
+  }
+
+  async excluirLead(hashSkill, { codCliente }) {
+    const antes = this.leads.length;
+    this.leads = this.leads.filter((l) => !(l.hashSkill === hashSkill && l.codCliente === codCliente));
+    return { excluidos: antes - this.leads.length, items: [] };
   }
 }
 

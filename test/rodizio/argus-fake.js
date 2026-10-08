@@ -18,6 +18,7 @@ function criarArgusFake({ grupos, status }) {
     grupos: structuredClone(grupos),
     status: { ...status },
     chamadas: [],
+    leads: [],
     responderComStatusHttp: null, // ex.: 403 para simular token inválido
   };
 
@@ -48,6 +49,18 @@ function criarArgusFake({ grupos, status }) {
 
     deslogaroperador: () => ({ codStatus: 1, descStatus: 'Deslogado' }),
 
+    // Mailing: /apiargus/{hashSkill}/novo e /excluir
+    novo: (lead) => {
+      estado.leads.push(lead);
+      return { codStatus: 1, descStatus: 'Lead incluído', nrLead: estado.leads.length, idLote: 1 };
+    },
+
+    excluir: ({ codCliente }) => {
+      const antes = estado.leads.length;
+      estado.leads = estado.leads.filter((l) => l.codCliente !== codCliente);
+      return { items: [], count: antes - estado.leads.length };
+    },
+
     logaroperadorvirtual: ({ idGrupoUsuario }) => {
       const qtde = estado.grupos.find((g) => g.idGrupoUsuario === idGrupoUsuario)?.ramaisOperadores.length ?? 0;
       return { codStatus: 1, qtdeLogados: qtde, qtdeFalhas: 0 };
@@ -58,9 +71,11 @@ function criarArgusFake({ grupos, status }) {
     let corpo = '';
     req.on('data', (c) => { corpo += c; });
     req.on('end', () => {
-      const nome = req.url.split('?')[0].split('/').pop();
+      const segmentos = req.url.split('?')[0].split('/');
+      const nome = segmentos.pop();
       const dados = corpo ? JSON.parse(corpo) : {};
-      if (nome !== 'statusoperador' && nome !== 'listargrupos') estado.chamadas.push({ em: Date.now(), comando: nome, dados });
+      const skill = segmentos.pop(); // "cmd" nos comandos; o hash da skill no mailing
+      if (nome !== 'statusoperador' && nome !== 'listargrupos') estado.chamadas.push({ em: Date.now(), comando: nome, skill, dados });
 
       if (estado.responderComStatusHttp) {
         res.writeHead(estado.responderComStatusHttp).end('{}');

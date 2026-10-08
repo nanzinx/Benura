@@ -93,9 +93,9 @@ class ArgusClient {
   }
 
   /** POST com retry; erros de transporte viram ArgusError/ArgusAutenticacaoError/ArgusLimiteError. */
-  async enviar(nome, corpo, { timeoutMs = this.cfg.timeoutMs, tentativas = this.cfg.tentativas } = {}) {
+  async enviar(nome, corpo, { timeoutMs = this.cfg.timeoutMs, tentativas = this.cfg.tentativas, url } = {}) {
     this.exigirForaDaPausa(nome);
-    const requisicao = () => requisitar(`${this.cfg.baseUrl}/${nome}`, {
+    const requisicao = () => requisitar(url || `${this.cfg.baseUrl}/${nome}`, {
       metodo: 'POST',
       headers: { 'Token-Signature': this.cfg.token },
       corpo,
@@ -122,6 +122,35 @@ class ArgusClient {
     this.pausaAte = Date.now() + (this.cfg.pausaLimiteMs ?? 5000);
     this.log.aviso(`Argus pediu para desacelerar (HTTP 429). Pausa global até ${new Date(this.pausaAte).toISOString()}.`);
     return new ArgusLimiteError(nome, this.pausaAte);
+  }
+
+  // ───────────────────────────── Mailing ─────────────────────────────
+
+  /** URL de um comando de mailing: {base}/apiargus/{hashSkill}/{comando}. */
+  urlMailing(hashSkill, comando) {
+    if (!hashSkill) throw new ArgusError(`hashSkill ausente para /${comando}`, { comando });
+    return `${this.cfg.baseMailing}/${encodeURIComponent(hashSkill)}/${comando}`;
+  }
+
+  /**
+   * Inclui um lead unitário numa skill (doc 2.4). Só `telefone1` é obrigatório.
+   * @returns {Promise<{ nrLead: number, idLote: number }>}
+   */
+  async incluirLead(hashSkill, lead) {
+    const resposta = await this.enviar('novo', lead, { url: this.urlMailing(hashSkill, 'novo'), tentativas: 1 });
+    if (resposta?.codStatus === 1) return resposta;
+    throw recusa('novo', resposta);
+  }
+
+  /**
+   * Exclui leads de uma skill (doc 2.5) por nrLead, codCliente ou telefone.
+   * Esta rota responde { items, count } sem codStatus no topo.
+   * @returns {Promise<{ excluidos: number, items: object[] }>}
+   */
+  async excluirLead(hashSkill, filtro) {
+    const resposta = await this.enviar('excluir', filtro, { url: this.urlMailing(hashSkill, 'excluir') });
+    const items = Array.isArray(resposta?.items) ? resposta.items : [];
+    return { excluidos: resposta?.count ?? items.filter((i) => i.codStatus === 1).length, items };
   }
 
   // ───────────────────────────── Operadores ─────────────────────────────
