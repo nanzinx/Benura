@@ -5,16 +5,17 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  *  Este servidor simula:
- *  1. API do Site de Vendas (GET /api/vendedores, GET /api/vendedores/:ramal/vendas-hoje)
- *  2. API da Discadora Argus (POST /apiargus/cmd/transferiroperadorgrupo)
+ *  1. API do Carrossel (GET /ranking/vendedores)
+ *  2. API da Discadora Argus (POST /apiargus/cmd/listargrupos, /listarusuarios, /transferiroperadorgrupo)
  *
  *  Use para testar o roteador-vendas.js sem precisar das APIs reais.
  *
  *  COMO USAR:
  *    1. Inicie este mock:     node test/mock-vendas.js
- *    2. Em outro terminal:    USAR_MOCK=0 ARGUS_BASE=http://localhost:8081/apiargus/cmd \
- *                             SITE_VENDAS_URL=http://localhost:8081/api \
- *                             DRY_RUN=0 DEBUG=1 node roteador-vendas.js
+ *    2. Em outro terminal:    ARGUS_TOKEN=mock ARGUS_BASE=http://localhost:8081/apiargus/cmd \
+ *                             CARROSSEL_API_URL=http://localhost:8081 \
+ *                             GRUPO_URA_ID=2 GRUPOS_ATIVOS_IDS=1,3 \
+ *                             DEBUG=1 node roteador-vendas.js
  *
  *  Porta padrão: 8081
  */
@@ -23,36 +24,20 @@ const http = require('http');
 
 const PORT = Number(process.env.MOCK_PORT || 8081);
 
-// ── Dados mockados de vendedores ──
-const vendedoresOntem = [
-  { id: 1, nome: 'Ana Clara Souza',         ramal: '1001', equipe: 'Equipe Alpha', total_vendas: 72500.00 },
-  { id: 2, nome: 'Carlos Eduardo Lima',     ramal: '1002', equipe: 'Equipe Alpha', total_vendas: 55300.00 },
-  { id: 3, nome: 'Mariana Ferreira Costa',  ramal: '1003', equipe: 'Equipe Beta',  total_vendas: 98100.00 },
-  { id: 4, nome: 'Ricardo Mendes',          ramal: '1004', equipe: 'Equipe Beta',  total_vendas: 32000.00 },
-  { id: 5, nome: 'Juliana Alves',           ramal: '1005', equipe: 'Equipe Alpha', total_vendas: 15800.00 },
-  { id: 6, nome: 'Fernando Ribeiro',        ramal: '1006', equipe: 'Equipe Gamma', total_vendas: 48900.00 },
-  { id: 7, nome: 'Patrícia Santos',         ramal: '1007', equipe: 'Equipe Gamma', total_vendas: 0 },
-  { id: 8, nome: 'Diego Oliveira',          ramal: '1008', equipe: 'Equipe Beta',  total_vendas: 50000.00 },
-];
-
-// Simula vendas acontecendo ao longo do dia
-const vendasHoje = {};
+// ── API do Carrossel: mesmo formato e dados do cliente mock ──
+// Ricardo Mendes vende R$ 12.500 após 2 min; Juliana Alves R$ 3.200 após 5 min.
+// Os nomes batem com vendedores-ramais.example.json.
+const { montarRanking } = require('../src/integrations/carrossel/carrossel.mock-client');
 const inicio = Date.now();
-
-// Ricardo faz uma venda após 2 minutos
-setTimeout(() => {
-  vendasHoje['1004'] = 12500.00;
-  console.log(`[MOCK] 💰 Venda simulada: Ricardo Mendes (1004) → R$ 12.500,00`);
-}, 120000);
-
-// Juliana faz uma venda após 5 minutos
-setTimeout(() => {
-  vendasHoje['1005'] = 3200.00;
-  console.log(`[MOCK] 💰 Venda simulada: Juliana Alves (1005) → R$ 3.200,00`);
-}, 300000);
 
 // Registro de transferências realizadas (para verificação)
 const transferencias = [];
+
+// ── Argus: mesma simulação do cliente mock (src/integrations/argus/argus.mock-client.js) ──
+// Grupos: 1 GABRIEL - COMERCIAL e 3 MAYSA - COMERCIAL (Ativo), 2 URA, 9 TREINAMENTO.
+// Use GRUPO_URA_ID=2 GRUPOS_ATIVOS_IDS=1,3 no roteador.
+const { criarDadosArgus, gruposDe, transferir } = require('../src/integrations/argus/argus.mock-client');
+const argus = criarDadosArgus();
 
 http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -63,55 +48,35 @@ http.createServer((req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     // ══════════════════════════════════════════════════════════
-    // API de Vendas — GET /api/vendedores?data=YYYY-MM-DD
+    // API do Carrossel — GET /ranking/vendedores
     // ══════════════════════════════════════════════════════════
-    if (url.pathname === '/api/vendedores' && req.method === 'GET') {
-      const data = url.searchParams.get('data');
-      console.log(`[MOCK] GET /api/vendedores?data=${data}`);
-
-      // Retorna vendedores com vendas do dia solicitado
-      const hoje = new Date().toISOString().split('T')[0];
-      const dados = vendedoresOntem.map(v => ({
-        ...v,
-        total_vendas: data === hoje ? (vendasHoje[v.ramal] || 0) : v.total_vendas,
-      }));
-
+    if (url.pathname === '/ranking/vendedores' && req.method === 'GET') {
+      console.log('[MOCK] GET /ranking/vendedores');
       res.writeHead(200);
-      return res.end(JSON.stringify({ success: true, data: dados }));
+      return res.end(JSON.stringify(montarRanking(Date.now() - inicio)));
     }
 
     // ══════════════════════════════════════════════════════════
-    // API de Vendas — GET /api/vendedores/:ramal/vendas-hoje
+    // API Argus — POST /apiargus/cmd/{listargrupos|listarusuarios|transferiroperadorgrupo}
     // ══════════════════════════════════════════════════════════
-    const matchVendasHoje = url.pathname.match(/^\/api\/vendedores\/(\d+)\/vendas-hoje$/);
-    if (matchVendasHoje && req.method === 'GET') {
-      const ramal = matchVendasHoje[1];
-      const total = vendasHoje[ramal] || 0;
-      console.log(`[MOCK] GET /api/vendedores/${ramal}/vendas-hoje → R$ ${total}`);
-
+    if (url.pathname.endsWith('/listargrupos') && req.method === 'POST') {
       res.writeHead(200);
-      return res.end(JSON.stringify({ total_vendas_hoje: total }));
+      return res.end(JSON.stringify({ codStatus: 1, grupos: gruposDe(argus) }));
     }
 
-    // ══════════════════════════════════════════════════════════
-    // API Argus — POST /apiargus/cmd/transferiroperadorgrupo
-    // ══════════════════════════════════════════════════════════
-    if (url.pathname.endsWith('transferiroperadorgrupo') && req.method === 'POST') {
+    if (url.pathname.endsWith('/listarusuarios') && req.method === 'POST') {
+      res.writeHead(200);
+      return res.end(JSON.stringify({ codStatus: 1, usuarios: argus.usuarios }));
+    }
+
+    if (url.pathname.endsWith('/transferiroperadorgrupo') && req.method === 'POST') {
       const dados = body ? JSON.parse(body) : {};
-      const destino = dados.idGrupoUsuarioDestino === 2 ? 'URA' : 'ATIVO';
-      const ramais = dados.ramaisOperadores || [];
-
-      console.log(`[MOCK] ARGUS: Transferindo ${ramais.join(', ')} → ${destino} (grupo ${dados.idGrupoUsuarioDestino})`);
-
-      transferencias.push({
-        timestamp: new Date().toISOString(),
-        ramais,
-        destino,
-        grupoId: dados.idGrupoUsuarioDestino,
-      });
-
+      const resposta = transferir(argus, dados);
+      console.log(`[MOCK] ARGUS: ${(dados.ramaisOperadores || []).join(', ')} → grupo ${dados.idGrupoUsuarioDestino}`
+        + ` (${resposta.qtdeTransferidos} ok, ${resposta.qtdeFalhas} falha)`);
+      transferencias.push({ timestamp: new Date().toISOString(), ...dados, resposta });
       res.writeHead(200);
-      return res.end(JSON.stringify({ codStatus: 1, qtdeTransferidos: ramais.length }));
+      return res.end(JSON.stringify(resposta));
     }
 
     // ══════════════════════════════════════════════════════════
@@ -131,8 +96,9 @@ http.createServer((req, res) => {
   console.log(`  MOCK SERVER rodando em http://localhost:${PORT}`);
   console.log('═══════════════════════════════════════════════════════════');
   console.log('  Endpoints disponíveis:');
-  console.log(`  GET  /api/vendedores?data=YYYY-MM-DD   (vendas do dia)`);
-  console.log(`  GET  /api/vendedores/:ramal/vendas-hoje (vendas hoje)`);
+  console.log(`  GET  /ranking/vendedores               (Carrossel)`);
+  console.log(`  POST /apiargus/cmd/listargrupos`);
+  console.log(`  POST /apiargus/cmd/listarusuarios`);
   console.log(`  POST /apiargus/cmd/transferiroperadorgrupo`);
   console.log(`  GET  /transferencias                   (log de ações)`);
   console.log('');
