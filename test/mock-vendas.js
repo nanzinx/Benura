@@ -6,15 +6,15 @@
  *
  *  Este servidor simula:
  *  1. API do Site de Vendas (GET /api/vendedores, GET /api/vendedores/:ramal/vendas-hoje)
- *  2. API da Discadora Argus (POST /apiargus/cmd/transferiroperadorgrupo)
+ *  2. API da Discadora Argus (POST /apiargus/cmd/listargrupos e /transferiroperadorgrupo)
  *
  *  Use para testar o roteador-vendas.js sem precisar das APIs reais.
  *
  *  COMO USAR:
  *    1. Inicie este mock:     node test/mock-vendas.js
- *    2. Em outro terminal:    USAR_MOCK=0 ARGUS_BASE=http://localhost:8081/apiargus/cmd \
- *                             SITE_VENDAS_URL=http://localhost:8081/api \
- *                             DRY_RUN=0 DEBUG=1 node roteador-vendas.js
+ *    2. Em outro terminal:    ARGUS_TOKEN=mock ARGUS_BASE=http://localhost:8081/apiargus/cmd \
+ *                             CARROSSEL_API_URL=http://localhost:8081/api \
+ *                             DEBUG=1 node roteador-vendas.js
  *
  *  Porta padrão: 8081
  */
@@ -37,7 +37,6 @@ const vendedoresOntem = [
 
 // Simula vendas acontecendo ao longo do dia
 const vendasHoje = {};
-const inicio = Date.now();
 
 // Ricardo faz uma venda após 2 minutos
 setTimeout(() => {
@@ -53,6 +52,19 @@ setTimeout(() => {
 
 // Registro de transferências realizadas (para verificação)
 const transferencias = [];
+
+// Grupos da Argus: 1 = Ativo, 2 = URA, 9 = Treinamento (grupo "externo")
+// O ramal 1007 começa em Treinamento para simular um ajuste manual.
+const grupos = [
+  { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['1001', '1002', '1004', '1005', '1006', '1008'] },
+  { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['1003'] },
+  { idGrupoUsuario: 9, idTipoGrupo: 1, ramaisOperadores: ['1007'] },
+];
+
+function moverRamal(ramal, destinoId) {
+  for (const g of grupos) g.ramaisOperadores = g.ramaisOperadores.filter((r) => r !== ramal);
+  grupos.find((g) => g.idGrupoUsuario === destinoId)?.ramaisOperadores.push(ramal);
+}
 
 http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -70,7 +82,7 @@ http.createServer((req, res) => {
       console.log(`[MOCK] GET /api/vendedores?data=${data}`);
 
       // Retorna vendedores com vendas do dia solicitado
-      const hoje = new Date().toISOString().split('T')[0];
+      const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
       const dados = vendedoresOntem.map(v => ({
         ...v,
         total_vendas: data === hoje ? (vendasHoje[v.ramal] || 0) : v.total_vendas,
@@ -94,6 +106,14 @@ http.createServer((req, res) => {
     }
 
     // ══════════════════════════════════════════════════════════
+    // API Argus — POST /apiargus/cmd/listargrupos
+    // ══════════════════════════════════════════════════════════
+    if (url.pathname.endsWith('listargrupos') && req.method === 'POST') {
+      res.writeHead(200);
+      return res.end(JSON.stringify({ codStatus: 1, grupos }));
+    }
+
+    // ══════════════════════════════════════════════════════════
     // API Argus — POST /apiargus/cmd/transferiroperadorgrupo
     // ══════════════════════════════════════════════════════════
     if (url.pathname.endsWith('transferiroperadorgrupo') && req.method === 'POST') {
@@ -103,6 +123,7 @@ http.createServer((req, res) => {
 
       console.log(`[MOCK] ARGUS: Transferindo ${ramais.join(', ')} → ${destino} (grupo ${dados.idGrupoUsuarioDestino})`);
 
+      ramais.forEach((r) => moverRamal(String(r), dados.idGrupoUsuarioDestino));
       transferencias.push({
         timestamp: new Date().toISOString(),
         ramais,
@@ -133,6 +154,7 @@ http.createServer((req, res) => {
   console.log('  Endpoints disponíveis:');
   console.log(`  GET  /api/vendedores?data=YYYY-MM-DD   (vendas do dia)`);
   console.log(`  GET  /api/vendedores/:ramal/vendas-hoje (vendas hoje)`);
+  console.log(`  POST /apiargus/cmd/listargrupos`);
   console.log(`  POST /apiargus/cmd/transferiroperadorgrupo`);
   console.log(`  GET  /transferencias                   (log de ações)`);
   console.log('');

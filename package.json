@@ -1,0 +1,20 @@
+{
+  "name": "benura",
+  "version": "2.0.0",
+  "description": "Automações da discadora Argus: roteador de vendas (Carrossel ↔ URA) e rodízio Ativo/URA",
+  "private": true,
+  "main": "roteador-vendas.js",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node roteador-vendas.js",
+    "start:argus": "node argus-automacao.js",
+    "dev": "USAR_MOCK=1 DRY_RUN=1 DEBUG=1 POLL_VENDAS_MS=10000 node roteador-vendas.js",
+    "mock": "node test/mock-vendas.js",
+    "test": "node --test test/unit/*.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}
