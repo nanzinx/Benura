@@ -184,3 +184,44 @@ Sem configuração válida o roteador não sobe: o motivo aparece em `logs/rotea
 O desligamento é gracioso (o estado do dia é salvo antes de sair), inclusive no Windows.
 Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, use o pacote `pm2-installer`.
 
+## Esteira automática
+
+```
+push numa branch ──► CI (testes Linux + Windows + cenários)
+        │
+        └──► PR aberto sozinho para a main ──► merge automático quando CI verde + 1 aprovação
+                                                        │
+                       máquina de produção ◄────────────┘  atualizador busca a main a cada minuto
+                       (fora do expediente)                  testa, recarrega e confere o /health;
+                                                             se falhar, volta sozinho à versão anterior
+```
+
+- **Toda branch** entra na esteira, exceto `main` e `wip/**` (use `wip/` para rascunhos que não devem virar PR).
+- **CI** (`.github/workflows/ci.yml`): `unitarios-linux`, `unitarios-windows` e `cenarios` rodam em todo push e PR.
+- **PR automático** (`.github/workflows/pr-automatico.yml`): abre um PR por branch (uma vez) e liga o merge automático.
+  O merge só acontece com os três checks verdes **e** uma aprovação humana.
+- **Deploy** (`atualizador.js`): roda **na máquina de produção** e *busca* a `main` — não precisa de IP público, porta aberta nem SSH.
+  Só atualiza fora do expediente (dias úteis fora de `HORARIO_CARGA`–`HORARIO_FIM`; sábado e domingo livres).
+  Antes de recarregar, roda `npm test` na própria máquina; depois, espera o `/health` dos serviços. Qualquer falha volta ao commit anterior.
+  Não atualiza se houver alteração local em arquivo versionado ou se a cópia local divergiu da `main`.
+  Histórico em `logs/deploy.jsonl`; estado em `GET http://localhost:3002/health`.
+
+### Configuração única no GitHub (precisa de admin do repositório)
+1. **Settings → General → Pull Requests**: marque **Allow auto-merge** (e, se quiser, *Automatically delete head branches*).
+2. **Settings → Actions → General → Workflow permissions**: **Read and write permissions** e **Allow GitHub Actions to create and approve pull requests**.
+3. **Settings → Branches → Add branch protection rule** (ou *Rulesets*) para `main`:
+   - *Require a pull request before merging* → *Require approvals*: **1** → *Dismiss stale pull request approvals when new commits are pushed*;
+   - *Require status checks to pass*: `unitarios-linux`, `unitarios-windows`, `cenarios` (aparecem na busca depois do primeiro CI).
+4. **Settings → Secrets and variables → Actions → Variables**: crie `AUTO_MERGE_ATIVO` = `true` — **só depois do passo 3**.
+   Sem essa variável os PRs continuam abrindo sozinhos, mas o merge fica manual (trava de segurança).
+
+### Ligar o deploy quando houver produção
+Na máquina de produção (Windows ou Linux), com o repositório clonado, `.env` preenchido e os serviços no PM2:
+```bash
+npm run pm2:iniciar              # roteador + rodízio
+npm run atualizador:iniciar      # liga o deploy automático
+npm run atualizador:agora        # uma verificação agora (respeita a janela)
+npm run atualizador:agora -- --ignorar-janela   # emergência: atualiza mesmo no expediente
+npm run atualizador:parar        # desliga
+```
+

@@ -40,6 +40,7 @@ const envBool = (nome, padrao = false) => {
 };
 const semBarraFinal = (url) => url.replace(/\/+$/, '');
 const envListaNum = (nome) => env(nome, '').split(',').map((x) => x.trim()).filter(Boolean).map(Number);
+const envLista = (nome, padrao) => env(nome, padrao).split(',').map((x) => x.trim()).filter(Boolean);
 const envListaTexto = (nome, padrao) => env(nome, padrao).toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);
 
 /** Raiz do projeto: padrão dos arquivos do rodízio (mesmo lugar do argus-automacao.js original). */
@@ -147,6 +148,21 @@ function carregarConfig(overrides = {}) {
     arquivoAuditoria: env('AUDITORIA_FILE', path.join(process.cwd(), 'auditoria-cadastro.jsonl')),
   };
 
+  // --- Atualizador da produção (atualizador.js) ---
+  // Depois do objeto acima porque as URLs de saúde usam as portas dos serviços.
+  cfg.atualizador = {
+    diretorio: RAIZ,
+    branch: env('ATUALIZADOR_BRANCH', 'main'),
+    intervaloMs: envNum('ATUALIZADOR_INTERVALO_MS', 60_000),
+    apps: envLista('ATUALIZADOR_APPS', 'benura-roteador,benura-rodizio'),
+    healthUrls: envLista('ATUALIZADOR_HEALTH_URLS',
+      `http://localhost:${cfg.http.porta}/health,http://localhost:${cfg.rodizio.porta}/health`),
+    healthTimeoutMs: envNum('ATUALIZADOR_HEALTH_TIMEOUT_MS', 30_000),
+    porta: envNum('ATUALIZADOR_PORT', 3002),
+    arquivoLog: env('ATUALIZADOR_LOG_FILE', path.join(RAIZ, 'logs', 'deploy.jsonl')),
+    arquivoTrava: env('ATUALIZADOR_LOCK_FILE', path.join(RAIZ, 'atualizador.lock')),
+  };
+
   return Object.freeze(mesclarProfundo(cfg, overrides));
 }
 
@@ -194,6 +210,7 @@ function validarConfig(cfg, { escopo = 'roteador' } = {}) {
   }
 
   if (escopo === 'rodizio') return validarRodizio(cfg);
+  if (escopo === 'atualizador') return validarAtualizador(cfg, fatais);
   if (escopo === 'argus') {
     const relevantes = /ARGUS|GRUPO/;
     return { fatais: fatais.filter((f) => relevantes.test(f)), avisos: [] };
@@ -216,6 +233,25 @@ function validarRodizio(cfg) {
   if (r.tempoNaUraMs <= 0) fatais.push('TEMPO_MIN deve ser maior que zero.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: o webhook do rodízio aceita chamadas sem autenticação.');
   return { fatais, avisos };
+}
+
+const urlValida = (u) => {
+  try {
+    return Boolean(new URL(u));
+  } catch {
+    return false;
+  }
+};
+
+/** Validação do atualizador; reaproveita as checagens de horário e fuso já feitas. */
+function validarAtualizador(cfg, fataisGerais) {
+  const a = cfg.atualizador;
+  const fatais = fataisGerais.filter((f) => /HORARIO|FUSO/.test(f));
+  if (a.intervaloMs < 10_000) fatais.push('ATUALIZADOR_INTERVALO_MS deve ser de pelo menos 10000 (10 s).');
+  if (!a.apps.length) fatais.push('ATUALIZADOR_APPS vazio: informe os apps do PM2 a recarregar.');
+  const invalidas = a.healthUrls.filter((u) => !urlValida(u));
+  if (invalidas.length) fatais.push(`ATUALIZADOR_HEALTH_URLS com URL inválida: ${invalidas.join(', ')}`);
+  return { fatais, avisos: [] };
 }
 
 module.exports = { carregarConfig, validarConfig };

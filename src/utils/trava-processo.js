@@ -79,4 +79,25 @@ function criarTrava(caminho, reaproveitouOrfa) {
   };
 }
 
-module.exports = { adquirirTrava, TravaOcupadaError, processoVivo };
+/**
+ * Para serviços: adquire a trava ou encerra o processo com uma mensagem clara.
+ * Avisa quando reaproveita a trava de um processo que já morreu.
+ */
+function adquirirTravaOuEncerrar(caminho, logger) {
+  let trava;
+  try {
+    trava = adquirirTrava(caminho);
+  } catch (e) {
+    return encerrarSeOcupada(e, logger);
+  }
+  if (trava.reaproveitouOrfa) logger.aviso(`Trava órfã (PID ${trava.pidAnterior} não existe mais) reaproveitada: ${caminho}`);
+  return trava;
+}
+
+function encerrarSeOcupada(e, logger) {
+  if (!(e instanceof TravaOcupadaError)) throw e;
+  logger.erro(e.message);
+  return process.exit(1);
+}
+
+module.exports = { adquirirTrava, adquirirTravaOuEncerrar, TravaOcupadaError, processoVivo };

@@ -21,7 +21,10 @@
     "sim:parar": "pm2 delete ecosystem.simulacao.config.js",
     "pm2:iniciar": "pm2 start ecosystem.config.js",
     "pm2:parar": "pm2 delete ecosystem.config.js",
-    "test:cenarios": "node test/rodizio/cenarios.js"
+    "test:cenarios": "node test/rodizio/cenarios.js",
+    "atualizador:iniciar": "pm2 start ecosystem.atualizador.config.js",
+    "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",
+    "atualizador:agora": "node atualizador.js --uma-vez"
   },
   "dependencies": {
     "dotenv": "^16.4.5"

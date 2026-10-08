@@ -8,7 +8,7 @@ const { criarLogger } = require('../utils/logger');
 const { ArgusClient } = require('../integrations/argus/argus.client');
 const { criarServidor } = require('../http/server');
 const { executarPeriodicamente } = require('../utils/periodico');
-const { adquirirTrava, TravaOcupadaError } = require('../utils/trava-processo');
+const { adquirirTravaOuEncerrar } = require('../utils/trava-processo');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
 const { EstadoRodizioRepository } = require('./estado-rodizio.repository');
 const { Transferencias } = require('./transferencias');
@@ -49,24 +49,6 @@ function exigirConfigValida(cfg, log) {
 
   fatais.forEach((f) => log.erro(f));
   process.exit(1);
-}
-
-/** Garante instância única; outra instância viva encerra este processo. */
-function exigirTrava(caminho, log) {
-  let trava;
-  try {
-    trava = adquirirTrava(caminho);
-  } catch (e) {
-    return encerrarSeOcupada(e, log);
-  }
-  if (trava.reaproveitouOrfa) log.aviso(`Trava órfã (PID ${trava.pidAnterior} não existe mais) reaproveitada: ${caminho}`);
-  return trava;
-}
-
-function encerrarSeOcupada(e, log) {
-  if (!(e instanceof TravaOcupadaError)) throw e;
-  log.erro(e.message);
-  return process.exit(1);
 }
 
 /** Os três ciclos do rodízio, cada um sem sobreposição. */
@@ -113,7 +95,7 @@ async function iniciarRodizio() {
   const { cfg, cfgRodizio, log, rodizio } = app;
 
   exigirConfigValida(cfg, log);
-  const trava = exigirTrava(cfgRodizio.arquivoTrava, log);
+  const trava = adquirirTravaOuEncerrar(cfgRodizio.arquivoTrava, log);
   rodizio.inicializar();
   await lerGruposIniciais(rodizio, log);
 

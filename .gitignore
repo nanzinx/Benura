@@ -7,3 +7,4 @@ argus.lock
 auditoria*.jsonl
 logs/
 .simulacao/
+atualizador.lock
