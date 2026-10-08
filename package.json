@@ -11,11 +11,21 @@
     "start": "node roteador-vendas.js",
     "start:argus": "node argus-automacao.js",
     "cadastro": "node cadastrar-operador.js",
-    "dev": "USAR_MOCK=1 GRUPO_URA_ID=2 GRUPOS_ATIVOS_IDS=1,3 DEBUG=1 POLL_VENDAS_MS=10000 node roteador-vendas.js",
+    "dev": "node scripts/dev.js",
     "mock": "node test/mock-vendas.js",
-    "test": "node --test test/unit/*.test.js"
+    "test": "node --test test/unit/*.test.js",
+    "sim:iniciar": "node scripts/simulacao.js limpar && pm2 start ecosystem.simulacao.config.js",
+    "sim:logs": "pm2 logs /benura-/ --lines 40",
+    "sim:status": "node scripts/simulacao.js status",
+    "sim:venda": "node scripts/simulacao.js venda",
+    "sim:parar": "pm2 delete ecosystem.simulacao.config.js",
+    "pm2:iniciar": "pm2 start ecosystem.config.js",
+    "pm2:parar": "pm2 delete ecosystem.config.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "pm2": "^7.0.4"
   }
 }

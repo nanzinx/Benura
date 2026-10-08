@@ -10,12 +10,20 @@
 const path = require('path');
 const { METRICAS } = require('../integrations/carrossel/carrossel.mapper');
 
-// dotenv é opcional: se não estiver instalado, seguimos só com process.env.
-try {
-  require('dotenv').config();
-} catch {
-  /* dotenv ausente — sem problema */
+/**
+ * Carrega o .env, a menos que BENURA_SEM_DOTENV=1 (usado pela simulação no PM2
+ * para não misturar um .env de produção com a configuração simulada).
+ * dotenv é opcional: se não estiver instalado, seguimos só com process.env.
+ */
+function carregarDotenv() {
+  if (process.env.BENURA_SEM_DOTENV === '1') return;
+  try {
+    require('dotenv').config();
+  } catch {
+    /* dotenv ausente — sem problema */
+  }
 }
+carregarDotenv();
 
 const env = (nome, padrao = '') => {
   const v = process.env[nome];

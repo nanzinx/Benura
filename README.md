@@ -20,6 +20,7 @@ cp .env.example .env   # URL do Carrossel, token da Argus, GRUPO_URA_ID e GRUPOS
 npm start
 ```
 Desenvolvimento sem rede: `npm run dev` (Carrossel e Argus simulados em memória).
+Simulação completa com PM2: veja [Rodando com PM2](#rodando-com-pm2).
 Com mock HTTP de Carrossel + Argus: `npm run mock` e veja `.env.example`.
 Testes: `npm test`.
 
@@ -112,3 +113,45 @@ Saída em JSON com `--json`; código de saída 0 = ok, 2 = precisa de atenção,
 | POST | `/webhook/venda` | token | `{ "ramal": "1004", "valor": 1500 }` |
 
 Token: `Authorization: Bearer <WEBHOOK_TOKEN>` ou `X-Webhook-Token: <WEBHOOK_TOKEN>`.
+
+## Rodando com PM2
+
+O PM2 já vem como dependência de desenvolvimento: depois do `npm install`, os comandos abaixo funcionam
+sem instalar nada global (Windows, Linux ou macOS). Requer Node.js 22 LTS ou superior.
+
+### Simulação local (sem Carrossel nem Argus reais)
+
+Sobe dois processos: `benura-mock` (imita as APIs do Carrossel e da Argus na porta 8081) e
+`benura-roteador-sim` (o roteador de verdade, na porta 3001, apontando para o mock).
+O `.env` **não** é lido nessa simulação, então um `.env` de produção na pasta não interfere.
+
+```bash
+npm install
+npm run sim:iniciar              # sobe tudo (e limpa o estado da simulação anterior)
+npm run sim:status               # quem está na URA e no Ativo
+npm run sim:logs                 # acompanha os logs (Ctrl+C para sair)
+npm run sim:venda -- 1006 2500   # simula uma venda do ramal 1006 via webhook
+npm run sim:parar                # derruba tudo
+```
+
+O que acontece na simulação:
+1. **Carga inicial**: quem vendeu mais de R$ 50 mil "ontem" vai para a URA (1001, 1002, 1003); os demais ficam no Ativo, cada um no grupo do seu supervisor.
+2. **Após 2 min**: RICARDO MENDES (1004) vende no "Carrossel" e o roteador o sobe para a URA sozinho. **Após 5 min**: JULIANA ALVES (1005).
+3. **Webhook**: `sim:venda` promove na hora quem estiver no Ativo.
+
+Estado e logs da simulação ficam em `.simulacao/`. `npx pm2 monit` abre um painel com CPU, memória e logs.
+
+### Produção
+
+Usa o `.env` (copie de `.env.example`).
+
+```bash
+npm run pm2:iniciar      # sobe o benura-roteador
+npx pm2 logs benura-roteador
+npm run pm2:parar
+```
+
+Sem configuração válida o roteador não sobe: o motivo aparece em `logs/roteador.err.log` e o PM2 tenta de novo com espera crescente.
+O desligamento é gracioso (o estado do dia é salvo antes de sair), inclusive no Windows.
+Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, use o pacote `pm2-installer`.
+

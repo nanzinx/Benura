@@ -5,3 +5,5 @@ state*.json.bak
 state*.json.tmp
 argus.lock
 auditoria*.jsonl
+logs/
+.simulacao/

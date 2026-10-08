@@ -151,7 +151,9 @@ function registrarDesligamento({ log, agendador, servidor, roteamento }) {
     setTimeout(() => process.exit(codigo || 1), 10_000).unref();
     try {
       await agendador.parar();
-      await new Promise((r) => servidor.close(r));
+      const fechado = new Promise((r) => servidor.close(r));
+      servidor.closeIdleConnections?.(); // não espera conexões keep-alive ociosas
+      await fechado;
       await roteamento.repositorio.aguardarEscritas();
       log.info('Estado salvo. Até logo.');
     } catch (e) {
@@ -162,6 +164,8 @@ function registrarDesligamento({ log, agendador, servidor, roteamento }) {
 
   process.on('SIGINT', () => encerrar('SIGINT'));
   process.on('SIGTERM', () => encerrar('SIGTERM'));
+  // PM2 com shutdown_with_message (recomendado no Windows, onde não há SIGTERM).
+  process.on('message', (msg) => msg === 'shutdown' && encerrar('PM2 shutdown'));
   process.on('uncaughtException', (e) => {
     log.erro('Exceção não tratada:', e);
     encerrar('uncaughtException', 1);
