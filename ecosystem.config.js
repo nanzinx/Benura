@@ -2,9 +2,10 @@
 /**
  * PM2 — PRODUÇÃO
  *
- * Roda os dois serviços usando a configuração do arquivo .env:
+ * Roda os serviços usando a configuração do arquivo .env:
  *   benura-roteador  roteador de vendas (Carrossel → URA/Ativo)          porta PORT (3001)
- *   benura-rodizio   rodízio Ativo ↔ URA + robôs (argus-automacao.js)    porta RODIZIO_PORT (3000)
+ *   benura-rodizio   rodízio Ativo ↔ URA + robôs + retorno da fila       porta RODIZIO_PORT (3000)
+ *   benura-rotinas   rotinas diárias (fim de expediente)                 porta ROTINAS_PORT (3003)
  *
  *   npm run pm2:iniciar     (ou: npx pm2 start ecosystem.config.js)
  *   npx pm2 start ecosystem.config.js --only benura-rodizio   (só um deles)
@@ -48,6 +49,13 @@ module.exports = {
       script: 'argus-automacao.js',
       out_file: path.join(LOGS, 'rodizio.out.log'),
       error_file: path.join(LOGS, 'rodizio.err.log'),
+    },
+    {
+      ...comum,
+      name: 'benura-rotinas',
+      script: 'rotinas.js',
+      out_file: path.join(LOGS, 'rotinas.out.log'),
+      error_file: path.join(LOGS, 'rotinas.err.log'),
     },
   ],
 };

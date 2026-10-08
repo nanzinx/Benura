@@ -4,7 +4,8 @@
 |---|---|
 | `roteador-vendas.js` | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
 | `cadastrar-operador.js` | Prepara e confere o cadastro de operadores na Argus a partir do login no **Vanguard** |
-| `argus-automacao.js` | Rodízio Ativo ↔ URA por atendimento e liga/desliga dos robôs da URA (lógica em `src/rodizio/`) |
+| `argus-automacao.js` | Rodízio Ativo ↔ URA por atendimento, liga/desliga dos robôs da URA e retorno de quem desistiu da fila (lógica em `src/rodizio/` e `src/retorno-fila/`) |
+| `rotinas.js` | Rotinas diárias: fim de expediente limpo (lógica em `src/rotinas/`) |
 
 ## Roteador de Vendas
 
@@ -127,7 +128,7 @@ Token: `Authorization: Bearer <WEBHOOK_TOKEN>` ou `X-Webhook-Token: <WEBHOOK_TOK
 4. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
 
 ### Testes de comportamento
-`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em 15 cenários (ida, volta, robôs, webhook, correções).
+`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em 19 cenários (ida, volta, robôs, webhook, correções, retorno da fila).
 A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js` — foi assim que a
 refatoração foi comparada com o script original.
 
@@ -141,6 +142,48 @@ refatoração foi comparada com o script original.
 A porta e os arquivos passaram a ter nomes próprios, para rodar ao lado do roteador com o mesmo `.env`:
 `RODIZIO_PORT` (padrão 3000, antes `PORT`), `RODIZIO_STATE_FILE` (padrão `state.json`) e `RODIZIO_LOCK_FILE` (padrão `argus.lock`).
 As demais variáveis continuam com o mesmo nome. O `state.json` existente é aproveitado.
+
+## Retorno de quem desistiu da fila da URA
+
+O cliente que liga na URA e desiste de esperar é o lead mais quente que existe. O rodízio já recebe os webhooks
+da Argus em `POST /webhook`; com esta automação ligada, o webhook **tipo 5 (Encerramento de URA)** passa a:
+
+| Conclusão da URA | O que acontece |
+|---|---|
+| 2 ABANDONOU FILA, 3 SEM AGENTE, 4 TIME-OUT FILA | o telefone entra como lead na skill `RETORNO_SKILL_HASH`, com `origem = RETORNO_URA`, `info0` = motivo e `info1` = serviço da URA |
+| 1 DERIVOU (o cliente ligou de novo e foi atendido) | o retorno pendente desse telefone é **removido** da skill (`/excluir` pelo `codCliente`) |
+
+- **Sem duplicar**: o mesmo telefone gera um retorno só dentro de `RETORNO_JANELA_HORAS` (padrão 4 h), mesmo que ligue e desista várias vezes.
+- **Skill existente**: nenhuma skill nova é criada. Escolha uma skill (o hash aparece no `/listarskills` ou na tela da skill) e meça o resultado nos relatórios da Argus filtrando `origem = RETORNO_URA`.
+- **Ligações fora do horário** também viram retorno (`RETORNO_INCLUIR_FORA_HORARIO=true`); com `false`, são ignoradas.
+- Cada decisão vai para `logs/retorno-fila.jsonl` (incluído, duplicado, removido, falha). A Argus fora do ar nunca atrasa a resposta ao webhook.
+
+**Como ligar:**
+1. Na Argus, configure o webhook **Encerramento de URA (tipo 5)** para a mesma URL do rodízio: `http://SEU-SERVIDOR:3000/webhook?token=SEU_WEBHOOK_TOKEN`.
+2. No `.env`: `RETORNO_SKILL_HASH=<hash da skill>` e, para ensaiar, `DRY_RUN=1` (só registra o que faria).
+3. `RETORNO_FILA_ATIVO=true` e reinicie o `benura-rodizio`. Sem `RETORNO_SKILL_HASH` o rodízio não sobe e diz o motivo.
+
+## Fim de expediente limpo (`rotinas.js` / `benura-rotinas`)
+
+Todo dia, `FIM_EXPEDIENTE_MARGEM_MIN` minutos (padrão 10) depois de `HORARIO_FIM`, confere quem continua logado na Argus:
+
+- `FIM_EXPEDIENTE_ACAO=relatar` (padrão): só avisa a lista de quem ficou logado;
+- `FIM_EXPEDIENTE_ACAO=deslogar`: também desconecta quem está fora de atendimento.
+
+Quem está **em atendimento nunca é deslogado** (derrubaria a ligação do cliente): só aparece no aviso. Robôs
+(`GRUPO_ROBOS_URA_ID`), grupos virtuais e os ramais de plantão em `FIM_EXPEDIENTE_IGNORAR_RAMAIS` ficam de fora. Respeita `DRY_RUN`.
+
+O aviso sai pelo notificador (hoje: log do processo + `logs/notificacoes.jsonl`; o **BenHub** entra como outro
+adaptador quando a integração for definida) e o relatório completo vai para `logs/fim-expediente.jsonl`.
+
+```bash
+npm run rotinas:agora                 # confere se já está na hora e sai
+npm run rotinas:agora -- --forcar     # executa já, ignorando o horário
+# Ensaio sem Argus real (operadores simulados: 1001 livre, 1002 em atendimento, 1008 em pausa):
+USAR_MOCK=1 ARGUS_TOKEN=x FIM_EXPEDIENTE_ACAO=deslogar npm run rotinas:agora -- --forcar
+```
+
+No PowerShell, defina as variáveis antes: `$env:USAR_MOCK=1; $env:ARGUS_TOKEN='x'; npm run rotinas:agora -- --forcar`.
 
 ## Rodando com PM2
 
@@ -174,7 +217,7 @@ Estado e logs da simulação ficam em `.simulacao/`. `npx pm2 monit` abre um pai
 Usa o `.env` (copie de `.env.example`).
 
 ```bash
-npm run pm2:iniciar      # sobe o benura-roteador e o benura-rodizio
+npm run pm2:iniciar      # sobe o benura-roteador, o benura-rodizio e o benura-rotinas
 npx pm2 start ecosystem.config.js --only benura-rodizio   # só um deles
 npx pm2 logs
 npm run pm2:parar

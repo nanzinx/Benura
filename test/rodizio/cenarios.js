@@ -90,6 +90,8 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, env 
       STATE_FILE: path.join(pasta, 'state.json'),
       RODIZIO_STATE_FILE: path.join(pasta, 'state.json'),
       RODIZIO_LOCK_FILE: path.join(pasta, 'argus.lock'),
+      RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
+      RETORNO_LOG_FILE: path.join(pasta, 'logs', 'retorno-fila.jsonl'),
       ...env,
     },
   });
@@ -243,7 +245,54 @@ const CENARIOS = {
     await r.webhook({ idTipoWebhook: 5, FidConclusaoDerivacao: 1, codUsuarioIntegracao: '200' });
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { timeoutMs: 1200, descricao: 'deslogar após webhook' });
   },
+
+  // ── Retorno de quem desistiu da fila (novo: o script original não tem) ──
+
+  async 'Retorno: abandonou a fila → lead na skill com origem RETORNO_URA'(r) {
+    await r.webhook(encerramentoUra({ conclusao: 2 }));
+    await aguardar(() => r.chamadas('novo').length === 1, { descricao: 'POST /novo' });
+    const [{ skill, dados }] = r.chamadas('novo');
+    if (skill !== SKILL) throw new Error(`skill errada: ${skill}`);
+    if (dados.telefone1 !== '11987654321' || dados.origem !== 'RETORNO_URA' || dados.info0 !== 'ABANDONOU_FILA') {
+      throw new Error(`lead inesperado: ${JSON.stringify(dados)}`);
+    }
+  },
+
+  async 'Retorno: mesmo telefone desiste duas vezes → um lead só'(r) {
+    await r.webhook(encerramentoUra({ conclusao: 2 }));
+    await r.webhook(encerramentoUra({ conclusao: 4 }));
+    await aguardar(() => r.chamadas('novo').length >= 1, { descricao: 'POST /novo' });
+    await esperar(800);
+    if (r.chamadas('novo').length !== 1) throw new Error(`${r.chamadas('novo').length} leads incluídos`);
+  },
+
+  async 'Retorno: cliente liga de novo e é atendido → retorno removido'(r) {
+    await r.webhook(encerramentoUra({ conclusao: 2 }));
+    await aguardar(() => r.chamadas('novo').length === 1, { descricao: 'POST /novo' });
+    await r.webhook(encerramentoUra({ conclusao: 1 }));
+    await aguardar(() => r.chamadas('excluir').length === 1, { descricao: 'POST /excluir' });
+    const { codCliente } = r.chamadas('excluir')[0].dados;
+    if (codCliente !== r.chamadas('novo')[0].dados.codCliente) throw new Error(`codCliente diferente: ${codCliente}`);
+  },
+
+  async 'Retorno: desligado (padrão) → nada vai para o mailing'(r) {
+    await r.webhook(encerramentoUra({ conclusao: 2 }));
+    await esperar(800);
+    if (r.chamadas('novo').length) throw new Error('lead incluído com o retorno desligado');
+  },
 };
+
+const SKILL = 'hash-skill-retorno';
+const RETORNO_LIGADO = { env: { RETORNO_FILA_ATIVO: 'true', RETORNO_SKILL_HASH: SKILL } };
+
+/** Webhook "Encerramento de URA" (tipo 5) como a Argus envia. */
+const encerramentoUra = ({ conclusao }) => ({
+  idTipoWebhook: 5,
+  idConclusaoDerivacao: conclusao,
+  telefone: '5511987654321',
+  servicoDesc: 'CONSIGNADO',
+  dataInicioUra: '2026-10-08T10:00:00',
+});
 
 /** PID que certamente não existe (processo já encerrado). */
 function pidMorto() {
@@ -261,6 +310,9 @@ const VARIACOES = {
   'Correção: token inválido (HTTP 403) é reportado como erro de autenticação': {
     preparar: ({ argus }) => { argus.estado.responderComStatusHttp = 403; },
   },
+  'Retorno: abandonou a fila → lead na skill com origem RETORNO_URA': RETORNO_LIGADO,
+  'Retorno: mesmo telefone desiste duas vezes → um lead só': RETORNO_LIGADO,
+  'Retorno: cliente liga de novo e é atendido → retorno removido': RETORNO_LIGADO,
 };
 
 // ───────────────────────────── Execução ─────────────────────────────

@@ -68,4 +68,33 @@ class GravadorJsonAtomico {
   }
 }
 
-module.exports = { lerComBackup, GravadorJsonAtomico };
+/**
+ * Estado simples em JSON (objeto), com leitura tolerante e gravação atômica.
+ * Para estados pequenos de serviços (ex.: retornos pendentes, última execução de rotinas).
+ */
+class ArquivoDeEstado {
+  constructor({ arquivo, logger, padrao = {} }) {
+    this.arquivo = arquivo;
+    this.log = logger;
+    this.padrao = padrao;
+    this.gravador = new GravadorJsonAtomico(arquivo, logger);
+  }
+
+  /** @returns {object} estado salvo, ou o padrão. Nunca lança. */
+  carregar() {
+    const { dados, origem, erro } = lerComBackup(this.arquivo);
+    if (erro) this.log.aviso(`Não foi possível ler ${this.arquivo}: ${erro.message}`);
+    const valido = origem && dados && typeof dados === 'object' && !Array.isArray(dados);
+    return valido ? dados : structuredClone(this.padrao);
+  }
+
+  salvar(estado) {
+    return this.gravador.salvar(estado);
+  }
+
+  aguardar() {
+    return this.gravador.aguardar();
+  }
+}
+
+module.exports = { lerComBackup, GravadorJsonAtomico, ArquivoDeEstado };

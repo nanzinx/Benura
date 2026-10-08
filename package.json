@@ -24,7 +24,8 @@
     "test:cenarios": "node test/rodizio/cenarios.js",
     "atualizador:iniciar": "pm2 start ecosystem.atualizador.config.js",
     "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",
-    "atualizador:agora": "node atualizador.js --uma-vez"
+    "atualizador:agora": "node atualizador.js --uma-vez",
+    "rotinas:agora": "node rotinas.js --agora"
   },
   "dependencies": {
     "dotenv": "^16.4.5"

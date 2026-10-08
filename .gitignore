@@ -8,3 +8,4 @@ auditoria*.jsonl
 logs/
 .simulacao/
 atualizador.lock
+rotinas.lock

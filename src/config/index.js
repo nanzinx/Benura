@@ -78,6 +78,9 @@ function carregarConfig(overrides = {}) {
     // --- Discadora Argus ---
     argus: {
       baseUrl: semBarraFinal(env('ARGUS_BASE', 'https://argus.app.br/apiargus/cmd')),
+      // Comandos de mailing ficam em /apiargus/{hashSkill}/... (sem o /cmd).
+      baseMailing: semBarraFinal(env('ARGUS_BASE_MAILING',
+        semBarraFinal(env('ARGUS_BASE', 'https://argus.app.br/apiargus/cmd')).replace(/\/cmd$/, ''))),
       token: env('ARGUS_TOKEN'),
       grupoUraId: envNum('GRUPO_URA_ID', 2),
       // Grupos do Ativo (um por supervisor). Mesmo formato do argus-automacao.js.
@@ -154,13 +157,46 @@ function carregarConfig(overrides = {}) {
     diretorio: RAIZ,
     branch: env('ATUALIZADOR_BRANCH', 'main'),
     intervaloMs: envNum('ATUALIZADOR_INTERVALO_MS', 60_000),
-    apps: envLista('ATUALIZADOR_APPS', 'benura-roteador,benura-rodizio'),
-    healthUrls: envLista('ATUALIZADOR_HEALTH_URLS',
-      `http://localhost:${cfg.http.porta}/health,http://localhost:${cfg.rodizio.porta}/health`),
+    apps: envLista('ATUALIZADOR_APPS', 'benura-roteador,benura-rodizio,benura-rotinas'),
+    healthUrls: envLista('ATUALIZADOR_HEALTH_URLS', [cfg.http.porta, cfg.rodizio.porta, envNum('ROTINAS_PORT', 3003)]
+      .map((p) => `http://localhost:${p}/health`).join(',')),
     healthTimeoutMs: envNum('ATUALIZADOR_HEALTH_TIMEOUT_MS', 30_000),
     porta: envNum('ATUALIZADOR_PORT', 3002),
     arquivoLog: env('ATUALIZADOR_LOG_FILE', path.join(RAIZ, 'logs', 'deploy.jsonl')),
     arquivoTrava: env('ATUALIZADOR_LOCK_FILE', path.join(RAIZ, 'atualizador.lock')),
+  };
+
+  // --- Notificações (avisos e resumos) ---
+  cfg.notificacoes = {
+    tipo: env('NOTIFICADOR', 'log'),
+    arquivo: env('NOTIFICACOES_FILE', path.join(RAIZ, 'logs', 'notificacoes.jsonl')),
+  };
+
+  // --- Rotinas diárias (rotinas.js / benura-rotinas) ---
+  cfg.rotinas = {
+    porta: envNum('ROTINAS_PORT', 3003),
+    intervaloMs: envNum('ROTINAS_INTERVALO_MS', 60_000),
+    arquivoTrava: env('ROTINAS_LOCK_FILE', path.join(RAIZ, 'rotinas.lock')),
+    arquivoEstado: env('ROTINAS_STATE_FILE', path.join(RAIZ, 'state-rotinas.json')),
+    fimExpediente: {
+      ativo: envBool('FIM_EXPEDIENTE_ATIVO', true),
+      // relatar = só avisa quem ficou logado; deslogar = também desconecta
+      acao: env('FIM_EXPEDIENTE_ACAO', 'relatar'),
+      margemMin: envNum('FIM_EXPEDIENTE_MARGEM_MIN', 10),
+      ignorarRamais: envLista('FIM_EXPEDIENTE_IGNORAR_RAMAIS', ''),
+      arquivoLog: env('FIM_EXPEDIENTE_LOG_FILE', path.join(RAIZ, 'logs', 'fim-expediente.jsonl')),
+    },
+  };
+
+  // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---
+  cfg.retornoFila = {
+    ativo: envBool('RETORNO_FILA_ATIVO', false),
+    skillHash: env('RETORNO_SKILL_HASH', ''),
+    janelaHoras: envNum('RETORNO_JANELA_HORAS', 4),
+    incluirForaHorario: envBool('RETORNO_INCLUIR_FORA_HORARIO', true),
+    origem: env('RETORNO_ORIGEM', 'RETORNO_URA'),
+    arquivoEstado: env('RETORNO_STATE_FILE', path.join(RAIZ, 'state-retorno-fila.json')),
+    arquivoLog: env('RETORNO_LOG_FILE', path.join(RAIZ, 'logs', 'retorno-fila.jsonl')),
   };
 
   return Object.freeze(mesclarProfundo(cfg, overrides));
@@ -211,6 +247,7 @@ function validarConfig(cfg, { escopo = 'roteador' } = {}) {
 
   if (escopo === 'rodizio') return validarRodizio(cfg);
   if (escopo === 'atualizador') return validarAtualizador(cfg, fatais);
+  if (escopo === 'rotinas') return validarRotinas(cfg, fatais);
   if (escopo === 'argus') {
     const relevantes = /ARGUS|GRUPO/;
     return { fatais: fatais.filter((f) => relevantes.test(f)), avisos: [] };
@@ -232,7 +269,20 @@ function validarRodizio(cfg) {
   if (r.grupoRobosId === a.grupoUraId) fatais.push('GRUPO_ROBOS_URA_ID não pode ser igual a GRUPO_URA_ID.');
   if (r.tempoNaUraMs <= 0) fatais.push('TEMPO_MIN deve ser maior que zero.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: o webhook do rodízio aceita chamadas sem autenticação.');
+  if (cfg.retornoFila.ativo && !cfg.retornoFila.skillHash) {
+    fatais.push('RETORNO_FILA_ATIVO=true exige RETORNO_SKILL_HASH (hash da skill que recebe os retornos; veja /listarskills).');
+  }
+  if (cfg.retornoFila.janelaHoras <= 0) fatais.push('RETORNO_JANELA_HORAS deve ser maior que zero.');
   return { fatais, avisos };
+}
+
+/** Validação das rotinas diárias. */
+function validarRotinas(cfg, fataisGerais) {
+  const fatais = fataisGerais.filter((f) => /HORARIO|FUSO|ARGUS_TOKEN/.test(f));
+  const { fimExpediente: f } = cfg.rotinas;
+  if (!['relatar', 'deslogar'].includes(f.acao)) fatais.push(`FIM_EXPEDIENTE_ACAO inválida: "${f.acao}" (use relatar ou deslogar).`);
+  if (f.margemMin < 0 || f.margemMin > 180) fatais.push('FIM_EXPEDIENTE_MARGEM_MIN deve estar entre 0 e 180.');
+  return { fatais, avisos: [] };
 }
 
 const urlValida = (u) => {
