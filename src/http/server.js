@@ -28,26 +28,43 @@ function extrairToken(req) {
   return req.headers['x-webhook-token'] || null;
 }
 
-function lerCorpoJson(req, limiteBytes) {
-  return new Promise((resolve, reject) => {
-    let tamanho = 0;
-    const partes = [];
-    req.on('data', (chunk) => {
-      tamanho += chunk.length;
-      if (tamanho > limiteBytes) {
-        reject(new ErroHttp(413, 'Corpo da requisição muito grande'));
-        req.destroy();
-        return;
-      }
-      partes.push(chunk);
-    });
-    req.on('end', () => {
-      const texto = Buffer.concat(partes).toString('utf8');
-      if (!texto) return resolve(null);
-      try { resolve(JSON.parse(texto)); } catch { reject(new ErroHttp(400, 'JSON inválido')); }
-    });
-    req.on('error', reject);
-  });
+async function lerCorpoJson(req, limiteBytes) {
+  const partes = [];
+  let tamanho = 0;
+  for await (const chunk of req) {
+    tamanho += chunk.length;
+    if (tamanho > limiteBytes) {
+      req.destroy();
+      throw new ErroHttp(413, 'Corpo da requisição muito grande');
+    }
+    partes.push(chunk);
+  }
+
+  const texto = Buffer.concat(partes).toString('utf8');
+  if (!texto) return null;
+  try {
+    return JSON.parse(texto);
+  } catch {
+    throw new ErroHttp(400, 'JSON inválido');
+  }
+}
+
+function responder(res, status, corpo) {
+  if (res.headersSent) return;
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(corpo, null, 2));
+}
+
+function encontrarRota(rotas, req) {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  const rota = rotas.find((r) => r.metodo === req.method && r.caminho === pathname);
+  if (!rota) throw new ErroHttp(404, 'Rota não encontrada');
+  return rota;
+}
+
+function autorizar(rota, req, tokenAdmin) {
+  if (!rota.protegida || !tokenAdmin) return;
+  if (!tokenValido(extrairToken(req), tokenAdmin)) throw new ErroHttp(401, 'Token inválido ou ausente');
 }
 
 /**
@@ -58,38 +75,33 @@ function lerCorpoJson(req, limiteBytes) {
  * @returns {http.Server}
  */
 function criarServidor({ controllers, cfg, logger }) {
-  // [método, caminho, handler, protegida?]
   const rotas = [
-    ['GET', '/health', controllers.health, false],
-    ['GET', '/status', controllers.status, false],
-    ['POST', '/recarregar', controllers.recarregar, true],
-    ['POST', '/webhook/venda', controllers.webhookVenda, true],
+    { metodo: 'GET', caminho: '/health', handler: controllers.health },
+    { metodo: 'GET', caminho: '/status', handler: controllers.status },
+    { metodo: 'POST', caminho: '/recarregar', handler: controllers.recarregar, protegida: true },
+    { metodo: 'POST', caminho: '/webhook/venda', handler: controllers.webhookVenda, protegida: true },
   ];
 
+  /** Roteia, autoriza, lê o corpo e chama o controlador. Lança ErroHttp. */
+  async function atender(req) {
+    const rota = encontrarRota(rotas, req);
+    autorizar(rota, req, cfg.tokenAdmin);
+    const corpo = req.method === 'POST' ? await lerCorpoJson(req, cfg.limiteCorpoBytes) : null;
+    return rota.handler({ req, corpo });
+  }
+
+  function responderErro(req, res, e) {
+    if (e instanceof ErroHttp) return responder(res, e.status, { erro: e.message });
+    logger.erro(`Erro não tratado em ${req.method} ${req.url}:`, e);
+    return responder(res, 500, { erro: 'Erro interno' });
+  }
+
   return http.createServer(async (req, res) => {
-    const responder = (status, corpo) => {
-      if (res.headersSent) return;
-      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(corpo, null, 2));
-    };
-
     try {
-      const { pathname } = new URL(req.url, 'http://localhost');
-      const rota = rotas.find(([m, p]) => m === req.method && p === pathname);
-      if (!rota) throw new ErroHttp(404, 'Rota não encontrada');
-
-      const [, , handler, protegida] = rota;
-      if (protegida && cfg.tokenAdmin && !tokenValido(extrairToken(req), cfg.tokenAdmin)) {
-        throw new ErroHttp(401, 'Token inválido ou ausente');
-      }
-
-      const corpo = req.method === 'POST' ? await lerCorpoJson(req, cfg.limiteCorpoBytes) : null;
-      const { status, corpo: resposta } = await handler({ req, corpo });
-      responder(status, resposta);
+      const { status, corpo } = await atender(req);
+      responder(res, status, corpo);
     } catch (e) {
-      if (e instanceof ErroHttp) return responder(e.status, { erro: e.message });
-      logger.erro(`Erro não tratado em ${req.method} ${req.url}:`, e);
-      responder(500, { erro: 'Erro interno' });
+      responderErro(req, res, e);
     }
   });
 }

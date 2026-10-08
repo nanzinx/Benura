@@ -113,29 +113,27 @@ function imprimirConferencia(c) {
 
 // ───────────────────────────── Execução ─────────────────────────────
 
-async function main(argv) {
+/** @returns {{ args?: object, codigo?: number }} codigo definido = encerrar já */
+function interpretarLinhaDeComando(argv) {
   let args;
   try {
     args = lerArgumentos(argv);
   } catch (e) {
     console.error(`${e.message}\n${AJUDA}`);
-    return 1;
+    return { codigo: 1 };
   }
-  if (args.ajuda || !['planejar', 'conferir'].includes(args.comando) || !args.login) {
+
+  const valido = ['planejar', 'conferir'].includes(args.comando) && args.login;
+  if (args.ajuda || !valido) {
     console.error(AJUDA);
-    return args.ajuda ? 0 : 1;
+    return { codigo: args.ajuda ? 0 : 1 };
   }
+  return { args };
+}
 
-  const cfg = carregarConfig();
-  const log = criarLogger({ debug: cfg.debug, escopo: 'cadastro', tudoNoStderr: true });
-  const { fatais } = validarConfig(cfg, { escopo: 'argus' });
-  if (fatais.length) {
-    fatais.forEach((f) => log.erro(f));
-    return 1;
-  }
-
+function montarServico(args, cfg, log) {
   const { diretorio, discadora } = montarArgus(cfg, log);
-  const servico = new CadastroOperadorService({
+  return new CadastroOperadorService({
     fonteFuncionarios: new FonteFuncionarioManual({
       nome: args.nome, supervisor: args.supervisor, perfil: args.perfil, status: args.status,
     }),
@@ -145,18 +143,37 @@ async function main(argv) {
     cfg: cfg.argus,
     logger: log,
   });
+}
 
-  if (args.comando === 'planejar') {
-    const plano = await servico.planejar(args.login);
-    if (args.json) console.log(JSON.stringify(plano, null, 2));
-    else imprimirPlano(plano);
-    return plano.status === StatusPlano.PRONTO ? 0 : 2;
+const imprimir = (resultado, json, formatar) => (json ? console.log(JSON.stringify(resultado, null, 2)) : formatar(resultado));
+
+async function planejar(servico, args) {
+  const plano = await servico.planejar(args.login);
+  imprimir(plano, args.json, imprimirPlano);
+  return plano.status === StatusPlano.PRONTO ? 0 : 2;
+}
+
+async function conferir(servico, args) {
+  const conf = await servico.conferir(args.login, { corrigir: args.corrigir });
+  imprimir(conf, args.json, imprimirConferencia);
+  return [StatusConferencia.OK, StatusConferencia.CORRIGIDO].includes(conf.status) ? 0 : 2;
+}
+
+async function main(argv) {
+  const { args, codigo } = interpretarLinhaDeComando(argv);
+  if (!args) return codigo;
+
+  const cfg = carregarConfig();
+  const log = criarLogger({ debug: cfg.debug, escopo: 'cadastro', tudoNoStderr: true });
+  const { fatais } = validarConfig(cfg, { escopo: 'argus' });
+  if (fatais.length) {
+    fatais.forEach((f) => log.erro(f));
+    return 1;
   }
 
-  const conf = await servico.conferir(args.login, { corrigir: args.corrigir });
-  if (args.json) console.log(JSON.stringify(conf, null, 2));
-  else imprimirConferencia(conf);
-  return [StatusConferencia.OK, StatusConferencia.CORRIGIDO].includes(conf.status) ? 0 : 2;
+  const servico = montarServico(args, cfg, log);
+  const comandos = { planejar, conferir };
+  return comandos[args.comando](servico, args);
 }
 
 if (require.main === module) {

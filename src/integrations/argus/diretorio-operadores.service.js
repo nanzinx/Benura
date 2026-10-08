@@ -19,9 +19,9 @@
  * último snapshot válido continua sendo usado.
  */
 
-const fs = require('fs');
 const { normalizarNome, normalizarLogin } = require('../../utils/texto');
 const { TipoUsuario } = require('./argus.client');
+const { ArquivoJsonObservado } = require('../../utils/arquivo-json');
 
 class DiretorioIndisponivelError extends Error {
   constructor(mensagem, cause) {
@@ -51,6 +51,18 @@ function mapearUsuario(u) {
   };
 }
 
+/** Grupo com mais operadores; empate no topo = indefinido (null). */
+function grupoMajoritario(contagemPorGrupo) {
+  const [primeiro, segundo] = [...contagemPorGrupo].sort((a, b) => b[1] - a[1]);
+  if (segundo && segundo[1] === primeiro[1]) return null;
+  return primeiro[0];
+}
+
+/** { "NOME DO SUPERVISOR": idGrupo } → Map(chave normalizada → idGrupo). */
+const mapearExcecoesSupervisores = (bruto) => new Map(
+  Object.entries(bruto || {}).map(([nome, id]) => [normalizarNome(nome), Number(id)]),
+);
+
 /** Agrupa itens por chave, preservando todos (nomes podem repetir). */
 function indexar(itens, chaveDe) {
   const mapa = new Map();
@@ -76,7 +88,8 @@ class DiretorioOperadores {
     this.client = client;
     this.cfg = cfg;
     this.excecoesRamal = excecoesRamal;
-    this.arquivoSupervisoresGrupos = arquivoSupervisoresGrupos;
+    this.fonteExcecoesSup = new ArquivoJsonObservado(arquivoSupervisoresGrupos);
+    this.excecoesSup = new Map();
     this.log = logger;
     this.snapshot = null;
     this.carregadoEm = 0;
@@ -103,16 +116,25 @@ class DiretorioOperadores {
     if (!forcar && this.snapshot && fresco) return this;
 
     try {
-      const [usuariosCrus, grupos] = await Promise.all([this.client.listarUsuarios(), this.client.listarGrupos()]);
-      this.snapshot = this.montarSnapshot(usuariosCrus.map(mapearUsuario), grupos);
-      this.carregadoEm = Date.now();
-      this.log.debug(`Diretório Argus: ${this.snapshot.usuarios.length} usuário(s), ${grupos.length} grupo(s).`);
+      await this.recarregar();
     } catch (e) {
-      if (!this.snapshot) throw new DiretorioIndisponivelError(`Diretório de usuários da Argus indisponível: ${e.message}`, e);
-      this.log.aviso(`Falha ao atualizar o diretório da Argus (${e.message}); usando dados de ${new Date(this.carregadoEm).toISOString()}.`);
-      this.carregadoEm = Date.now(); // evita re-tentar a cada chamada
+      this.tratarFalhaDeCarga(e);
     }
     return this;
+  }
+
+  async recarregar() {
+    const [usuariosCrus, grupos] = await Promise.all([this.client.listarUsuarios(), this.client.listarGrupos()]);
+    this.snapshot = this.montarSnapshot(usuariosCrus.map(mapearUsuario), grupos);
+    this.carregadoEm = Date.now();
+    this.log.debug(`Diretório Argus: ${this.snapshot.usuarios.length} usuário(s), ${grupos.length} grupo(s).`);
+  }
+
+  /** Sem snapshot anterior, a falha é fatal; com snapshot, segue com ele. */
+  tratarFalhaDeCarga(e) {
+    if (!this.snapshot) throw new DiretorioIndisponivelError(`Diretório de usuários da Argus indisponível: ${e.message}`, e);
+    this.log.aviso(`Falha ao atualizar o diretório da Argus (${e.message}); usando dados de ${new Date(this.carregadoEm).toISOString()}.`);
+    this.carregadoEm = Date.now(); // evita re-tentar a cada chamada
   }
 
   montarSnapshot(usuarios, grupos) {
@@ -132,19 +154,21 @@ class DiretorioOperadores {
 
   /** Para cada supervisor, o grupo do Ativo com mais operadores dele (empate = indefinido). */
   inferirGruposDosSupervisores(operadores) {
+    const vinculosNoAtivo = operadores
+      .flatMap((op) => op.vinculos)
+      .filter((v) => v.idSupervisor != null && this.gruposAtivos.has(v.idGrupo));
+
     const contagem = new Map(); // idSupervisor → Map(idGrupo → qtde)
-    for (const op of operadores) {
-      for (const v of op.vinculos) {
-        if (v.idSupervisor == null || !this.gruposAtivos.has(v.idGrupo)) continue;
-        if (!contagem.has(v.idSupervisor)) contagem.set(v.idSupervisor, new Map());
-        const porGrupo = contagem.get(v.idSupervisor);
-        porGrupo.set(v.idGrupo, (porGrupo.get(v.idGrupo) || 0) + 1);
-      }
+    for (const v of vinculosNoAtivo) {
+      const porGrupo = contagem.get(v.idSupervisor) ?? new Map();
+      porGrupo.set(v.idGrupo, (porGrupo.get(v.idGrupo) || 0) + 1);
+      contagem.set(v.idSupervisor, porGrupo);
     }
+
     const resultado = new Map();
     for (const [idSupervisor, porGrupo] of contagem) {
-      const ordenado = [...porGrupo].sort((a, b) => b[1] - a[1]);
-      if (ordenado.length === 1 || ordenado[0][1] > ordenado[1][1]) resultado.set(idSupervisor, ordenado[0][0]);
+      const vencedor = grupoMajoritario(porGrupo);
+      if (vencedor != null) resultado.set(idSupervisor, vencedor);
     }
     return resultado;
   }
@@ -235,13 +259,17 @@ class DiretorioOperadores {
   grupoAtivoDoOperador(ramal) {
     const op = this.operadorPorRamal(ramal);
     if (!op) return null;
-    for (const v of op.vinculos) {
-      if (v.idSupervisor == null) continue;
-      const sup = this.usuarioPorId(v.idSupervisor);
-      const grupo = this.grupoDoSupervisor(sup || { idUsuario: v.idSupervisor, chave: normalizarNome(v.nomeSupervisor) });
-      if (grupo) return grupo.idGrupo;
-    }
-    return null;
+
+    const grupo = op.vinculos
+      .filter((v) => v.idSupervisor != null)
+      .map((v) => this.grupoDoSupervisor(this.supervisorDoVinculo(v)))
+      .find(Boolean);
+    return grupo?.idGrupo ?? null;
+  }
+
+  /** Supervisor de um vínculo; se não estiver no snapshot, usa o que o vínculo informa. */
+  supervisorDoVinculo(v) {
+    return this.usuarioPorId(v.idSupervisor) || { idUsuario: v.idSupervisor, chave: normalizarNome(v.nomeSupervisor) };
   }
 
   /** Todos os ramais em uso (qualquer usuário, ativo ou não). */
@@ -270,23 +298,14 @@ class DiretorioOperadores {
 
   /** Exceções supervisor → grupo (arquivo JSON opcional, relido a cada chamada se mudar). */
   lerExcecoesSupervisores() {
-    if (!this.arquivoSupervisoresGrupos) return new Map();
-    try {
-      const stat = fs.statSync(this.arquivoSupervisoresGrupos);
-      if (this.excecoesSup?.mtimeMs === stat.mtimeMs) return this.excecoesSup.mapa;
-      const bruto = JSON.parse(fs.readFileSync(this.arquivoSupervisoresGrupos, 'utf8'));
-      const mapa = new Map(Object.entries(bruto).map(([nome, id]) => [normalizarNome(nome), Number(id)]));
-      this.excecoesSup = { mtimeMs: stat.mtimeMs, mapa };
-      this.log.info(`Exceções supervisor → grupo carregadas: ${mapa.size}.`);
-      return mapa;
-    } catch (e) {
-      if (e.code === 'ENOENT') {
-        this.excecoesSup = null;
-        return new Map();
-      }
-      this.log.aviso(`Exceções supervisor → grupo inválidas (${e.message}); mantendo a versão anterior.`);
-      return this.excecoesSup?.mapa || new Map();
+    const { estado, dados, erro } = this.fonteExcecoesSup.verificar();
+    if (estado === 'ausente') this.excecoesSup = new Map();
+    if (estado === 'invalido') this.log.aviso(`Exceções supervisor → grupo inválidas (${erro.message}); mantendo a versão anterior.`);
+    if (estado === 'atualizado') {
+      this.excecoesSup = mapearExcecoesSupervisores(dados);
+      this.log.info(`Exceções supervisor → grupo carregadas: ${this.excecoesSup.size}.`);
     }
+    return this.excecoesSup;
   }
 }
 

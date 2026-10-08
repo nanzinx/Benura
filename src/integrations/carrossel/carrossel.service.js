@@ -51,28 +51,32 @@ class CarrosselService {
   async listarVendas(periodo, { permitirFallback = true } = {}) {
     let ranking;
     try {
-      const payload = await this.client.buscarRankingVendedores();
-      ranking = mapearRanking(payload, periodo, this.metrica);
+      ranking = mapearRanking(await this.client.buscarRankingVendedores(), periodo, this.metrica);
     } catch (e) {
-      const cache = this.ultimoValido.get(periodo);
-      if (permitirFallback && cache && Date.now() - cache.em <= this.validadeFallbackMs) {
-        this.log.aviso(`Carrossel indisponível (${e.message}); usando dados de ${new Date(cache.em).toISOString()}.`);
-        return { ...cache.resultado, origem: 'fallback' };
-      }
-      throw new CarrosselIndisponivelError(`Falha ao consultar vendas de "${periodo}" no Carrossel: ${e.message}`, e);
+      return this.usarFallback(periodo, e, permitirFallback);
     }
 
-    if (ranking.descartados > 0) {
-      this.log.aviso(`${ranking.descartados} registro(s) do Carrossel ignorado(s) por não terem nome.`);
-    }
-
+    if (ranking.descartados > 0) this.log.aviso(`${ranking.descartados} registro(s) do Carrossel ignorado(s) por não terem nome.`);
     this.log.debug(`Carrossel "${periodo}": ${ranking.vendedores.length} vendedor(es) (extração: ${ranking.ultimaExtracao}).`);
 
-    const resultado = {
-      vendedores: ranking.vendedores, diaOntem: ranking.diaOntem, ultimaExtracao: ranking.ultimaExtracao,
-    };
+    const resultado = { vendedores: ranking.vendedores, diaOntem: ranking.diaOntem, ultimaExtracao: ranking.ultimaExtracao };
     this.ultimoValido.set(periodo, { resultado, em: Date.now() });
     return { ...resultado, origem: 'api' };
+  }
+
+  /**
+   * Devolve o último resultado válido do período, se permitido e recente.
+   * @throws {CarrosselIndisponivelError} quando não há fallback utilizável
+   */
+  usarFallback(periodo, erro, permitido) {
+    const cache = this.ultimoValido.get(periodo);
+    const utilizavel = permitido && cache && Date.now() - cache.em <= this.validadeFallbackMs;
+    if (!utilizavel) {
+      throw new CarrosselIndisponivelError(`Falha ao consultar vendas de "${periodo}" no Carrossel: ${erro.message}`, erro);
+    }
+
+    this.log.aviso(`Carrossel indisponível (${erro.message}); usando dados de ${new Date(cache.em).toISOString()}.`);
+    return { ...cache.resultado, origem: 'fallback' };
   }
 }
 

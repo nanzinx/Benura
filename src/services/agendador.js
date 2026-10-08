@@ -36,21 +36,22 @@ class Agendador {
   }
 
   async tick() {
-    if (!this.dentroDoExpediente()) {
-      this.log.debug('Fora do expediente; aguardando.');
-      return;
-    }
+    if (!this.dentroDoExpediente()) return this.log.debug('Fora do expediente; aguardando.');
+
     try {
-      if (!this.roteamento.cargaInicialFeitaHoje()) {
-        await this.roteamento.executarCargaInicial();
-      } else {
-        const { promovidos } = await this.roteamento.monitorarVendas();
-        this.log.debug(`Ciclo de monitoramento concluído (${promovidos} promovido(s)).`);
-      }
+      await this.executarEtapaDoDia();
     } catch (e) {
       // Nenhuma falha de integração derruba o loop: registra e tenta no próximo tick.
       this.log.erro(e.message);
     }
+  }
+
+  /** Carga inicial enquanto não tiver sido feita hoje; depois, monitoramento. */
+  async executarEtapaDoDia() {
+    if (!this.roteamento.cargaInicialFeitaHoje()) return this.roteamento.executarCargaInicial();
+
+    const { promovidos } = await this.roteamento.monitorarVendas();
+    this.log.debug(`Ciclo de monitoramento concluído (${promovidos} promovido(s)).`);
   }
 
   iniciar() {

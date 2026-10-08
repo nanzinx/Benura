@@ -30,3 +30,32 @@ test('dentroDoIntervalo é inclusivo', () => {
   assert.ok(dentroDoIntervalo('18:00', '08:00', '18:00'));
   assert.ok(!dentroDoIntervalo('18:01', '08:00', '18:00'));
 });
+
+test('ArquivoJsonObservado: relê só quando muda e sinaliza ausente/inválido uma vez', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { ArquivoJsonObservado } = require('../../src/utils/arquivo-json');
+  const arquivo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'obs-')), 'a.json');
+  const tocar = (conteudo, segundos) => {
+    fs.writeFileSync(arquivo, conteudo);
+    const t = new Date(Date.now() + segundos * 1000);
+    fs.utimesSync(arquivo, t, t);
+  };
+  const obs = new ArquivoJsonObservado(arquivo);
+
+  assert.equal(obs.verificar().estado, 'ausente');
+  assert.equal(obs.verificar().estado, 'inalterado');
+
+  tocar('{"a":1}', 1);
+  assert.deepEqual(obs.verificar(), { estado: 'atualizado', dados: { a: 1 } });
+  assert.equal(obs.verificar().estado, 'inalterado');
+
+  tocar('{quebrado', 2);
+  assert.equal(obs.verificar().estado, 'invalido');
+  assert.equal(obs.verificar().estado, 'inalterado'); // não repete o erro
+
+  fs.unlinkSync(arquivo);
+  assert.equal(obs.verificar().estado, 'ausente');
+  assert.equal(new ArquivoJsonObservado('').verificar().estado, 'inalterado');
+});

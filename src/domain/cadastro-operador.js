@@ -54,6 +54,20 @@ const ehPerfilOperador = (perfil) => /OPERADOR/.test(normalizarNome(perfil));
 const ehStatusAtivo = (status) => !status || /^ATIVO$/.test(normalizarNome(status));
 
 /**
+ * Motivo pelo qual um funcionário do Vanguard não pode virar operador na Argus.
+ * @returns {string|null} null quando pode ser cadastrado
+ */
+function motivoDeBloqueio(funcionario) {
+  if (!funcionario?.nome) return 'Funcionário não encontrado no Vanguard (ou sem nome).';
+  if (!ehPerfilOperador(funcionario.perfil)) return `Perfil "${funcionario.perfil}" não é de operador.`;
+  if (!ehStatusAtivo(funcionario.status)) return `Funcionário está "${funcionario.status}" no Vanguard.`;
+  return null;
+}
+
+/** Nome no padrão da Argus: maiúsculas, espaços simples. */
+const nomeParaArgus = (nome) => String(nome).replace(/\s+/g, ' ').trim().toUpperCase();
+
+/**
  * Sugere o próximo "Ramal Integração": o maior ramal numérico em uso + 1.
  * Os ramais da Argus são sequenciais (ex.: 2266111, 2266112...).
  * É só uma sugestão — quem cadastra confirma no formulário.
@@ -63,6 +77,29 @@ function sugerirProximoRamal(ramaisEmUso) {
   return numeros.length ? String(Math.max(...numeros) + 1) : null;
 }
 
+/** Divergências do próprio usuário (independem de campanha). */
+function divergenciasDoUsuario(usuario) {
+  const divergencias = [];
+  if (!usuario.ativo) divergencias.push({ campo: 'status', esperado: 'ATIVO', atual: 'INATIVO' });
+  if (usuario.tipo !== 2) divergencias.push({ campo: 'tipo', esperado: 'Operador', atual: 'Administrativo' });
+  if (!usuario.ramal) divergencias.push({ campo: 'ramal', esperado: 'preenchido', atual: '(vazio)' });
+  return divergencias;
+}
+
+/** Divergências do vínculo com a campanha: grupo e supervisor. */
+function divergenciasDoVinculo(vinculo, esperado) {
+  if (!vinculo) return [{ campo: 'campanha', esperado: 'vinculado a uma campanha', atual: '(nenhuma)' }];
+
+  const divergencias = [];
+  if (esperado.idGrupo != null && vinculo.idGrupo !== esperado.idGrupo) {
+    divergencias.push({ campo: 'grupo', esperado: esperado.idGrupo, atual: vinculo.idGrupo });
+  }
+  if (esperado.idSupervisor != null && vinculo.idSupervisor !== esperado.idSupervisor) {
+    divergencias.push({ campo: 'supervisor', esperado: esperado.idSupervisor, atual: vinculo.idSupervisor });
+  }
+  return divergencias;
+}
+
 /**
  * Compara o cadastro existente na Argus com o esperado.
  * @param {object} usuario - Usuário da Argus (modelo do DiretorioOperadores)
@@ -70,27 +107,27 @@ function sugerirProximoRamal(ramaisEmUso) {
  * @returns {{ vinculo: object|null, divergencias: Array<{ campo, esperado, atual }> }}
  */
 function compararCadastro(usuario, esperado) {
-  const divergencias = [];
-  if (!usuario.ativo) divergencias.push({ campo: 'status', esperado: 'ATIVO', atual: 'INATIVO' });
-  if (usuario.tipo !== 2) divergencias.push({ campo: 'tipo', esperado: 'Operador', atual: 'Administrativo' });
-  if (!usuario.ramal) divergencias.push({ campo: 'ramal', esperado: 'preenchido', atual: '(vazio)' });
-
   // Vínculo relevante: o do grupo esperado; senão o primeiro com grupo.
   const vinculo = usuario.vinculos.find((v) => v.idGrupo === esperado.idGrupo)
     || usuario.vinculos.find((v) => v.idGrupo != null)
     || null;
 
-  if (!vinculo) {
-    divergencias.push({ campo: 'campanha', esperado: 'vinculado a uma campanha', atual: '(nenhuma)' });
-  } else {
-    if (esperado.idGrupo != null && vinculo.idGrupo !== esperado.idGrupo) {
-      divergencias.push({ campo: 'grupo', esperado: esperado.idGrupo, atual: vinculo.idGrupo });
-    }
-    if (esperado.idSupervisor != null && vinculo.idSupervisor !== esperado.idSupervisor) {
-      divergencias.push({ campo: 'supervisor', esperado: esperado.idSupervisor, atual: vinculo.idSupervisor });
-    }
-  }
-  return { vinculo, divergencias };
+  return {
+    vinculo,
+    divergencias: [...divergenciasDoUsuario(usuario), ...divergenciasDoVinculo(vinculo, esperado)],
+  };
+}
+
+/**
+ * Status final da conferência.
+ * @param {{ divergencias: object[], corrigido?: boolean }} conferencia
+ * @param {{ idGrupo: number|null, idSupervisor: number|null }} esperado
+ */
+function statusDaConferencia({ divergencias, corrigido }, esperado) {
+  if (divergencias.length) return StatusConferencia.DIVERGENTE;
+  if (esperado.idGrupo == null || esperado.idSupervisor == null) return StatusConferencia.INCONCLUSIVO;
+  if (corrigido) return StatusConferencia.CORRIGIDO;
+  return StatusConferencia.OK;
 }
 
 module.exports = {
@@ -100,6 +137,9 @@ module.exports = {
   interpretarLoginVanguard,
   ehPerfilOperador,
   ehStatusAtivo,
+  motivoDeBloqueio,
+  nomeParaArgus,
   sugerirProximoRamal,
   compararCadastro,
+  statusDaConferencia,
 };

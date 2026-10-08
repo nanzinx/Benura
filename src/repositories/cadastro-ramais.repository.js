@@ -15,8 +15,13 @@
  * normalizados. O arquivo é relido automaticamente quando muda no disco.
  */
 
-const fs = require('fs');
 const { normalizarNome } = require('../utils/texto');
+const { ArquivoJsonObservado } = require('../utils/arquivo-json');
+
+/** Converte os dois formatos aceitos em pares [nome, ramal]. */
+const paresNomeRamal = (bruto) => (Array.isArray(bruto)
+  ? bruto.map((x) => [x?.nome, x?.ramal])
+  : Object.entries(bruto || {}));
 
 class CadastroRamaisRepository {
   /**
@@ -26,8 +31,8 @@ class CadastroRamaisRepository {
    */
   constructor({ arquivo, logger }) {
     this.arquivo = arquivo;
+    this.fonte = new ArquivoJsonObservado(arquivo);
     this.log = logger;
-    this.mtimeMs = -1;
     /** @type {Map<string, { nome: string, ramal: string }>} chave normalizada → registro */
     this.porChave = new Map();
   }
@@ -37,50 +42,51 @@ class CadastroRamaisRepository {
    * cadastro válido em memória (uma edição malfeita não derruba o roteador).
    */
   atualizar() {
-    let stat;
-    try {
-      stat = fs.statSync(this.arquivo);
-    } catch (e) {
-      if (this.mtimeMs !== 0) {
-        if (e.code !== 'ENOENT') this.log.aviso(`Não foi possível ler ${this.arquivo} (${e.code}).`);
-        else if (this.porChave.size) this.log.info(`${this.arquivo} removido; sem exceções de ramal.`);
-        this.porChave = new Map();
-        this.mtimeMs = 0;
-      }
+    const { estado, dados, erro } = this.fonte.verificar();
+    if (estado === 'inalterado') return this;
+    if (estado === 'ausente') return this.limpar(erro);
+
+    if (estado === 'invalido') {
+      this.log.erro(`Cadastro de ramais inválido (${erro.message}). Mantendo a versão anterior (${this.porChave.size} vendedores).`);
       return this;
     }
-    if (stat.mtimeMs === this.mtimeMs) return this;
 
-    try {
-      const bruto = JSON.parse(fs.readFileSync(this.arquivo, 'utf8'));
-      const entradas = Array.isArray(bruto)
-        ? bruto.map((x) => [x?.nome, x?.ramal])
-        : Object.entries(bruto || {});
+    this.porChave = this.montarMapa(dados);
+    this.log.info(`Exceções de ramal carregadas: ${this.porChave.size} vendedor(es).`);
+    return this;
+  }
 
-      const mapa = new Map();
-      const ramaisVistos = new Map();
-      for (const [nome, ramal] of entradas) {
-        const chave = normalizarNome(nome);
-        const r = String(ramal ?? '').trim();
-        if (!chave || !r) {
-          this.log.aviso(`Cadastro de ramais: entrada ignorada (nome="${nome}", ramal="${ramal}").`);
-          continue;
-        }
-        if (ramaisVistos.has(r) && ramaisVistos.get(r) !== chave) {
-          this.log.aviso(`Cadastro de ramais: ramal ${r} usado por mais de um vendedor (${ramaisVistos.get(r)} e ${chave}).`);
-        }
-        ramaisVistos.set(r, chave);
-        mapa.set(chave, { nome: String(nome).trim(), ramal: r });
+  limpar(erro) {
+    this.logarRemocao(erro);
+    this.porChave = new Map();
+    return this;
+  }
+
+  logarRemocao(erro) {
+    if (erro) return this.log.aviso(`Não foi possível ler ${this.arquivo} (${erro.code || erro.message}).`);
+    if (this.porChave.size) return this.log.info(`${this.arquivo} removido; sem exceções de ramal.`);
+    return undefined;
+  }
+
+  montarMapa(bruto) {
+    const mapa = new Map();
+    const donoDoRamal = new Map();
+
+    for (const [nome, ramal] of paresNomeRamal(bruto)) {
+      const chave = normalizarNome(nome);
+      const r = String(ramal ?? '').trim();
+      if (!chave || !r) {
+        this.log.aviso(`Cadastro de ramais: entrada ignorada (nome="${nome}", ramal="${ramal}").`);
+        continue;
       }
 
-      this.porChave = mapa;
-      this.mtimeMs = stat.mtimeMs;
-      this.log.info(`Exceções de ramal carregadas: ${mapa.size} vendedor(es).`);
-    } catch (e) {
-      this.log.erro(`Cadastro de ramais inválido (${e.message}). Mantendo a versão anterior (${this.porChave.size} vendedores).`);
-      this.mtimeMs = stat.mtimeMs; // não tenta reler o mesmo arquivo quebrado a cada ciclo
+      const dono = donoDoRamal.get(r);
+      if (dono && dono !== chave) this.log.aviso(`Cadastro de ramais: ramal ${r} usado por mais de um vendedor (${dono} e ${chave}).`);
+
+      donoDoRamal.set(r, chave);
+      mapa.set(chave, { nome: String(nome).trim(), ramal: r });
     }
-    return this;
+    return mapa;
   }
 
   /** @returns {string|null} Ramal do vendedor, ou null se não cadastrado. */

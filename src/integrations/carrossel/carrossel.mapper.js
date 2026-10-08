@@ -62,6 +62,20 @@ function mapearVendedor(raw, metrica) {
   };
 }
 
+/** Soma os totais por nome normalizado, caso o mesmo agente apareça mais de uma vez. */
+function somarPorNome(vendedores) {
+  const porChave = new Map();
+  for (const v of vendedores) {
+    const existente = porChave.get(v.chave);
+    if (existente) {
+      existente.totalVendas += v.totalVendas;
+      continue;
+    }
+    porChave.set(v.chave, { ...v });
+  }
+  return [...porChave.values()];
+}
+
 /**
  * Extrai e normaliza um período da resposta de /ranking/vendedores.
  *
@@ -83,22 +97,14 @@ function mapearRanking(payload, periodo, metrica) {
     throw new RespostaCarrosselInvalidaError(`Resposta do Carrossel sem a lista "${periodo}".`);
   }
 
-  // Soma por nome normalizado, caso o mesmo agente apareça mais de uma vez.
-  const porChave = new Map();
-  let descartados = 0;
-  for (const raw of payload[periodo]) {
-    const v = mapearVendedor(raw, metrica);
-    if (!v) { descartados++; continue; }
-    const existente = porChave.get(v.chave);
-    if (existente) existente.totalVendas += v.totalVendas;
-    else porChave.set(v.chave, v);
-  }
+  const mapeados = payload[periodo].map((raw) => mapearVendedor(raw, metrica));
+  const validos = mapeados.filter(Boolean);
 
   return {
-    vendedores: [...porChave.values()],
+    vendedores: somarPorNome(validos),
     ultimaExtracao: payload.ultimaExtracao ?? null,
     diaOntem: payload.diaOntem ?? null,
-    descartados,
+    descartados: mapeados.length - validos.length,
   };
 }
 

@@ -85,35 +85,54 @@ function criarApp(overrides) {
   return { cfg, log, argusClient, diretorio, discadora, roteamento, agendador, servidor };
 }
 
-/** Inicia a aplicação. Encerra o processo se a configuração for inválida. */
-async function iniciar() {
-  const app = criarApp();
-  const { cfg, log, diretorio, discadora, roteamento, agendador, servidor } = app;
-
+/** Loga avisos e encerra o processo se houver problema fatal na configuração. */
+function exigirConfigValida(cfg, log) {
   const { fatais, avisos } = validarConfig(cfg);
   avisos.forEach((a) => log.aviso(a));
-  if (fatais.length) {
-    fatais.forEach((f) => log.erro(f));
-    process.exit(1);
-  }
+  if (!fatais.length) return;
 
+  fatais.forEach((f) => log.erro(f));
+  process.exit(1);
+}
+
+function logarResumo(cfg, log) {
+  const carrossel = cfg.usarMock ? 'MOCK' : cfg.carrossel.baseUrl + cfg.carrossel.rotaRanking;
+  const argus = (cfg.usarMock ? 'MOCK' : cfg.argus.baseUrl) + (cfg.argus.dryRun ? ' (DRY_RUN)' : '');
   log.info('Roteador de Vendas — Carrossel ↔ Argus');
   log.info(`Meta: ${formatarReais(cfg.regras.metaDiaria)} | Expediente: ${cfg.agenda.horarioCarga}–${cfg.agenda.horarioFim} | `
     + `Grupos Ativo: ${cfg.argus.gruposAtivosIds.join(',')} | URA: ${cfg.argus.grupoUraId} | `
-    + `Carrossel: ${cfg.usarMock ? 'MOCK' : cfg.carrossel.baseUrl + cfg.carrossel.rotaRanking} (${cfg.carrossel.metrica}) | Argus: ${cfg.usarMock ? 'MOCK' : cfg.argus.baseUrl}${cfg.argus.dryRun ? ' (DRY_RUN)' : ''}`);
+    + `Carrossel: ${carrossel} (${cfg.carrossel.metrica}) | Argus: ${argus}`);
+}
 
-  roteamento.inicializar();
+/** Pré-carrega o diretório e confere os grupos; a Argus fora do ar não impede o boot. */
+async function aquecerArgus({ diretorio, discadora, log }) {
   try {
     await diretorio.atualizar({ forcar: true });
   } catch (e) {
     log.aviso(`${e.message}. O roteador seguirá tentando nos próximos ciclos.`);
   }
   await discadora.verificarGruposConfigurados();
+}
 
-  await new Promise((resolve, reject) => {
+function escutar(servidor, porta) {
+  return new Promise((resolve, reject) => {
     servidor.once('error', reject);
-    servidor.listen(cfg.http.porta, resolve);
+    servidor.listen(porta, resolve);
   });
+}
+
+/** Inicia a aplicação. Encerra o processo se a configuração for inválida. */
+async function iniciar() {
+  const app = criarApp();
+  const { cfg, log, roteamento, agendador, servidor } = app;
+
+  exigirConfigValida(cfg, log);
+  logarResumo(cfg, log);
+
+  roteamento.inicializar();
+  await aquecerArgus(app);
+
+  await escutar(servidor, cfg.http.porta);
   log.info(`HTTP na porta ${cfg.http.porta}: GET /health, GET /status, POST /recarregar, POST /webhook/venda`);
 
   agendador.iniciar();

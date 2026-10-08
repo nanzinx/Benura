@@ -28,6 +28,40 @@ class CargaInicialError extends Error {
   }
 }
 
+/** Executa `fn`; qualquer falha adia a carga inicial (o agendador tenta de novo). */
+async function adiarSeFalhar(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    throw new CargaInicialError(`Carga inicial adiada: ${e.message}`, e);
+  }
+}
+
+/** Registro de um vendedor no estado do dia. */
+const novoRegistro = (campos) => ({
+  nome: null,
+  equipe: 'Sem equipe',
+  vendaOntem: null,
+  fila: Fila.ATIVO,
+  promovidoNoDia: false,
+  vendaQueDisparou: null,
+  sincronizado: false,
+  tentativasSync: 0,
+  ultimoResultado: null,
+  atualizadoEm: null,
+  ...campos,
+});
+
+const motivoDaCarga = (fila, venda) => (fila === Fila.URA
+  ? `meta batida ontem (${formatarReais(venda)})`
+  : `abaixo da meta ontem (${formatarReais(venda)})`);
+
+/** "grupo anterior: 1, destino: 3" — só o que for informativo. */
+const descreverGrupos = (anterior, destino) => [
+  anterior != null ? `grupo anterior: ${anterior}` : null,
+  destino != null && destino !== anterior ? `destino: ${destino}` : null,
+].filter(Boolean).join(', ');
+
 class RoteamentoService {
   /**
    * @param {object} deps
@@ -87,67 +121,56 @@ class RoteamentoService {
    * @throws {CargaInicialError}
    */
   executarCargaInicial() {
-    return this.exclusivo(async () => {
-      let vendasOntem;
-      try {
-        vendasOntem = await this.carrossel.listarVendas('ontem', { permitirFallback: false });
-      } catch (e) {
-        throw new CargaInicialError(`Carga inicial adiada: ${e.message}`, e);
-      }
-      // O dia útil anterior sempre tem vendas; lista vazia indica relatórios
-      // ausentes no Carrossel (scraper falhou), não um dia sem vendas.
-      if (vendasOntem.vendedores.length === 0) {
-        throw new CargaInicialError('Carga inicial adiada: o Carrossel não retornou vendas do dia anterior.');
-      }
+    return this.exclusivo(() => this.cargaInicial());
+  }
 
-      let vendedores;
-      try {
-        vendedores = await this.montarUniversoDoDia(vendasOntem.vendedores);
-      } catch (e) {
-        throw new CargaInicialError(`Carga inicial adiada: ${e.message}`, e);
-      }
-      if (vendedores.length === 0) {
-        throw new CargaInicialError('Carga inicial adiada: nenhum vendedor identificado na Argus.');
-      }
+  async cargaInicial() {
+    const vendasOntem = await this.buscarVendasOntem();
+    const vendedores = await this.montarUniversoOuAdiar(vendasOntem.vendedores);
 
-      this.log.info(`Carga inicial: vendas de ${vendasOntem.diaOntem || 'ontem (dia útil anterior)'}, `
-        + `meta ${formatarReais(this.regras.metaDiaria)}, extração do Carrossel: ${vendasOntem.ultimaExtracao}.`);
+    this.log.info(`Carga inicial: vendas de ${vendasOntem.diaOntem || 'ontem (dia útil anterior)'}, `
+      + `meta ${formatarReais(this.regras.metaDiaria)}, extração do Carrossel: ${vendasOntem.ultimaExtracao}.`);
 
-      const { ura, ativo } = distribuirCargaInicial(vendedores, this.regras.metaDiaria);
-      this.log.info(`${vendedores.length} vendedor(es): ${ura.length} → URA, ${ativo.length} → Ativo.`);
+    const { ura, ativo } = distribuirCargaInicial(vendedores, this.regras.metaDiaria);
+    this.log.info(`${vendedores.length} vendedor(es): ${ura.length} → URA, ${ativo.length} → Ativo.`);
 
-      const novoEstado = { ...estadoVazio(), data: this.relogio.hoje() };
-      let falhas = 0;
+    const { estado, falhas } = await this.aplicarDistribuicao(ura, ativo);
+    this.estado = estado;
+    await this.repositorio.salvar(this.estado);
 
-      for (const [lista, fila] of [[ura, Fila.URA], [ativo, Fila.ATIVO]]) {
-        for (const v of lista) {
-          const registro = {
-            nome: v.nome,
-            equipe: v.equipe,
-            vendaOntem: v.totalVendas,
-            fila,
-            promovidoNoDia: false,
-            vendaQueDisparou: null,
-            sincronizado: false,
-            tentativasSync: 0,
-            ultimoResultado: null,
-            atualizadoEm: null,
-          };
-          novoEstado.vendedores[v.ramal] = registro;
+    this.log.info(`Carga inicial concluída: URA=${ura.length} Ativo=${ativo.length} falhas=${falhas}.`);
+    return { ura: ura.length, ativo: ativo.length, falhas };
+  }
 
-          const motivo = fila === Fila.URA
-            ? `meta batida ontem (${formatarReais(v.totalVendas)})`
-            : `abaixo da meta ontem (${formatarReais(v.totalVendas)})`;
-          if (!(await this.sincronizar(v.ramal, registro, motivo))) falhas++;
-        }
-      }
+  async buscarVendasOntem() {
+    const vendas = await adiarSeFalhar(() => this.carrossel.listarVendas('ontem', { permitirFallback: false }));
+    // O dia útil anterior sempre tem vendas; lista vazia indica relatórios
+    // ausentes no Carrossel (scraper falhou), não um dia sem vendas.
+    if (vendas.vendedores.length === 0) {
+      throw new CargaInicialError('Carga inicial adiada: o Carrossel não retornou vendas do dia anterior.');
+    }
+    return vendas;
+  }
 
-      this.estado = novoEstado;
-      await this.repositorio.salvar(this.estado);
+  async montarUniversoOuAdiar(vendasOntem) {
+    const vendedores = await adiarSeFalhar(() => this.montarUniversoDoDia(vendasOntem));
+    if (vendedores.length === 0) throw new CargaInicialError('Carga inicial adiada: nenhum vendedor identificado na Argus.');
+    return vendedores;
+  }
 
-      this.log.info(`Carga inicial concluída: URA=${ura.length} Ativo=${ativo.length} falhas=${falhas}.`);
-      return { ura: ura.length, ativo: ativo.length, falhas };
-    });
+  /** Cria o estado do dia e leva cada decisão para a discadora. */
+  async aplicarDistribuicao(ura, ativo) {
+    const estado = { ...estadoVazio(), data: this.relogio.hoje() };
+    const decisoes = [...ura.map((v) => [v, Fila.URA]), ...ativo.map((v) => [v, Fila.ATIVO])];
+    let falhas = 0;
+
+    for (const [v, fila] of decisoes) {
+      const registro = novoRegistro({ nome: v.nome, equipe: v.equipe, vendaOntem: v.totalVendas, fila });
+      estado.vendedores[v.ramal] = registro;
+      const sincronizado = await this.sincronizar(v.ramal, registro, motivoDaCarga(fila, v.totalVendas));
+      if (!sincronizado) falhas++;
+    }
+    return { estado, falhas };
   }
 
   /**
@@ -159,14 +182,10 @@ class RoteamentoService {
     await this.diretorio.atualizar({ forcar: true });
     const porRamal = new Map(this.resolverRamais(vendasOntem).map((v) => [v.ramal, v]));
 
-    const candidatos = [
-      ...this.diretorio.vendedoresGerenciados(),
-      ...this.diretorio.listarExcecoesRamal(),
-    ];
+    const candidatos = [...this.diretorio.vendedoresGerenciados(), ...this.diretorio.listarExcecoesRamal()];
     for (const c of candidatos) {
-      if (!porRamal.has(c.ramal)) {
-        porRamal.set(c.ramal, { nome: c.nome, chave: c.chave, equipe: 'Sem venda ontem', totalVendas: 0, ramal: c.ramal });
-      }
+      if (porRamal.has(c.ramal)) continue;
+      porRamal.set(c.ramal, { nome: c.nome, chave: c.chave, equipe: 'Sem venda ontem', totalVendas: 0, ramal: c.ramal });
     }
     return [...porRamal.values()];
   }
@@ -179,15 +198,20 @@ class RoteamentoService {
     const resolvidos = [];
     for (const v of vendedores) {
       const ramal = this.diretorio.ramalPorNome(v.nome);
-      if (ramal) {
-        resolvidos.push({ ...v, ramal });
-      } else if (!this.semRamalAvisados.has(v.chave)) {
-        this.semRamalAvisados.add(v.chave);
-        this.log.aviso(`"${v.nome}" está no Carrossel mas não foi encontrado(a) entre os operadores ativos da Argus; `
-          + 'será ignorado(a). Se o nome for diferente na Argus, adicione-o ao arquivo de exceções de ramal.');
+      if (!ramal) {
+        this.avisarSemRamal(v);
+        continue;
       }
+      resolvidos.push({ ...v, ramal });
     }
     return resolvidos;
+  }
+
+  avisarSemRamal(v) {
+    if (this.semRamalAvisados.has(v.chave)) return;
+    this.semRamalAvisados.add(v.chave);
+    this.log.aviso(`"${v.nome}" está no Carrossel mas não foi encontrado(a) entre os operadores ativos da Argus; `
+      + 'será ignorado(a). Se o nome for diferente na Argus, adicione-o ao arquivo de exceções de ramal.');
   }
 
   // ───────────────────────────── Monitoramento ─────────────────────────────
@@ -199,27 +223,26 @@ class RoteamentoService {
    * @returns {Promise<{ promovidos: number, ignorado?: string }>}
    */
   monitorarVendas() {
-    return this.exclusivo(async () => {
-      if (!this.cargaInicialFeitaHoje()) return { promovidos: 0, ignorado: 'carga inicial pendente' };
+    return this.exclusivo(() => this.cicloDeMonitoramento());
+  }
 
-      await this.reprocessarPendentes();
+  async cicloDeMonitoramento() {
+    if (!this.cargaInicialFeitaHoje()) return { promovidos: 0, ignorado: 'carga inicial pendente' };
 
-      const vendasHoje = await this.carrossel.listarVendas('hoje');
-      await this.diretorio.atualizar();
-      const vendedores = this.resolverRamais(vendasHoje.vendedores);
-      const { origem } = vendasHoje;
-      let promovidos = 0;
+    await this.reprocessarPendentes();
 
-      for (const v of vendedores) {
-        if (await this.aplicarGatilho(v.ramal, v.totalVendas, { nome: v.nome, equipe: v.equipe, origem })) {
-          promovidos++;
-        }
-      }
+    const { vendedores: vendasHoje, origem } = await this.carrossel.listarVendas('hoje');
+    await this.diretorio.atualizar();
 
-      this.ultimoMonitoramento = new Date().toISOString();
-      if (promovidos) await this.repositorio.salvar(this.estado);
-      return { promovidos };
-    });
+    let promovidos = 0;
+    for (const v of this.resolverRamais(vendasHoje)) {
+      const promovido = await this.aplicarGatilho(v.ramal, v.totalVendas, { nome: v.nome, equipe: v.equipe, origem });
+      if (promovido) promovidos++;
+    }
+
+    this.ultimoMonitoramento = new Date().toISOString();
+    if (promovidos) await this.repositorio.salvar(this.estado);
+    return { promovidos };
   }
 
   /**
@@ -233,53 +256,50 @@ class RoteamentoService {
     const v = paraNumero(valor);
     if (!r || v <= 0) return Promise.resolve({ aceito: false, promovido: false, motivo: 'ramal ou valor inválido' });
 
-    return this.exclusivo(async () => {
-      if (!this.cargaInicialFeitaHoje()) return { aceito: false, promovido: false, motivo: 'carga inicial pendente' };
+    return this.exclusivo(() => this.processarVenda(r, v, vendedor));
+  }
 
-      const promovido = await this.aplicarGatilho(r, v, { nome: vendedor, origem: 'webhook' });
-      if (promovido) await this.repositorio.salvar(this.estado);
-      return { aceito: true, promovido };
-    });
+  async processarVenda(ramal, valor, vendedor) {
+    if (!this.cargaInicialFeitaHoje()) return { aceito: false, promovido: false, motivo: 'carga inicial pendente' };
+
+    const promovido = await this.aplicarGatilho(ramal, valor, { nome: vendedor, origem: 'webhook' });
+    if (promovido) await this.repositorio.salvar(this.estado);
+    return { aceito: true, promovido };
   }
 
   // ───────────────────────────── Internos ─────────────────────────────
 
   /**
-   * Aplica o gatilho de mudança a um vendedor. Vendedores que não estavam na
-   * carga inicial (ex.: contratados hoje) são registrados no Ativo.
-   *
+   * Aplica o gatilho de mudança a um vendedor.
    * @returns {Promise<boolean>} true se o vendedor foi promovido à URA
    */
   async aplicarGatilho(ramal, vendaHoje, { nome, equipe, origem }) {
-    let registro = this.estado.vendedores[ramal];
-    if (!registro) {
-      registro = {
-        nome: nome || `Ramal ${ramal}`,
-        equipe: equipe || 'Sem equipe',
-        vendaOntem: null,
-        fila: Fila.ATIVO,
-        promovidoNoDia: false,
-        vendaQueDisparou: null,
-        // Não movemos quem não estava na carga: ele fica onde está até vender.
-        sincronizado: true,
-        tentativasSync: 0,
-        ultimoResultado: 'NAO_GERENCIADO',
-        atualizadoEm: new Date().toISOString(),
-      };
-      this.estado.vendedores[ramal] = registro;
-      this.log.info(`Novo vendedor no Carrossel: ${registro.nome} (ramal ${ramal}).`);
-    }
-
+    const registro = this.estado.vendedores[ramal] ?? this.registrarNovoVendedor(ramal, { nome, equipe });
     if (!deveSubirParaUra(registro.fila, vendaHoje)) return false;
 
     this.log.info(`Gatilho: ${registro.nome} (ramal ${ramal}) vendeu ${formatarReais(vendaHoje)} hoje [${origem}]. Ativo → URA.`);
-    registro.fila = Fila.URA;
-    registro.promovidoNoDia = true;
-    registro.vendaQueDisparou = vendaHoje;
-    registro.sincronizado = false;
-    registro.tentativasSync = 0;
+    Object.assign(registro, {
+      fila: Fila.URA, promovidoNoDia: true, vendaQueDisparou: vendaHoje, sincronizado: false, tentativasSync: 0,
+    });
     await this.sincronizar(ramal, registro, `venda hoje (${formatarReais(vendaHoje)})`);
     return true;
+  }
+
+  /**
+   * Vendedor que não estava na carga inicial (ex.: contratado hoje). Entra
+   * como Ativo, mas não é movido: fica onde está até vender.
+   */
+  registrarNovoVendedor(ramal, { nome, equipe }) {
+    const registro = novoRegistro({
+      nome: nome || `Ramal ${ramal}`,
+      equipe: equipe || 'Sem equipe',
+      sincronizado: true,
+      ultimoResultado: 'NAO_GERENCIADO',
+      atualizadoEm: new Date().toISOString(),
+    });
+    this.estado.vendedores[ramal] = registro;
+    this.log.info(`Novo vendedor no Carrossel: ${registro.nome} (ramal ${ramal}).`);
+    return registro;
   }
 
   /**
@@ -287,26 +307,27 @@ class RoteamentoService {
    * @returns {Promise<boolean>} true se a discadora ficou consistente com a decisão
    */
   async sincronizar(ramal, registro, motivo) {
-    const { resultado, grupoAnterior, grupoDestino, erro } = await this.discadora.moverPara(ramal, registro.fila);
-
-    registro.tentativasSync = (registro.tentativasSync || 0) + 1;
-    registro.ultimoResultado = resultado;
-    registro.grupoDestino = grupoDestino ?? null;
-    registro.atualizadoEm = new Date().toISOString();
-    registro.sincronizado = resultado !== Resultado.FALHA;
-
-    const sufixo = [
-      grupoAnterior != null ? `grupo anterior: ${grupoAnterior}` : null,
-      grupoDestino != null && grupoDestino !== grupoAnterior ? `destino: ${grupoDestino}` : null,
-    ].filter(Boolean).join(', ');
-    if (resultado === Resultado.FALHA) {
-      this.log.erro(`✗ ${registro.nome} (ramal ${ramal}) → ${registro.fila} falhou: ${erro}. Será re-tentado.`);
-    } else if (resultado === Resultado.SEM_GRUPO_ATIVO) {
-      this.log.aviso(`⚠ ${registro.nome} (ramal ${ramal}) → ${registro.fila}: grupo do supervisor não identificado; mantido onde está.`);
-    } else {
-      this.log.info(`✓ ${registro.nome} (ramal ${ramal}) → ${registro.fila}: ${resultado} — ${motivo}${sufixo ? ` (${sufixo})` : ''}`);
-    }
+    const r = await this.discadora.moverPara(ramal, registro.fila);
+    Object.assign(registro, {
+      tentativasSync: (registro.tentativasSync || 0) + 1,
+      ultimoResultado: r.resultado,
+      grupoDestino: r.grupoDestino ?? null,
+      atualizadoEm: new Date().toISOString(),
+      sincronizado: r.resultado !== Resultado.FALHA,
+    });
+    this.logarSincronizacao(ramal, registro, motivo, r);
     return registro.sincronizado;
+  }
+
+  logarSincronizacao(ramal, registro, motivo, { resultado, grupoAnterior, grupoDestino, erro }) {
+    const quem = `${registro.nome} (ramal ${ramal}) → ${registro.fila}`;
+    if (resultado === Resultado.FALHA) return this.log.erro(`✗ ${quem} falhou: ${erro}. Será re-tentado.`);
+    if (resultado === Resultado.SEM_GRUPO_ATIVO) {
+      return this.log.aviso(`⚠ ${quem}: grupo do supervisor não identificado; mantido onde está.`);
+    }
+
+    const grupos = descreverGrupos(grupoAnterior, grupoDestino);
+    return this.log.info(`✓ ${quem}: ${resultado} — ${motivo}${grupos ? ` (${grupos})` : ''}`);
   }
 
   /** Re-tenta transferências que falharam, até MAX_TENTATIVAS_SYNC por dia. */

@@ -25,6 +25,7 @@
  */
 
 const fs = require('fs');
+const { lerJson } = require('../utils/arquivo-json');
 
 const VERSAO = 2;
 const estadoVazio = () => ({ versao: VERSAO, data: '', vendedores: {} });
@@ -43,18 +44,26 @@ class EstadoRepository {
 
   /** @returns {object} Estado carregado (ou vazio). Nunca lança. */
   carregar() {
-    for (const caminho of [this.arquivo, `${this.arquivo}.bak`]) {
-      try {
-        const bruto = JSON.parse(fs.readFileSync(caminho, 'utf8'));
-        const estado = this.normalizar(bruto);
-        if (caminho !== this.arquivo) this.log.aviso('Estado principal ilegível; recuperado a partir do .bak.');
-        return estado;
-      } catch (e) {
-        if (e.code !== 'ENOENT') this.log.aviso(`Não foi possível ler ${caminho}: ${e.message}`);
-      }
+    const principal = this.ler(this.arquivo);
+    if (principal) return principal;
+
+    const backup = this.ler(`${this.arquivo}.bak`);
+    if (backup) {
+      this.log.aviso('Estado principal ilegível; recuperado a partir do .bak.');
+      return backup;
     }
+
     this.log.info('Nenhum estado salvo encontrado; iniciando do zero.');
     return estadoVazio();
+  }
+
+  /** @returns {object|null} Estado normalizado, ou null se o arquivo não existe/é ilegível. */
+  ler(caminho) {
+    const { dados, erro } = lerJson(caminho);
+    if (!erro) return this.normalizar(dados);
+
+    if (erro.code !== 'ENOENT') this.log.aviso(`Não foi possível ler ${caminho}: ${erro.message}`);
+    return null;
   }
 
   /** Aceita o formato atual e o legado (vendedoresUra/vendedoresAtivo/historico). */

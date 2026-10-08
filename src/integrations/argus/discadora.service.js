@@ -35,6 +35,11 @@
 
 const { Fila } = require('../../domain/fila');
 
+/** Índice ramal → grupo a partir da resposta de /listargrupos. */
+const indexarRamais = (grupos) => new Map(
+  grupos.flatMap((g) => (g.ramaisOperadores || []).map((r) => [String(r), g.idGrupoUsuario])),
+);
+
 const Resultado = Object.freeze({
   TRANSFERIDO: 'TRANSFERIDO',
   JA_NO_DESTINO: 'JA_NO_DESTINO',
@@ -72,19 +77,33 @@ class DiscadoraService {
     const fresco = Date.now() - this.cache.em < this.cfg.cacheGruposMs;
     if (!forcar && fresco) return this.cache.mapa; // inclui falha recente (mapa null)
 
+    const grupos = await this.lerGrupos();
+    this.cache = {
+      mapa: grupos ? indexarRamais(grupos) : null,
+      em: Date.now(),
+      ids: new Set((grupos || []).map((g) => g.idGrupoUsuario)),
+    };
+    return this.cache.mapa;
+  }
+
+  /** @returns {Promise<Array|null>} Grupos da Argus, ou null se ela não respondeu. */
+  async lerGrupos() {
     try {
-      const grupos = await this.client.listarGrupos();
-      const mapa = new Map();
-      for (const g of grupos) {
-        for (const r of g.ramaisOperadores || []) mapa.set(String(r), g.idGrupoUsuario);
-      }
-      this.cache = { mapa, em: Date.now(), ids: new Set(grupos.map((g) => g.idGrupoUsuario)) };
-      return mapa;
+      return await this.client.listarGrupos();
     } catch (e) {
       this.log.aviso(`Não foi possível ler os grupos da Argus (${e.message}). Seguindo sem verificação prévia.`);
-      this.cache = { mapa: null, em: Date.now(), ids: new Set() };
       return null;
     }
+  }
+
+  /**
+   * Grupo atual de um ramal.
+   * @returns {Promise<number|null|undefined>} undefined = não deu para verificar; null = em nenhum grupo
+   */
+  async grupoAtualDe(ramal) {
+    const mapa = await this.mapaDeGrupos();
+    if (!mapa) return undefined;
+    return mapa.get(ramal) ?? null;
   }
 
   invalidarCache() {
@@ -121,20 +140,34 @@ class DiscadoraService {
     if (fila !== Fila.ATIVO) throw new Error(`Fila desconhecida: ${fila}`);
     if (this.gruposAtivos.has(grupoAtual)) return grupoAtual;
 
+    const peloDiretorio = await this.grupoAtivoPeloDiretorio(ramal, grupoAtual);
+    if (peloDiretorio != null) return peloDiretorio;
+
+    return this.gruposAtivos.size === 1 ? [...this.gruposAtivos][0] : null;
+  }
+
+  /**
+   * Grupo do Ativo segundo o diretório de usuários.
+   * Sem leitura de grupos agora (grupoAtual undefined), usa o grupo que o
+   * diretório conhece, para não trocar de supervisor quem já está no Ativo.
+   */
+  async grupoAtivoPeloDiretorio(ramal, grupoAtual) {
+    if (!this.diretorio) return null;
     try {
-      await this.diretorio?.atualizar();
-      // Sem leitura de grupos agora: usa o grupo que o diretório conhece, para
-      // não trocar de supervisor quem já está no Ativo.
-      if (grupoAtual === undefined) {
-        const conhecido = this.diretorio?.operadorPorRamal(ramal)?.vinculos.find((v) => this.gruposAtivos.has(v.idGrupo));
-        if (conhecido) return conhecido.idGrupo;
-      }
-      const doSupervisor = this.diretorio?.grupoAtivoDoOperador(ramal);
-      if (doSupervisor != null) return doSupervisor;
+      await this.diretorio.atualizar();
     } catch (e) {
       this.log.aviso(`Não foi possível consultar o supervisor do ramal ${ramal}: ${e.message}`);
+      return null;
     }
-    return this.gruposAtivos.size === 1 ? [...this.gruposAtivos][0] : null;
+
+    const conhecido = grupoAtual === undefined ? this.grupoAtivoConhecido(ramal) : null;
+    return conhecido ?? this.diretorio.grupoAtivoDoOperador(ramal);
+  }
+
+  /** Grupo do Ativo em que o diretório viu o ramal pela última vez. */
+  grupoAtivoConhecido(ramal) {
+    const vinculos = this.diretorio.operadorPorRamal(ramal)?.vinculos || [];
+    return vinculos.find((v) => this.gruposAtivos.has(v.idGrupo))?.idGrupo ?? null;
   }
 
   /**
@@ -145,9 +178,7 @@ class DiscadoraService {
    * @returns {Promise<{ resultado: string, grupoAnterior: number|null|undefined, grupoDestino?: number, erro?: string }>}
    */
   async moverPara(ramal, fila) {
-    const mapa = await this.mapaDeGrupos();
-    // undefined = não deu para verificar; null = ramal não está em nenhum grupo.
-    const grupoAnterior = mapa ? (mapa.get(ramal) ?? null) : undefined;
+    const grupoAnterior = await this.grupoAtualDe(ramal);
 
     const emGrupoExterno = grupoAnterior != null && !this.gruposGerenciados.has(grupoAnterior);
     if (emGrupoExterno && this.respeitarGruposExternos) {
@@ -169,10 +200,7 @@ class DiscadoraService {
    * @returns {Promise<{ resultado: string, grupoAnterior, grupoDestino: number, erro?: string }>}
    */
   async transferirParaGrupo(ramal, destinoId, { grupoAnterior, rotulo = `grupo ${destinoId}` } = {}) {
-    if (grupoAnterior === undefined) {
-      const mapa = await this.mapaDeGrupos();
-      grupoAnterior = mapa ? (mapa.get(ramal) ?? null) : undefined;
-    }
+    if (grupoAnterior === undefined) grupoAnterior = await this.grupoAtualDe(ramal);
     const base = { grupoAnterior, grupoDestino: destinoId };
 
     if (grupoAnterior === destinoId) return { ...base, resultado: Resultado.JA_NO_DESTINO };

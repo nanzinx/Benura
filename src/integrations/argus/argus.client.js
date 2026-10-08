@@ -37,6 +37,13 @@ const TipoUsuario = Object.freeze({ ADMINISTRATIVO: 1, OPERADOR: 2 });
 /** Tipos de grupo em /listargrupos. */
 const TipoGrupo = Object.freeze({ OPERACIONAL: 1, VIRTUAL_DTMF: 2, VIRTUAL_FLASH: 3 });
 
+/** Converte uma falha HTTP no erro de domínio da Argus. */
+function traduzirErro(comando, e) {
+  if (e instanceof HttpError && e.status === 403) return new ArgusAutenticacaoError(comando, e);
+  const detalhe = e instanceof HttpError && e.corpo?.descStatus ? ` — ${e.corpo.descStatus}` : '';
+  return new ArgusError(`Argus /${comando} falhou: ${e.message}${detalhe}`, { comando, cause: e });
+}
+
 class ArgusClient {
   /**
    * @param {object} cfg - Seção `argus` da configuração
@@ -53,33 +60,31 @@ class ArgusClient {
    * @throws {ArgusAutenticacaoError|ArgusError}
    */
   async comando(nome, corpo = {}, { timeoutMs = this.cfg.timeoutMs } = {}) {
-    let resposta;
-    try {
-      resposta = await comRetry(
-        () => requisitar(`${this.cfg.baseUrl}/${nome}`, {
-          metodo: 'POST',
-          headers: { 'Token-Signature': this.cfg.token },
-          corpo,
-          timeoutMs,
-        }),
-        {
-          tentativas: this.cfg.tentativas,
-          aoFalhar: (e, n) => this.log.debug(`${nome}: tentativa ${n} falhou (${e.message})`),
-        },
-      );
-    } catch (e) {
-      if (e instanceof HttpError && e.status === 403) throw new ArgusAutenticacaoError(nome, e);
-      const detalhe = e instanceof HttpError && e.corpo?.descStatus ? ` — ${e.corpo.descStatus}` : '';
-      throw new ArgusError(`Argus /${nome} falhou: ${e.message}${detalhe}`, { comando: nome, cause: e });
-    }
+    const resposta = await this.enviar(nome, corpo, timeoutMs);
+    if (resposta?.codStatus === 1) return resposta;
 
-    if (!resposta || resposta.codStatus !== 1) {
-      throw new ArgusError(
-        `Argus /${nome} recusou o comando: ${resposta?.descStatus || 'codStatus ' + resposta?.codStatus}`,
-        { comando: nome, resposta },
-      );
+    throw new ArgusError(
+      `Argus /${nome} recusou o comando: ${resposta?.descStatus || 'codStatus ' + resposta?.codStatus}`,
+      { comando: nome, resposta },
+    );
+  }
+
+  /** POST com retry; erros de transporte viram ArgusError/ArgusAutenticacaoError. */
+  async enviar(nome, corpo, timeoutMs) {
+    const requisicao = () => requisitar(`${this.cfg.baseUrl}/${nome}`, {
+      metodo: 'POST',
+      headers: { 'Token-Signature': this.cfg.token },
+      corpo,
+      timeoutMs,
+    });
+    try {
+      return await comRetry(requisicao, {
+        tentativas: this.cfg.tentativas,
+        aoFalhar: (e, n) => this.log.debug(`${nome}: tentativa ${n} falhou (${e.message})`),
+      });
+    } catch (e) {
+      throw traduzirErro(nome, e);
     }
-    return resposta;
   }
 
   /**
@@ -139,11 +144,10 @@ class ArgusClient {
     const falhou = (individual && individual.codStatus !== 1)
       || (r.qtdeTransferidos !== undefined && r.qtdeTransferidos < 1);
 
-    if (falhou) {
-      const motivo = individual?.descStatus || r.descStatus || 'operador não transferido';
-      throw new ArgusError(`Argus não transferiu o ramal ${ramal}: ${motivo}`, { comando, resposta: r });
-    }
-    return r;
+    if (!falhou) return r;
+
+    const motivo = individual?.descStatus || r.descStatus || 'operador não transferido';
+    throw new ArgusError(`Argus não transferiu o ramal ${ramal}: ${motivo}`, { comando, resposta: r });
   }
 }
 
