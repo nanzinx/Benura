@@ -4,7 +4,6 @@
  *
  * Com uma chamada a /listarusuarios (+ /listargrupos) responde:
  *   - qual o ramal de um vendedor pelo nome (para casar com o Carrossel);
- *   - se um login já existe (ativo ou inativo);
  *   - quem é o supervisor (usuário administrativo) de um nome;
  *   - qual é o grupo do Ativo de cada supervisor;
  *   - quais operadores o roteador gerencia (os que estão na URA ou no Ativo).
@@ -143,7 +142,6 @@ class DiretorioOperadores {
     return {
       usuarios,
       grupos: new Map(grupos.map((g) => [g.idGrupoUsuario, g])),
-      porLogin: indexar(usuarios, (u) => u.login),
       operadoresPorChave: indexar(operadoresAtivos, (u) => u.chave),
       operadoresPorRamal: new Map(operadoresAtivos.filter((u) => u.ramal).map((u) => [u.ramal, u])),
       supervisores,
@@ -179,11 +177,6 @@ class DiretorioOperadores {
   }
 
   // ───────────────────────────── Consultas ─────────────────────────────
-
-  /** Usuários (qualquer tipo, ativos ou não) com este login. */
-  usuariosPorLogin(login) {
-    return this.exigirSnapshot().porLogin.get(normalizarLogin(login)) || [];
-  }
 
   /** Operadores ativos com este nome. */
   operadoresPorNome(nome) {
@@ -222,7 +215,7 @@ class DiretorioOperadores {
   /**
    * Supervisor (usuário administrativo ativo) pelo nome.
    * Aceita nome exato (normalizado) ou, se único, um nome que comece pelo outro
-   * — a Argus e o Vanguard às vezes abreviam sobrenomes.
+   * — a Argus e o Carrossel às vezes abreviam sobrenomes.
    *
    * @returns {{ supervisor: object|null, candidatos: object[] }}
    */
@@ -270,11 +263,6 @@ class DiretorioOperadores {
   /** Supervisor de um vínculo; se não estiver no snapshot, usa o que o vínculo informa. */
   supervisorDoVinculo(v) {
     return this.usuarioPorId(v.idSupervisor) || { idUsuario: v.idSupervisor, chave: normalizarNome(v.nomeSupervisor) };
-  }
-
-  /** Todos os ramais em uso (qualquer usuário, ativo ou não). */
-  ramaisEmUso() {
-    return this.exigirSnapshot().usuarios.map((u) => u.ramal).filter(Boolean);
   }
 
   /** Usuário pelo id (qualquer tipo). */

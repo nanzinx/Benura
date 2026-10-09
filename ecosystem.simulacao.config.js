@@ -69,7 +69,6 @@ module.exports = {
         WEBHOOK_TOKEN: 'simulacao',
         // Estado e auditoria separados dos de produção
         STATE_FILE: path.join(SIMULACAO, 'state-vendas.json'),
-        AUDITORIA_FILE: path.join(SIMULACAO, 'auditoria-cadastro.jsonl'),
         VENDEDORES_RAMAIS_FILE: path.join(SIMULACAO, 'vendedores-ramais.json'),
         SUPERVISORES_GRUPOS_FILE: path.join(SIMULACAO, 'supervisores-grupos.json'),
       },

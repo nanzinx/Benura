@@ -22,7 +22,7 @@ class AuditoriaRepository {
 
   /**
    * Registra um evento.
-   * @param {string} acao - Ex.: "cadastro.planejar", "cadastro.conferir"
+   * @param {string} acao - Ex.: "retorno.incluido", "fim-expediente", "deploy.implantado"
    * @param {object} dados
    */
   async registrar(acao, dados) {

@@ -1,7 +1,7 @@
 {
   "name": "benura",
   "version": "2.0.0",
-  "description": "Automações da discadora Argus: roteador de vendas (Carrossel → URA), rodízio Ativo ↔ URA com controle de robôs e cadastro de operadores",
+  "description": "Automações da discadora Argus: roteador de vendas (Carrossel → URA), rodízio Ativo ↔ URA com robôs proporcionais, retorno da fila e fim de expediente",
   "private": true,
   "main": "roteador-vendas.js",
   "engines": {
@@ -10,7 +10,6 @@
   "scripts": {
     "start": "node roteador-vendas.js",
     "start:argus": "node argus-automacao.js",
-    "cadastro": "node cadastrar-operador.js",
     "dev": "node scripts/dev.js",
     "mock": "node test/mock-vendas.js",
     "test": "node --test test/unit/*.test.js",
@@ -25,20 +24,12 @@
     "atualizador:iniciar": "pm2 start ecosystem.atualizador.config.js",
     "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",
     "atualizador:agora": "node atualizador.js --uma-vez",
-    "rotinas:agora": "node rotinas.js --agora",
-    "bases:agora": "node rotinas.js --base",
-    "aviso:teste": "node scripts/testar-aviso.js"
+    "rotinas:agora": "node rotinas.js --agora"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "jszip": "^3.10.1",
-    "playwright-core": "^1.64.0"
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
-    "pm2": "^7.0.4",
-    "exceljs": "^4.4.0"
-  },
-  "overrides": {
-    "uuid": "^11.1.1"
+    "pm2": "^7.0.4"
   }
 }

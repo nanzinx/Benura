@@ -16,7 +16,6 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 [Rodízio](#rodizio) ·
 [Retorno da fila](#retorno-da-fila) ·
 [Fim de expediente](#fim-de-expediente) ·
-[Bases](#bases) ·
 [PM2](#pm2) ·
 [Esteira](#esteira)
 
@@ -29,12 +28,9 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 - [Visão geral](#visao-geral)
 - [Início rápido](#inicio-rapido)
 - [🚦 Roteador de Vendas](#roteador)
-- [👤 Cadastro de operadores (Vanguard → Argus)](#cadastro)
 - [🔄 Rodízio Ativo ↔ URA e robôs](#rodizio)
 - [📲 Retorno de quem desistiu da fila](#retorno-da-fila)
 - [🌙 Fim de expediente limpo](#fim-de-expediente)
-- [📦 Bases de mailing (Ativo, URA, Digital)](#bases)
-- [💬 Avisos no BenHub](#benhub)
 - [🧰 Rodando com PM2](#pm2)
 - [🚀 Esteira automática](#esteira)
 
@@ -45,9 +41,8 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 |---|---|---|---|
 | `roteador-vendas.js` | `benura-roteador` | 3001 | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
 | `argus-automacao.js` | `benura-rodizio` | 3000 | Rodízio Ativo ↔ URA por atendimento, liga/desliga os robôs da URA e faz o **retorno de quem desistiu da fila** |
-| `rotinas.js` | `benura-rotinas` | 3003 | Rotinas: **fim de expediente limpo** e **bases de mailing** (Ativo, URA, Digital) |
+| `rotinas.js` | `benura-rotinas` | 3003 | Rotinas diárias: **fim de expediente limpo** |
 | `atualizador.js` | `benura-atualizador` | 3002 | Deploy automático na máquina de produção, fora do expediente |
-| `cadastrar-operador.js` | — | — | Prepara e confere o cadastro de operadores na Argus a partir do login no **Vanguard** |
 
 ```mermaid
 flowchart LR
@@ -58,9 +53,7 @@ flowchart LR
     Z -->|abandono de fila| F[📲 Retorno da fila]
     F -->|lead RETORNO_URA| A
     T[🌙 Rotinas] -->|quem ficou logado| A
-    T --> N[🔔 Avisos<br>log + BenHub]
-    V[(Vanguard<br>esteira)] -->|robô baixa| T
-    T -->|base de cada equipe| A
+    T --> N[🔔 Avisos<br>log]
 ```
 
 > [!NOTE]
@@ -153,58 +146,16 @@ src/services/agendador.js          loop único, sem sobreposição, respeita exp
 src/domain/                        regras puras (meta, gatilho, rodízio, retorno da fila, fim de expediente)
 src/integrations/carrossel/        client HTTP → mapper (anti-corrupção) → service (fallback)
 src/integrations/argus/            client HTTP → DiretorioOperadores (usuários) → DiscadoraService (isola a URA)
-src/integrations/vanguard/         fonte de dados de funcionários (hoje: manual)
-src/services/cadastro-operador.service.js  planejar / conferir cadastro de operador
 src/repositories/                  estado diário, exceções de ramal, auditoria (JSONL)
 src/rodizio/                       rodízio Ativo ↔ URA e robôs
 src/retorno-fila/                  retorno de quem desistiu da fila
 src/rotinas/                       rotinas diárias (fim de expediente)
-src/notificacoes/                  avisos (log hoje; BenHub depois)
+src/notificacoes/                  avisos (log)
 src/atualizador/                   deploy automático
 src/utils/                         HTTP com retry, persistência atômica, trava de processo, laços periódicos
 ```
 
 </details>
-
----
-
-<a id="cadastro"></a>
-## 👤 Cadastro de operadores (Vanguard → Argus)
-
-> [!IMPORTANT]
-> A **API da Argus não tem comando para criar usuários**, então o fluxo é semiautomático: o script
-> prepara tudo, a pessoa só copia a ficha no programa da Argus, e o script confere depois.
-
-```bash
-# 1. Gera a ficha (verifica duplicidade, descobre supervisor, grupo e campanha)
-npm run cadastro -- planejar YASMIN.FERREIRA@36241 \
-  --nome "YASMIN FERREIRA DE JESUS" --supervisor "MAYSA DE FATIMA SIQUEIRA DOS SANTOS CARNEIRO"
-
-# 2. Argus › Config. › Usuários Operadores › Novo Usuário Operador — copiar a ficha
-
-# 3. Confere grupo e supervisor; --corrigir transfere para o grupo certo pela API
-npm run cadastro -- conferir YASMIN.FERREIRA@36241 \
-  --supervisor "MAYSA DE FATIMA SIQUEIRA DOS SANTOS CARNEIRO" --corrigir
-```
-
-| Vanguard (Sistema Corban) | Argus |
-|---|---|
-| Usuário `YASMIN.FERREIRA@36241` | Login `YASMIN.FERREIRA` (sem o `@agência`) |
-| Agência `36241 - MAYSA ...` | Supervisor MAYSA → grupo do Ativo dela |
-| Perfil "Operador Call Center" | Usuário Operador |
-
-| Comando | Resultados possíveis |
-|---|---|
-| **planejar** | `PRONTO_PARA_CADASTRO` · `PENDENTE` (falta decidir supervisor/grupo) · `JA_EXISTE` (se inativo, reative em vez de criar) · `BLOQUEADO` (perfil não-operador, inativo no Vanguard, login inválido) |
-| **conferir** | `OK` · `CORRIGIDO` · `DIVERGENTE` · `INCONCLUSIVO` · `NAO_ENCONTRADO` |
-
-- **planejar** também avisa sobre homônimos e sugere o próximo "Ramal Integração" livre.
-- **conferir** nunca tira da URA quem está lá (pode ser o rodízio). Supervisor errado vira pendência, porque a API não altera supervisor.
-- Toda execução vai para `auditoria-cadastro.jsonl` (uma linha JSON por evento, com quem executou).
-- Saída em JSON com `--json`. Código de saída: `0` = ok, `2` = precisa de atenção, `1` = erro.
-
-**Dados do Vanguard**: por enquanto informados com `--nome`/`--supervisor`. Quando o Carrossel ganhar a rota
-`GET /api/funcionarios/:login`, basta uma fonte nova com o mesmo contrato de `src/integrations/vanguard/fonte-manual.js`.
 
 ---
 
@@ -292,9 +243,9 @@ Todo dia, `FIM_EXPEDIENTE_MARGEM_MIN` minutos (padrão 10) depois de `HORARIO_FI
 
 > [!IMPORTANT]
 > Quem está **em atendimento nunca é deslogado**, porque derrubaria a ligação do cliente; só aparece no aviso.
-> Robôs (`GRUPO_ROBOS_URA_ID`), grupos virtuais e os ramais de plantão em `FIM_EXPEDIENTE_IGNORAR_RAMAIS` ficam de fora. Respeita `DRY_RUN`.
+> Robôs (`GRUPOS_ROBOS_URA_IDS`), grupos virtuais e os ramais de plantão em `FIM_EXPEDIENTE_IGNORAR_RAMAIS` ficam de fora. Respeita `DRY_RUN`.
 
-O aviso sai pelo notificador (veja [Avisos no BenHub](#benhub)) e o relatório completo vai para `logs/fim-expediente.jsonl`.
+O aviso sai pelo notificador (log do processo + `logs/notificacoes.jsonl`) e o relatório completo vai para `logs/fim-expediente.jsonl`.
 
 ```bash
 npm run rotinas:agora                 # confere se já está na hora e sai
@@ -308,70 +259,6 @@ USAR_MOCK=1 ARGUS_TOKEN=x FIM_EXPEDIENTE_ACAO=deslogar npm run rotinas:agora -- 
 > No PowerShell, defina as variáveis antes: `$env:USAR_MOCK=1; $env:ARGUS_TOKEN='x'; npm run rotinas:agora -- --forcar`
 
 ---
-
-<a id="bases"></a>
-## 📦 Bases de mailing (Ativo, URA, Digital)
-
-`rotinas.js` · app `benura-rotinas` · lógica em `src/bases/` · regras puras em `src/domain/bases.js`
-
-Faz sozinho o que hoje é feito na planilha *Base filtrada automático*: tira da base mestra quem já está na esteira,
-embaralha, divide **em partes iguais** entre as equipes e sobe a base de cada uma na skill dela.
-
-```mermaid
-flowchart LR
-    R[🤖 robô do Vanguard<br>baixa a esteira] --> F{tipo}
-    M[(base mestra<br>aba NÃO MEXA)] --> F
-    F -->|Ativo / URA:<br>mestra − esteira| E[embaralha e<br>divide por equipe]
-    F -->|Digital:<br>esteira nos status| E
-    E --> C[📄 um CSV por equipe<br>na pasta de rede]
-    C -->|BASES_MODO=argus| S[Argus: sobe na skill<br>e exclui o mailing anterior]
-```
-
-| Base | Quando | De onde vêm os clientes |
-|---|---|---|
-| **Ativo** | todo dia às 08:00 | base mestra **menos** a esteira: *Andamento* (sem data) + *Pago* (60 dias) + *Reprova* (60 dias, nos status de reprova) |
-| **URA** | todo dia às 08:00 | igual ao Ativo, com a base mestra da URA (regras a validar) |
-| **Digital** | de hora em hora, 08:00–18:00 | a **própria esteira** nos status do Digital (substitui a lista da hora anterior) |
-
-- **Tudo é configurado em `bases.json`** (copie de `bases.example.json`): agenda, base mestra, os cenários da esteira (tipo de data, dias para trás, etapas e status) e as equipes.
-- **Skill de cada equipe pelo código** (`"idSkill": 57`, o *Cód. Skill* da tela do grupo na Argus). O hash do endpoint é buscado sozinho pela `listarskills`. No Ativo, cada equipe recebe na sua **VANGUARD INSS**.
-- **Equipe-cópia** (`"copiaDe"`): não entra na divisão e recebe a mesma base de outra equipe, na própria skill. É o caso do **ROBSON**, cujos operadores quase não ficam no Ativo: as 5 equipes dividem a base e ele recebe a cópia de uma delas, revezando por dia (`"rodizio"`).
-- **Robô do Vanguard**: entra com um login próprio (`VANGUARD_USUARIO`/`VANGUARD_SENHA`), aplica os filtros de cada cenário na esteira e baixa o Excel, do mesmo jeito que o Carrossel. Usa o Chrome já instalado no PC.
-- **Chave do cruzamento**: `esteira.colunaChave` (padrão `Codigo`) contra a coluna `CPF` da base mestra. Quando o novo código combinado com o Vanguard estiver pronto, basta trocar o nome da coluna.
-- **Quem converteu não volta**: está na esteira (Andamento/Pago) e sai todo dia. Quem não converteu pode cair em outra equipe no dia seguinte, porque a divisão é sorteada de novo.
-- **Histórico**: os CSVs ficam em `BASES_PASTA_SAIDA/<BASE>/<data>/`, e cada execução vai para `logs/bases.jsonl` e para o aviso.
-
-> [!WARNING]
-> **Travas de segurança:** se o robô não conseguir baixar a esteira, se a base mestra estiver vazia ou se a esteira não trouxer
-> ninguém para remover, a base **não é gerada** e sai um aviso de erro. Subir uma base sem a remoção ligaria para quem já fechou.
-> Uma falha num horário é tentada de novo até 3 vezes, com 5 minutos de intervalo.
-
-**Como ligar, passo a passo:**
-1. `cp bases.example.json bases.json` e ajuste o caminho da base mestra e as equipes.
-2. No `.env`, preencha `VANGUARD_USUARIO`, `VANGUARD_SENHA` e `BASES_PASTA_SAIDA` (pasta de rede). Deixe `BASES_MODO=arquivos`.
-3. Ensaio sem robô, com uma esteira já exportada: `npm run bases:agora -- ativo --esteira esteira.xlsx --so-arquivos`.
-4. Ensaio com o robô: `npm run bases:agora -- ativo --so-arquivos`. Para ver o navegador trabalhando, use `VANGUARD_MOSTRAR_NAVEGADOR=1`.
-5. Confira os CSVs, preencha os `skillHash` e passe para `BASES_MODO=argus`. Para ensaiar a subida sem subir nada, use `DRY_RUN=1`.
-6. Em cada base, `"ativo": true` e reinicie o `benura-rotinas`.
-
-> [!NOTE]
-> A subida usa o endpoint `uploadmailing` da skill. O **layout** (quais colunas a Argus lê do CSV) é escolhido no cadastro do
-> endpoint na Argus, como já é hoje. O CSV sai no layout `CPF;BENEFICIO;NOME;TELEFONE1…5`, em Windows-1252.
-
-<a id="benhub"></a>
-## 💬 Avisos no BenHub
-
-Fim de expediente, bases geradas (ou não geradas) e falhas viram mensagem num grupo do **BenHub**. Tudo continua também no log
-(`logs/notificacoes.jsonl`), e se o BenHub estiver fora do ar a rotina segue normalmente.
-
-1. Crie no BenHub um **usuário para o robô** (ex.: "BenURA Robô") e um **grupo só de avisos** (ex.: "BenURA – Avisos") com ele dentro.
-2. Descubra o número do grupo: abra o grupo com F12 → Network e envie uma mensagem; o número está em `/api/internal-chat/<número>/messages`.
-3. No `.env`: `NOTIFICADOR=benhub`, `BENHUB_CHAT_ID=<número>`, `BENHUB_EMAIL` e `BENHUB_SENHA` do robô.
-4. Teste: `npm run aviso:teste`.
-
-> [!CAUTION]
-> Não use o seu usuário pessoal nem cole o token (`Bearer eyJ…`) no `.env`: ele é a sua sessão. O robô entra com o próprio usuário
-> e renova o token sozinho (ele vence em cerca de 24 h).
 
 <a id="pm2"></a>
 ## 🧰 Rodando com PM2

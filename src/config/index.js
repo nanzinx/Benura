@@ -154,7 +154,6 @@ function carregarConfig(overrides = {}) {
     usarMock: envBool('USAR_MOCK'),
     debug: envBool('DEBUG'),
     arquivoEstado: env('STATE_FILE', path.join(process.cwd(), 'state-vendas.json')),
-    arquivoAuditoria: env('AUDITORIA_FILE', path.join(process.cwd(), 'auditoria-cadastro.jsonl')),
   };
 
   // --- Atualizador da produção (atualizador.js) ---
@@ -176,19 +175,6 @@ function carregarConfig(overrides = {}) {
   cfg.notificacoes = {
     tipo: env('NOTIFICADOR', 'log'),
     arquivo: env('NOTIFICACOES_FILE', path.join(RAIZ, 'logs', 'notificacoes.jsonl')),
-    benhub: {
-      url: env('BENHUB_URL', 'https://benhub.benconsig.com'),
-      // id do grupo no BenHub (o número em /api/internal-chat/{id}/messages)
-      chatId: env('BENHUB_CHAT_ID', ''),
-      // usuário próprio do robô: o token do BenHub vence em ~24 h e é renovado com ele
-      email: env('BENHUB_EMAIL', ''),
-      senha: env('BENHUB_SENHA', ''),
-      token: env('BENHUB_TOKEN', ''),
-      caminhoLogin: env('BENHUB_LOGIN_PATH', '/api/auth/login'),
-      campoUsuario: env('BENHUB_LOGIN_CAMPO_USUARIO', 'email'),
-      campoSenha: env('BENHUB_LOGIN_CAMPO_SENHA', 'password'),
-      timeoutMs: envNum('BENHUB_TIMEOUT_MS', 10_000),
-    },
   };
 
   // --- Rotinas diárias (rotinas.js / benura-rotinas) ---
@@ -204,33 +190,6 @@ function carregarConfig(overrides = {}) {
       margemMin: envNum('FIM_EXPEDIENTE_MARGEM_MIN', 10),
       ignorarRamais: envLista('FIM_EXPEDIENTE_IGNORAR_RAMAIS', ''),
       arquivoLog: env('FIM_EXPEDIENTE_LOG_FILE', path.join(RAIZ, 'logs', 'fim-expediente.jsonl')),
-    },
-  };
-
-  // --- Bases de mailing (Ativo, URA, Digital) — dentro do benura-rotinas ---
-  cfg.bases = {
-    // Uma entrada por base (agenda, filtros da esteira, equipes e skills). Veja bases.example.json.
-    arquivoConfig: env('BASES_CONFIG_FILE', path.join(RAIZ, 'bases.json')),
-    // arquivos = só gera os CSVs na pasta; argus = também sobe na skill de cada equipe
-    modo: env('BASES_MODO', 'arquivos'),
-    pastaSaida: env('BASES_PASTA_SAIDA', path.join(RAIZ, 'bases-geradas')),
-    pastaDownloads: env('BASES_PASTA_ESTEIRA', path.join(RAIZ, 'bases-geradas', 'esteira')),
-    diasSemana: envListaNum('BASES_DIAS_SEMANA').length ? envListaNum('BASES_DIAS_SEMANA') : [1, 2, 3, 4, 5],
-    toleranciaMin: envNum('BASES_TOLERANCIA_MIN', 120),
-    pausaEntreUploadsMs: envNum('BASES_PAUSA_UPLOAD_MS', 20_000),
-    codificacao: env('BASES_CODIFICACAO', 'latin1'),
-    arquivoEstado: env('BASES_STATE_FILE', path.join(RAIZ, 'state-bases.json')),
-    arquivoLog: env('BASES_LOG_FILE', path.join(RAIZ, 'logs', 'bases.jsonl')),
-    vanguard: {
-      url: env('VANGUARD_URL', 'https://gestao.sistemacorban.com.br'),
-      usuario: env('VANGUARD_USUARIO', ''),
-      senha: env('VANGUARD_SENHA', ''),
-      timeoutMs: envNum('VANGUARD_TIMEOUT_MS', 120_000),
-      navegador: {
-        canal: env('VANGUARD_NAVEGADOR', 'chrome'), // chrome ou msedge (já instalados no PC)
-        executavel: env('VANGUARD_NAVEGADOR_CAMINHO', ''),
-        headless: !envBool('VANGUARD_MOSTRAR_NAVEGADOR', false),
-      },
     },
   };
 
@@ -263,8 +222,7 @@ function mesclarProfundo(base, extra) {
  * Problemas fatais impedem a inicialização; avisos apenas são logados.
  *
  * @param {object} cfg
- * @param {{ escopo?: 'roteador'|'argus' }} [opcoes] - 'argus' valida só o necessário
- *        para ferramentas que usam apenas a Argus (ex.: cadastro de operadores).
+ * @param {{ escopo?: 'roteador'|'rodizio'|'rotinas'|'atualizador' }} [opcoes] - qual serviço está subindo
  * @returns {{ fatais: string[], avisos: string[] }}
  */
 function validarConfig(cfg, { escopo = 'roteador' } = {}) {
@@ -294,10 +252,6 @@ function validarConfig(cfg, { escopo = 'roteador' } = {}) {
   if (escopo === 'rodizio') return validarRodizio(cfg);
   if (escopo === 'atualizador') return validarAtualizador(cfg, fatais);
   if (escopo === 'rotinas') return validarRotinas(cfg, fatais);
-  if (escopo === 'argus') {
-    const relevantes = /ARGUS|GRUPO/;
-    return { fatais: fatais.filter((f) => relevantes.test(f)), avisos: [] };
-  }
   return { fatais, avisos };
 }
 

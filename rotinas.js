@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * ROTINAS DIÁRIAS — fim de expediente limpo (e, nas próximas rodadas, bases e planilha).
+ * ROTINAS DIÁRIAS — fim de expediente limpo.
  *
  * PM2: app benura-rotinas em ecosystem.config.js. Lógica em src/rotinas/.
  *   npm run rotinas:agora               confere se está na hora e sai

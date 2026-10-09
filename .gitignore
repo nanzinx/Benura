@@ -9,5 +9,3 @@ logs/
 .simulacao/
 atualizador.lock
 rotinas.lock
-bases.json
-bases-geradas/
