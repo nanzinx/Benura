@@ -188,6 +188,33 @@ function carregarConfig(overrides = {}) {
     },
   };
 
+  // --- Bases de mailing (Ativo, URA, Digital) — dentro do benura-rotinas ---
+  cfg.bases = {
+    // Uma entrada por base (agenda, filtros da esteira, equipes e skills). Veja bases.example.json.
+    arquivoConfig: env('BASES_CONFIG_FILE', path.join(RAIZ, 'bases.json')),
+    // arquivos = só gera os CSVs na pasta; argus = também sobe na skill de cada equipe
+    modo: env('BASES_MODO', 'arquivos'),
+    pastaSaida: env('BASES_PASTA_SAIDA', path.join(RAIZ, 'bases-geradas')),
+    pastaDownloads: env('BASES_PASTA_ESTEIRA', path.join(RAIZ, 'bases-geradas', 'esteira')),
+    diasSemana: envListaNum('BASES_DIAS_SEMANA').length ? envListaNum('BASES_DIAS_SEMANA') : [1, 2, 3, 4, 5],
+    toleranciaMin: envNum('BASES_TOLERANCIA_MIN', 120),
+    pausaEntreUploadsMs: envNum('BASES_PAUSA_UPLOAD_MS', 20_000),
+    codificacao: env('BASES_CODIFICACAO', 'latin1'),
+    arquivoEstado: env('BASES_STATE_FILE', path.join(RAIZ, 'state-bases.json')),
+    arquivoLog: env('BASES_LOG_FILE', path.join(RAIZ, 'logs', 'bases.jsonl')),
+    vanguard: {
+      url: env('VANGUARD_URL', 'https://gestao.sistemacorban.com.br'),
+      usuario: env('VANGUARD_USUARIO', ''),
+      senha: env('VANGUARD_SENHA', ''),
+      timeoutMs: envNum('VANGUARD_TIMEOUT_MS', 120_000),
+      navegador: {
+        canal: env('VANGUARD_NAVEGADOR', 'chrome'), // chrome ou msedge (já instalados no PC)
+        executavel: env('VANGUARD_NAVEGADOR_CAMINHO', ''),
+        headless: !envBool('VANGUARD_MOSTRAR_NAVEGADOR', false),
+      },
+    },
+  };
+
   // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---
   cfg.retornoFila = {
     ativo: envBool('RETORNO_FILA_ATIVO', false),

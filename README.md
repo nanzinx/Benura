@@ -16,6 +16,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 [Rodízio](#rodizio) ·
 [Retorno da fila](#retorno-da-fila) ·
 [Fim de expediente](#fim-de-expediente) ·
+[Bases](#bases) ·
 [PM2](#pm2) ·
 [Esteira](#esteira)
 
@@ -32,6 +33,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 - [🔄 Rodízio Ativo ↔ URA e robôs](#rodizio)
 - [📲 Retorno de quem desistiu da fila](#retorno-da-fila)
 - [🌙 Fim de expediente limpo](#fim-de-expediente)
+- [📦 Bases de mailing (Ativo, URA, Digital)](#bases)
 - [🧰 Rodando com PM2](#pm2)
 - [🚀 Esteira automática](#esteira)
 
@@ -42,7 +44,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 |---|---|---|---|
 | `roteador-vendas.js` | `benura-roteador` | 3001 | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
 | `argus-automacao.js` | `benura-rodizio` | 3000 | Rodízio Ativo ↔ URA por atendimento, liga/desliga os robôs da URA e faz o **retorno de quem desistiu da fila** |
-| `rotinas.js` | `benura-rotinas` | 3003 | Rotinas diárias: **fim de expediente limpo** |
+| `rotinas.js` | `benura-rotinas` | 3003 | Rotinas: **fim de expediente limpo** e **bases de mailing** (Ativo, URA, Digital) |
 | `atualizador.js` | `benura-atualizador` | 3002 | Deploy automático na máquina de produção, fora do expediente |
 | `cadastrar-operador.js` | — | — | Prepara e confere o cadastro de operadores na Argus a partir do login no **Vanguard** |
 
@@ -56,6 +58,8 @@ flowchart LR
     F -->|lead RETORNO_URA| A
     T[🌙 Rotinas] -->|quem ficou logado| A
     T --> N[🔔 Notificações<br>log · BenHub em breve]
+    V[(Vanguard<br>esteira)] -->|robô baixa| T
+    T -->|base de cada equipe| A
 ```
 
 > [!NOTE]
@@ -299,6 +303,53 @@ USAR_MOCK=1 ARGUS_TOKEN=x FIM_EXPEDIENTE_ACAO=deslogar npm run rotinas:agora -- 
 > No PowerShell, defina as variáveis antes: `$env:USAR_MOCK=1; $env:ARGUS_TOKEN='x'; npm run rotinas:agora -- --forcar`
 
 ---
+
+<a id="bases"></a>
+## 📦 Bases de mailing (Ativo, URA, Digital)
+
+`rotinas.js` · app `benura-rotinas` · lógica em `src/bases/` · regras puras em `src/domain/bases.js`
+
+Faz sozinho o que hoje é feito na planilha *Base filtrada automático*: tira da base mestra quem já está na esteira,
+embaralha, divide **em partes iguais** entre as equipes e sobe a base de cada uma na skill dela.
+
+```mermaid
+flowchart LR
+    R[🤖 robô do Vanguard<br>baixa a esteira] --> F{tipo}
+    M[(base mestra<br>aba NÃO MEXA)] --> F
+    F -->|Ativo / URA:<br>mestra − esteira| E[embaralha e<br>divide por equipe]
+    F -->|Digital:<br>esteira nos status| E
+    E --> C[📄 um CSV por equipe<br>na pasta de rede]
+    C -->|BASES_MODO=argus| S[Argus: sobe na skill<br>e exclui o mailing anterior]
+```
+
+| Base | Quando | De onde vêm os clientes |
+|---|---|---|
+| **Ativo** | todo dia às 08:00 | base mestra **menos** a esteira: *Andamento* (sem data) + *Pago* (60 dias) + *Reprova* (60 dias, nos status de reprova) |
+| **URA** | todo dia às 08:00 | igual ao Ativo, com a base mestra da URA (regras a validar) |
+| **Digital** | de hora em hora, 08:00–18:00 | a **própria esteira** nos status do Digital (substitui a lista da hora anterior) |
+
+- **Tudo é configurado em `bases.json`** (copie de `bases.example.json`): agenda, base mestra, os cenários da esteira (tipo de data, dias para trás, etapas e status) e as equipes com o hash da skill.
+- **Robô do Vanguard**: entra com um login próprio (`VANGUARD_USUARIO`/`VANGUARD_SENHA`), aplica os filtros de cada cenário na esteira e baixa o Excel, do mesmo jeito que o Carrossel. Usa o Chrome já instalado no PC.
+- **Chave do cruzamento**: `esteira.colunaChave` (padrão `Codigo`) contra a coluna `CPF` da base mestra. Quando o novo código combinado com o Vanguard estiver pronto, basta trocar o nome da coluna.
+- **Quem converteu não volta**: está na esteira (Andamento/Pago) e sai todo dia. Quem não converteu pode cair em outra equipe no dia seguinte, porque a divisão é sorteada de novo.
+- **Histórico**: os CSVs ficam em `BASES_PASTA_SAIDA/<BASE>/<data>/`, e cada execução vai para `logs/bases.jsonl` e para o aviso.
+
+> [!WARNING]
+> **Travas de segurança:** se o robô não conseguir baixar a esteira, se a base mestra estiver vazia ou se a esteira não trouxer
+> ninguém para remover, a base **não é gerada** e sai um aviso de erro. Subir uma base sem a remoção ligaria para quem já fechou.
+> Uma falha num horário é tentada de novo até 3 vezes, com 5 minutos de intervalo.
+
+**Como ligar, passo a passo:**
+1. `cp bases.example.json bases.json` e ajuste o caminho da base mestra e as equipes.
+2. No `.env`, preencha `VANGUARD_USUARIO`, `VANGUARD_SENHA` e `BASES_PASTA_SAIDA` (pasta de rede). Deixe `BASES_MODO=arquivos`.
+3. Ensaio sem robô, com uma esteira já exportada: `npm run bases:agora -- ativo --esteira esteira.xlsx --so-arquivos`.
+4. Ensaio com o robô: `npm run bases:agora -- ativo --so-arquivos`. Para ver o navegador trabalhando, use `VANGUARD_MOSTRAR_NAVEGADOR=1`.
+5. Confira os CSVs, preencha os `skillHash` e passe para `BASES_MODO=argus`. Para ensaiar a subida sem subir nada, use `DRY_RUN=1`.
+6. Em cada base, `"ativo": true` e reinicie o `benura-rotinas`.
+
+> [!NOTE]
+> A subida usa o endpoint `uploadmailing` da skill. O **layout** (quais colunas a Argus lê do CSV) é escolhido no cadastro do
+> endpoint na Argus, como já é hoje. O CSV sai no layout `CPF;BENEFICIO;NOME;TELEFONE1…5`, em Windows-1252.
 
 <a id="pm2"></a>
 ## 🧰 Rodando com PM2

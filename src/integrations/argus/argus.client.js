@@ -153,6 +153,31 @@ class ArgusClient {
     return { excluidos: resposta?.count ?? items.filter((i) => i.codStatus === 1).length, items };
   }
 
+  /**
+   * Sobe um mailing CSV numa skill (doc 2.2, formato form-data). O nome do arquivo
+   * vira a descrição do mailing na Argus. O layout é o configurado no endpoint da skill.
+   * A Argus aceita um upload por vez: não é re-tentado (evita importar duas vezes).
+   * @returns {Promise<{ idArquivo: number }>}
+   */
+  async uploadMailing(hashSkill, { nomeArquivo, conteudo }) {
+    const corpo = new FormData();
+    corpo.append('file', new Blob([conteudo], { type: 'text/csv' }), nomeArquivo);
+    const resposta = await this.enviar('uploadmailing', corpo, {
+      url: this.urlMailing(hashSkill, 'uploadmailing'), tentativas: 1, timeoutMs: this.cfg.timeoutUploadMs ?? 120_000,
+    });
+    if (resposta?.codStatus === 1) return resposta;
+    throw recusa('uploadmailing', resposta);
+  }
+
+  /** Exclui um mailing importado por CSV (doc 2.3). */
+  async excluirMailing(hashSkill, idArquivo) {
+    const resposta = await this.enviar('excluirmailing', { idArquivo, excluirTodosMailings: 'N' }, {
+      url: this.urlMailing(hashSkill, 'excluirmailing'),
+    });
+    if (resposta?.codStatus === 1) return resposta;
+    throw recusa('excluirmailing', resposta);
+  }
+
   // ───────────────────────────── Operadores ─────────────────────────────
 
   /**

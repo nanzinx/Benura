@@ -25,12 +25,18 @@
     "atualizador:iniciar": "pm2 start ecosystem.atualizador.config.js",
     "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",
     "atualizador:agora": "node atualizador.js --uma-vez",
-    "rotinas:agora": "node rotinas.js --agora"
+    "rotinas:agora": "node rotinas.js --agora",
+    "bases:agora": "node rotinas.js --base"
   },
   "dependencies": {
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "playwright-core": "^1.64.0"
   },
   "devDependencies": {
     "pm2": "^7.0.4"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }
