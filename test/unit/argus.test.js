@@ -123,3 +123,42 @@ test('Diretório: mantém o último snapshot se a Argus cair; sem snapshot, lan�
   novo.client.listarUsuarios = async () => { throw new Error('Argus fora'); };
   await assert.rejects(novo.diretorio.atualizar(), DiretorioIndisponivelError);
 });
+
+test('ArgusClient: uploadMailing (form-data), excluirMailing e listarSkills', async () => {
+  const http = require('http');
+  const { ArgusClient } = require('../../src/integrations/argus/argus.client');
+  const { loggerNulo } = require('../../src/utils/logger');
+  const recebidas = [];
+  const servidor = http.createServer((req, res) => {
+    let corpo = '';
+    req.setEncoding('latin1');
+    req.on('data', (c) => { corpo += c; });
+    req.on('end', () => {
+      recebidas.push({ url: req.url, tipo: req.headers['content-type'], token: req.headers['token-signature'], corpo });
+      const resposta = req.url.endsWith('/listarskills')
+        ? { codStatus: 1, retornoGetSkillsItens: [{ idSkill: 46, hashEndpointSkill: 'h46' }] }
+        : { codStatus: 1, idArquivo: 77 };
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(resposta));
+    });
+  });
+  await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
+  try {
+    const base = `http://127.0.0.1:${servidor.address().port}/apiargus`;
+    const client = new ArgusClient({ baseUrl: `${base}/cmd`, baseMailing: base, token: 'tk', timeoutMs: 2000, tentativas: 1 }, loggerNulo);
+    const conteudo = Buffer.from('CPF;NOME\r\n_A;JOÃO\r\n', 'latin1');
+    assert.deepEqual(await client.uploadMailing('hash1', { nomeArquivo: 'BASE-X.csv', conteudo }), { codStatus: 1, idArquivo: 77 });
+    await client.excluirMailing('hash1', 77);
+    assert.deepEqual(await client.listarSkills(), [{ idSkill: 46, hashEndpointSkill: 'h46' }]);
+
+    const [upload, exclusao] = recebidas;
+    assert.equal(upload.url, '/apiargus/hash1/uploadmailing');
+    assert.equal(upload.token, 'tk');
+    assert.match(upload.tipo, /^multipart\/form-data; boundary=/);
+    assert.match(upload.corpo, /filename="BASE-X\.csv"/);
+    assert.ok(upload.corpo.includes('_A;JOÃO'));
+    assert.equal(exclusao.url, '/apiargus/hash1/excluirmailing');
+    assert.deepEqual(JSON.parse(exclusao.corpo), { idArquivo: 77, excluirTodosMailings: 'N' });
+  } finally {
+    servidor.close();
+  }
+});

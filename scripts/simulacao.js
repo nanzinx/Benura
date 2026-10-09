@@ -19,7 +19,7 @@ const TOKEN = process.env.WEBHOOK_TOKEN || 'simulacao';
 
 /** Remove estado e auditoria da rodada anterior (os logs ficam). */
 function limpar() {
-  const arquivos = ['state-vendas.json', 'state-vendas.json.bak', 'state-vendas.json.tmp', 'auditoria-cadastro.jsonl'];
+  const arquivos = ['state-vendas.json', 'state-vendas.json.bak', 'state-vendas.json.tmp'];
   fs.mkdirSync(path.join(PASTA, 'logs'), { recursive: true });
   for (const nome of arquivos) fs.rmSync(path.join(PASTA, nome), { force: true });
   console.log(`Estado da simulação limpo em ${PASTA}`);

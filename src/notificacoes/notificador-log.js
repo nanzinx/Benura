@@ -6,7 +6,7 @@
  * Contrato de qualquer notificador:
  *   notificar({ titulo: string, texto: string, nivel?: 'info'|'aviso'|'erro', dados?: object }): Promise<void>
  *
- * Quando o BenHub (chat interno) tiver uma integração definida, ele entra como
+ * Um canal de chat (ex.: o BenHub), quando for definido, entra como
  * outro adaptador com o mesmo método — os serviços não mudam.
  */
 

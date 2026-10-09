@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Normalização de textos para comparação entre sistemas (Vanguard, Carrossel, Argus).
+ * Normalização de textos para comparação entre sistemas (Carrossel, Argus).
  */
 
 /**
@@ -16,7 +16,7 @@ function normalizarNome(nome) {
     .toUpperCase();
 }
 
-/** Login em maiúsculas e sem espaços (a Argus e o Vanguard não diferenciam caixa). */
+/** Login em maiúsculas e sem espaços (a Argus não diferencia caixa). */
 const normalizarLogin = (login) => String(login || '').trim().toUpperCase();
 
 module.exports = { normalizarNome, normalizarLogin };

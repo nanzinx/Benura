@@ -25,7 +25,7 @@ const { registrarDesligamento, fecharServidor, escutar } = require('./utils/cicl
 
 /**
  * Monta a camada da Argus (cliente, diretório de usuários e discadora).
- * Compartilhada pelo roteador e pelo cadastro de operadores.
+ * Usada pelo roteador.
  */
 function montarArgus(cfg, log) {
   const argusClient = cfg.usarMock
