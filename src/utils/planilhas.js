@@ -84,8 +84,20 @@ async function lerXlsx(arquivo, { aba } = {}) {
     const provisorio = !nomesReais.has(planilha.name);
     const ehAlvo = planilha.name === escolhida.nome || (provisorio && String(planilha.id) === escolhida.arquivo);
     if (ehAlvo) return lerLinhas(planilha);
+    for await (const _linha of planilha); // o exceljs exige consumir cada aba antes da próxima
   }
-  throw new Error(`Aba "${escolhida.nome}" não pôde ser lida em ${arquivo}.`);
+  return lerXlsxCompleto(arquivo, escolhida.nome);
+}
+
+/** Último recurso: lê o arquivo inteiro na memória (mais lento e pesado, mas não depende da ordem). */
+async function lerXlsxCompleto(arquivo, nomeAba) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(arquivo);
+  const planilha = wb.worksheets.find((w) => w.name === nomeAba);
+  if (!planilha) throw new Error(`Aba "${nomeAba}" não pôde ser lida em ${arquivo}.`);
+  const linhas = [];
+  planilha.eachRow({ includeEmpty: true }, (linha) => linhas.push(Array.from(linha.values, valorDaCelula).slice(1)));
+  return paraObjetos(linhas);
 }
 
 async function lerLinhas(planilha) {
@@ -156,4 +168,4 @@ async function lerTabela(arquivo, opcoes = {}) {
   return lerCsv(arquivo);
 }
 
-module.exports = { lerTabela, lerCsv, lerXlsx, abasDoXlsx, separarCsv, detectarSeparador, decodificar };
+module.exports = { lerTabela, lerCsv, lerXlsx, lerXlsxCompleto, abasDoXlsx, separarCsv, detectarSeparador, decodificar };
