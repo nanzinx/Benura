@@ -176,6 +176,19 @@ function carregarConfig(overrides = {}) {
   cfg.notificacoes = {
     tipo: env('NOTIFICADOR', 'log'),
     arquivo: env('NOTIFICACOES_FILE', path.join(RAIZ, 'logs', 'notificacoes.jsonl')),
+    benhub: {
+      url: env('BENHUB_URL', 'https://benhub.benconsig.com'),
+      // id do grupo no BenHub (o número em /api/internal-chat/{id}/messages)
+      chatId: env('BENHUB_CHAT_ID', ''),
+      // usuário próprio do robô: o token do BenHub vence em ~24 h e é renovado com ele
+      email: env('BENHUB_EMAIL', ''),
+      senha: env('BENHUB_SENHA', ''),
+      token: env('BENHUB_TOKEN', ''),
+      caminhoLogin: env('BENHUB_LOGIN_PATH', '/api/auth/login'),
+      campoUsuario: env('BENHUB_LOGIN_CAMPO_USUARIO', 'email'),
+      campoSenha: env('BENHUB_LOGIN_CAMPO_SENHA', 'password'),
+      timeoutMs: envNum('BENHUB_TIMEOUT_MS', 10_000),
+    },
   };
 
   // --- Rotinas diárias (rotinas.js / benura-rotinas) ---

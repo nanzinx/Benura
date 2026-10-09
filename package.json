@@ -26,7 +26,8 @@
     "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",
     "atualizador:agora": "node atualizador.js --uma-vez",
     "rotinas:agora": "node rotinas.js --agora",
-    "bases:agora": "node rotinas.js --base"
+    "bases:agora": "node rotinas.js --base",
+    "aviso:teste": "node scripts/testar-aviso.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

@@ -34,6 +34,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 - [📲 Retorno de quem desistiu da fila](#retorno-da-fila)
 - [🌙 Fim de expediente limpo](#fim-de-expediente)
 - [📦 Bases de mailing (Ativo, URA, Digital)](#bases)
+- [💬 Avisos no BenHub](#benhub)
 - [🧰 Rodando com PM2](#pm2)
 - [🚀 Esteira automática](#esteira)
 
@@ -57,7 +58,7 @@ flowchart LR
     Z -->|abandono de fila| F[📲 Retorno da fila]
     F -->|lead RETORNO_URA| A
     T[🌙 Rotinas] -->|quem ficou logado| A
-    T --> N[🔔 Notificações<br>log · BenHub em breve]
+    T --> N[🔔 Avisos<br>log + BenHub]
     V[(Vanguard<br>esteira)] -->|robô baixa| T
     T -->|base de cada equipe| A
 ```
@@ -293,8 +294,7 @@ Todo dia, `FIM_EXPEDIENTE_MARGEM_MIN` minutos (padrão 10) depois de `HORARIO_FI
 > Quem está **em atendimento nunca é deslogado**, porque derrubaria a ligação do cliente; só aparece no aviso.
 > Robôs (`GRUPO_ROBOS_URA_ID`), grupos virtuais e os ramais de plantão em `FIM_EXPEDIENTE_IGNORAR_RAMAIS` ficam de fora. Respeita `DRY_RUN`.
 
-O aviso sai pelo notificador. Hoje ele grava no log do processo e em `logs/notificacoes.jsonl`; o **BenHub** entra como outro
-adaptador quando a integração for definida. O relatório completo vai para `logs/fim-expediente.jsonl`.
+O aviso sai pelo notificador (veja [Avisos no BenHub](#benhub)) e o relatório completo vai para `logs/fim-expediente.jsonl`.
 
 ```bash
 npm run rotinas:agora                 # confere se já está na hora e sai
@@ -357,6 +357,21 @@ flowchart LR
 > [!NOTE]
 > A subida usa o endpoint `uploadmailing` da skill. O **layout** (quais colunas a Argus lê do CSV) é escolhido no cadastro do
 > endpoint na Argus, como já é hoje. O CSV sai no layout `CPF;BENEFICIO;NOME;TELEFONE1…5`, em Windows-1252.
+
+<a id="benhub"></a>
+## 💬 Avisos no BenHub
+
+Fim de expediente, bases geradas (ou não geradas) e falhas viram mensagem num grupo do **BenHub**. Tudo continua também no log
+(`logs/notificacoes.jsonl`), e se o BenHub estiver fora do ar a rotina segue normalmente.
+
+1. Crie no BenHub um **usuário para o robô** (ex.: "BenURA Robô") e um **grupo só de avisos** (ex.: "BenURA – Avisos") com ele dentro.
+2. Descubra o número do grupo: abra o grupo com F12 → Network e envie uma mensagem; o número está em `/api/internal-chat/<número>/messages`.
+3. No `.env`: `NOTIFICADOR=benhub`, `BENHUB_CHAT_ID=<número>`, `BENHUB_EMAIL` e `BENHUB_SENHA` do robô.
+4. Teste: `npm run aviso:teste`.
+
+> [!CAUTION]
+> Não use o seu usuário pessoal nem cole o token (`Bearer eyJ…`) no `.env`: ele é a sua sessão. O robô entra com o próprio usuário
+> e renova o token sozinho (ele vence em cerca de 24 h).
 
 <a id="pm2"></a>
 ## 🧰 Rodando com PM2
