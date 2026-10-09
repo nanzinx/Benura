@@ -23,6 +23,7 @@ const SELETORES_PADRAO = Object.freeze({
   dataInicial: '#data_inicial',
   dataFinal: '#data_final',
   etapa: '#etapa',
+  status: '#status',
   equipe: '#cod_equipe',
   filtrar: 'button[name="enviarfiltro"]',
   extrairExcel: 'button[data-original-title="Extrair Excel"]',
@@ -148,6 +149,7 @@ class RoboEsteira {
     await pagina.evaluate(preencherNoNavegador, { seletor: s.dataInicial, valor: periodo.inicial });
     await pagina.evaluate(preencherNoNavegador, { seletor: s.dataFinal, valor: periodo.final });
     await this.marcar(pagina, s.etapa, cenario.etapas || [], 'Etapa');
+    await this.marcarStatus(pagina, cenario.status || []);
     await pagina.evaluate(marcarOpcoesNoNavegador, { seletor: s.equipe, textos: [], todas: true });
 
     await Promise.all([pagina.waitForLoadState('domcontentloaded'), pagina.click(s.filtrar)]);
@@ -156,6 +158,19 @@ class RoboEsteira {
     await download.saveAs(destino);
     this.log.info(`Vanguard: esteira "${cenario.nome}" baixada (${cenario.tipoData}${periodo.inicial ? ` ${periodo.inicial}–${periodo.final}` : ', sem data'}).`);
     return destino;
+  }
+
+  /**
+   * Status direto na tela, como no processo manual (o arquivo já vem filtrado).
+   * O filtro por status depois do download continua como segunda proteção.
+   */
+  async marcarStatus(pagina, status) {
+    if (!status.length) return;
+    if (!(await pagina.locator(this.seletores.status).count())) {
+      this.log.aviso(`Campo Status (${this.seletores.status}) não está na tela; o status será filtrado só depois do download.`);
+      return;
+    }
+    await this.marcar(pagina, this.seletores.status, status, 'Status');
   }
 
   /** Marca as opções; se alguma não existir, falha listando as que existem (para corrigir a configuração). */

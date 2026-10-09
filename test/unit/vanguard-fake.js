@@ -17,6 +17,7 @@ const ESTEIRA = (filtrado) => `<!doctype html><form method="post" action="/index
   <select id="tipodata" name="tipodata">${opcoes(['Data Cadastro', 'Data Pagamento', 'Data Reprovação'])}</select>
   <input id="data_inicial" name="data_inicial" value="01/01/2026"><input id="data_final" name="data_final" value="31/01/2026">
   <select id="etapa" name="etapa" multiple>${opcoes(['Andamento', 'Pendente', 'Pago', 'Reprovado'])}</select>
+  <select id="status" name="status" multiple>${opcoes(['X', 'TAXA BAIXA', 'CLIENTE COM  AÇÃO JUDICIAL'])}</select>
   <select id="cod_equipe" name="cod_equipe" multiple>${opcoes(['AMANDA', 'MAYSA'])}</select>
   <button name="enviarfiltro" type="submit">Filtrar</button></form>
   ${filtrado ? '<button data-original-title="Extrair Excel" onclick="location.href=\'/index.php/esteira/excel\'">Excel</button>' : ''}`;
@@ -50,14 +51,15 @@ function criarVanguardFake({ usuario, senha, registros }) {
       const p = await lerCorpo(req);
       filtroAtual = {
         tipodata: p.get('tipodata'), inicial: p.get('data_inicial'), final: p.get('data_final'),
-        etapas: p.getAll('etapa'), equipes: p.getAll('cod_equipe'),
+        etapas: p.getAll('etapa'), status: p.getAll('status'), equipes: p.getAll('cod_equipe'),
       };
       estado.filtros.push(filtroAtual);
       html(res, ESTEIRA(true));
     },
     'GET /index.php/esteira/excel': (req, res) => {
       const etapas = filtroAtual?.etapas || [];
-      const linhas = registros.filter((r) => !etapas.length || etapas.includes(r.Etapa));
+      const status = filtroAtual?.status || [];
+      const linhas = registros.filter((r) => (!etapas.length || etapas.includes(r.Etapa)) && (!status.length || status.includes(r.Status)));
       const csv = ['Codigo;Status;Nome;Beneficio;Etapa', ...linhas.map((r) => [r.Codigo, r.Status, r.Nome, r.Beneficio, r.Etapa].join(';'))].join('\r\n');
       res.writeHead(200, { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="esteira.csv"' }).end(csv);
     },

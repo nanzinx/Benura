@@ -336,7 +336,7 @@ flowchart LR
 - **Tudo é configurado em `bases.json`** (copie de `bases.example.json`): agenda, base mestra, os cenários da esteira (tipo de data, dias para trás, etapas e status) e as equipes.
 - **Skill de cada equipe pelo código** (`"idSkill": 57`, o *Cód. Skill* da tela do grupo na Argus). O hash do endpoint é buscado sozinho pela `listarskills`. No Ativo, cada equipe recebe na sua **VANGUARD INSS**.
 - **Equipe-cópia** (`"copiaDe"`): não entra na divisão e recebe a mesma base de outra equipe, na própria skill. É o caso do **ROBSON**, cujos operadores quase não ficam no Ativo: as 5 equipes dividem a base e ele recebe a cópia de uma delas, revezando por dia (`"rodizio"`).
-- **Robô do Vanguard**: entra com um login próprio (`VANGUARD_USUARIO`/`VANGUARD_SENHA`), aplica os filtros de cada cenário na esteira e baixa o Excel, do mesmo jeito que o Carrossel. Usa o Chrome já instalado no PC.
+- **Robô do Vanguard**: entra com um login próprio (`VANGUARD_USUARIO`/`VANGUARD_SENHA`), aplica os filtros de cada cenário na tela da esteira (Data, De/à, Etapa e **Status**, como no processo manual) e baixa o Excel, do mesmo jeito que o Carrossel. Usa o Chrome já instalado no PC.
 - **Chave do cruzamento**: `esteira.colunaChave` (padrão `Codigo`) contra a coluna `CPF` da base mestra. Quando o novo código combinado com o Vanguard estiver pronto, basta trocar o nome da coluna.
 - **Quem converteu não volta**: está na esteira (Andamento/Pago) e sai todo dia. Quem não converteu pode cair em outra equipe no dia seguinte, porque a divisão é sorteada de novo.
 - **Histórico**: os CSVs ficam em `BASES_PASTA_SAIDA/<BASE>/<data>/`, e cada execução vai para `logs/bases.jsonl` e para o aviso.

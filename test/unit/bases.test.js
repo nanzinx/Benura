@@ -172,17 +172,22 @@ test('RoboEsteira: entra, aplica os filtros de cada cenário, baixa e sai', { ti
     });
     const arquivos = await robo.baixar([
       { nome: 'Andamento', tipoData: 'Data Cadastro', etapas: ['andamento'] },
-      { nome: 'Reprova', tipoData: 'data reprovacao', diasAtras: 60 },
+      { nome: 'Reprova', tipoData: 'data reprovacao', diasAtras: 60, status: ['taxa baixa', 'Cliente com ação judicial'] },
     ], { hoje: '2026-10-09' });
 
     assert.deepEqual((await lerTabela(arquivos.Andamento)).map((l) => l.Codigo), ['_A']);
-    assert.deepEqual((await lerTabela(arquivos.Reprova)).map((l) => l.Codigo), ['_A', '_B']);
+    assert.deepEqual((await lerTabela(arquivos.Reprova)).map((l) => l.Codigo), ['_B'], 'status aplicado na tela');
     assert.deepEqual(v.estado.filtros, [
-      { tipodata: 'Data Cadastro', inicial: '', final: '', etapas: ['Andamento'], equipes: ['AMANDA', 'MAYSA'] },
-      { tipodata: 'Data Reprovação', inicial: '10/08/2026', final: '09/10/2026', etapas: [], equipes: ['AMANDA', 'MAYSA'] },
+      { tipodata: 'Data Cadastro', inicial: '', final: '', etapas: ['Andamento'], status: [], equipes: ['AMANDA', 'MAYSA'] },
+      {
+        tipodata: 'Data Reprovação', inicial: '10/08/2026', final: '09/10/2026', etapas: [],
+        status: ['TAXA BAIXA', 'CLIENTE COM AÇÃO JUDICIAL'], equipes: ['AMANDA', 'MAYSA'], // o navegador colapsa os espaços
+      },
     ]);
     assert.equal(v.estado.logouts, 1);
 
+    await assert.rejects(robo.baixar([{ nome: 'X', tipoData: 'Data Cadastro', status: ['STATUS QUE NAO EXISTE'] }], { hoje: '2026-10-09' }),
+      /Status: "STATUS QUE NAO EXISTE" não existe no Vanguard\. Opções: X \| TAXA BAIXA/);
     await assert.rejects(robo.baixar([{ nome: 'X', tipoData: 'Data Inexistente' }], { hoje: '2026-10-09' }),
       /"Data Inexistente" não existe no Vanguard\. Opções: Data Cadastro \| Data Pagamento \| Data Reprovação/);
 
