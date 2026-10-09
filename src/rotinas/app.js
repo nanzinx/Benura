@@ -31,6 +31,8 @@ const { FimExpedienteService } = require('./fim-expediente.service');
 const { BasesService, EsteiraDeArquivo } = require('../bases/bases.service');
 const { carregarBases, validarBases, problemasDaBase } = require('../bases/configuracao');
 const { RoboEsteira } = require('../integrations/vanguard/esteira-robo');
+const { DesligadosService, FuncionariosDeArquivo } = require('./desligados.service');
+const { horarioComMargem } = require('../domain/fim-expediente');
 
 /** Configuração do fim de expediente + o que ele compartilha com o resto. */
 const configDoFimExpediente = (cfg) => ({
@@ -57,7 +59,19 @@ function fonteDaEsteira(cfgBases, log, arquivo) {
   return new RoboEsteira({ cfg: { ...cfgBases.vanguard, pastaDownload: cfgBases.pastaDownloads }, logger: log.filho('vanguard') });
 }
 
-function montarRotinas(overrides, { esteira } = {}) {
+/** Desligados: 07:30 e o horário do fim de expediente, se DESLIGADOS_HORARIOS não disser outro. */
+const configDosDesligados = (cfg) => ({
+  ...cfg.rotinas.desligados,
+  horarios: cfg.rotinas.desligados.horarios.length
+    ? [...cfg.rotinas.desligados.horarios].sort()
+    : ['07:30', horarioComMargem(cfg.agenda.horarioFim, cfg.rotinas.fimExpediente.margemMin)],
+  diasSemana: cfg.bases.diasSemana,
+  toleranciaMin: cfg.bases.toleranciaMin,
+  fusoHorario: cfg.agenda.fusoHorario,
+  dryRun: cfg.argus.dryRun,
+});
+
+function montarRotinas(overrides, { esteira, funcionarios } = {}) {
   const cfg = carregarConfig(overrides);
   const log = criarLogger({ debug: cfg.debug, escopo: 'rotinas' });
   const cfgFim = configDoFimExpediente(cfg);
@@ -85,7 +99,31 @@ function montarRotinas(overrides, { esteira } = {}) {
     notificador,
     logger: log.filho('bases'),
   });
-  return { cfg, cfgBases, log, fimExpediente, bases };
+  const cfgDesligados = configDosDesligados(cfg);
+  fs.mkdirSync(path.dirname(cfgDesligados.arquivoLog), { recursive: true });
+  const desligados = new DesligadosService({
+    fonte: funcionarios
+      ? new FuncionariosDeArquivo(funcionarios)
+      : new RoboEsteira({ cfg: { ...cfgBases.vanguard, pastaDownload: cfgBases.pastaDownloads }, logger: log.filho('vanguard') }),
+    client,
+    cfg: cfgDesligados,
+    repositorio: new ArquivoDeEstado({ arquivo: cfg.rotinas.arquivoEstado, logger: log }),
+    auditoria: new AuditoriaRepository({ arquivo: cfgDesligados.arquivoLog, logger: log }),
+    notificador,
+    logger: log.filho('desligados'),
+  });
+  return { cfg, cfgBases, cfgDesligados, log, fimExpediente, bases, desligados };
+}
+
+/** Problemas dos desligados (ligados na agenda ou rodados à mão sem arquivo). */
+function problemasDosDesligados({ cfgDesligados, cfgBases }, opcoes) {
+  const usaRobo = (cfgDesligados.ativo || opcoes.desligados) && !opcoes.funcionarios;
+  if (!usaRobo) return [];
+  const v = cfgBases.vanguard;
+  const problemas = [];
+  if (!v.usuario || !v.senha) problemas.push('Desligados exigem VANGUARD_USUARIO e VANGUARD_SENHA (ou --funcionarios <arquivo>).');
+  if (!v.urlFuncionarios) problemas.push('Desligados exigem VANGUARD_FUNCIONARIOS_URL (endereço da tela Funcionários).');
+  return problemas;
 }
 
 /** Problemas da execução manual de uma base (vale mesmo com a base desligada na agenda). */
@@ -98,11 +136,13 @@ function problemasDaExecucaoManual(cfgBases, { base, esteira, modo }) {
   return problemas;
 }
 
-function exigirConfigValida({ cfg, cfgBases, log }, opcoes = {}) {
+function exigirConfigValida(app, opcoes = {}) {
+  const { cfg, cfgBases, log } = app;
   const soArquivos = opcoes.base && opcoes.modo === 'arquivos'; // ensaio de base: não fala com a Argus
   const fatais = validarConfig(cfg, { escopo: 'rotinas' }).fatais.filter((f) => !(soArquivos && /ARGUS_TOKEN/.test(f)));
   if (opcoes.base) fatais.push(...problemasDaExecucaoManual(cfgBases, opcoes));
   if (!opcoes.base) fatais.push(...validarBases(cfgBases));
+  fatais.push(...problemasDosDesligados(app, opcoes));
   if (!fatais.length) return;
   fatais.forEach((f) => log.erro(f));
   process.exit(1);
@@ -117,6 +157,8 @@ function lerOpcoes(argv) {
       base: { type: 'string' },
       esteira: { type: 'string' },
       'so-arquivos': { type: 'boolean', default: false },
+      desligados: { type: 'boolean', default: false },
+      funcionarios: { type: 'string' },
     },
   });
   return { ...values, soArquivos: values['so-arquivos'] };
@@ -132,8 +174,12 @@ function montarServidor({ cfg, log }, laco) {
 }
 
 /** Um tique: cada rotina isolada (a falha de uma não impede a outra). */
-async function tique({ log, fimExpediente, bases }) {
-  const rotinas = [['fim de expediente', () => fimExpediente.tique()], ['bases', () => bases.tique()]];
+async function tique({ log, fimExpediente, bases, desligados }) {
+  const rotinas = [
+    ['fim de expediente', () => fimExpediente.tique()],
+    ['desligados', () => desligados.tique()],
+    ['bases', () => bases.tique()],
+  ];
   for (const [nome, fn] of rotinas) await fn().catch((e) => log.erro(`Rotina ${nome} falhou: ${e.message}`));
 }
 
@@ -160,6 +206,7 @@ async function executarContinuamente(app) {
   const f = cfg.rotinas.fimExpediente;
   log.info(`Rotinas iniciadas | /health na porta ${cfg.rotinas.porta} | fim de expediente: `
     + `${f.ativo ? `${fimExpediente.horarioAlvo} (${f.acao})` : 'desligado'} | ${descreverBases(cfgBases)}`
+    + ` | desligados: ${app.cfgDesligados.ativo ? app.cfgDesligados.horarios.join(' e ') : 'desligado'}`
     + `${cfg.argus.dryRun ? ' | DRY_RUN' : ''}`);
 }
 
@@ -180,8 +227,12 @@ async function executarAgora({ log, fimExpediente }, { forcar }) {
 
 async function iniciarRotinas(argv = process.argv.slice(2)) {
   const opcoes = lerOpcoes(argv);
-  const app = montarRotinas(undefined, { esteira: opcoes.esteira });
+  const app = montarRotinas(undefined, { esteira: opcoes.esteira, funcionarios: opcoes.funcionarios });
   exigirConfigValida(app, { ...opcoes, modo: opcoes.soArquivos ? 'arquivos' : app.cfgBases.modo });
+  if (opcoes.desligados) {
+    process.exitCode = await app.desligados.executar().then(() => 0, () => 2);
+    return undefined;
+  }
   if (opcoes.base) {
     process.exitCode = await executarBase(app, opcoes);
     return undefined;

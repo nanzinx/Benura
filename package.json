@@ -27,7 +27,8 @@
     "atualizador:agora": "node atualizador.js --uma-vez",
     "rotinas:agora": "node rotinas.js --agora",
     "bases:agora": "node rotinas.js --base",
-    "aviso:teste": "node scripts/testar-aviso.js"
+    "aviso:teste": "node scripts/testar-aviso.js",
+    "desligados:agora": "node rotinas.js --desligados"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

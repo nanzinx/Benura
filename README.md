@@ -33,6 +33,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 - [🔄 Rodízio Ativo ↔ URA e robôs](#rodizio)
 - [📲 Retorno de quem desistiu da fila](#retorno-da-fila)
 - [🌙 Fim de expediente limpo](#fim-de-expediente)
+- [🚪 Desligados (Vanguard → Argus)](#desligados)
 - [📦 Bases de mailing (Ativo, URA, Digital)](#bases)
 - [💬 Avisos no BenHub](#benhub)
 - [🧰 Rodando com PM2](#pm2)
@@ -45,7 +46,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 |---|---|---|---|
 | `roteador-vendas.js` | `benura-roteador` | 3001 | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
 | `argus-automacao.js` | `benura-rodizio` | 3000 | Rodízio Ativo ↔ URA por atendimento, liga/desliga os robôs da URA e faz o **retorno de quem desistiu da fila** |
-| `rotinas.js` | `benura-rotinas` | 3003 | Rotinas: **fim de expediente limpo** e **bases de mailing** (Ativo, URA, Digital) |
+| `rotinas.js` | `benura-rotinas` | 3003 | Rotinas: **fim de expediente limpo**, **desligados** e **bases de mailing** (Ativo, URA, Digital) |
 | `atualizador.js` | `benura-atualizador` | 3002 | Deploy automático na máquina de produção, fora do expediente |
 | `cadastrar-operador.js` | — | — | Prepara e confere o cadastro de operadores na Argus a partir do login no **Vanguard** |
 
@@ -308,6 +309,27 @@ USAR_MOCK=1 ARGUS_TOKEN=x FIM_EXPEDIENTE_ACAO=deslogar npm run rotinas:agora -- 
 > No PowerShell, defina as variáveis antes: `$env:USAR_MOCK=1; $env:ARGUS_TOKEN='x'; npm run rotinas:agora -- --forcar`
 
 ---
+
+<a id="desligados"></a>
+## 🚪 Desligados (Vanguard → Argus)
+
+Quem sai da empresa vira **Inativo** na tela Funcionários do Vanguard, mas continua ativo na Argus até alguém lembrar de inativar.
+Às **07:30** e no **fim do dia**, o robô:
+
+1. exporta a tela Funcionários do Vanguard com o status **Todos** (mesmo login do robô da esteira);
+2. cruza com os operadores ativos da Argus pelo login (`NOME.SOBRENOME@AGÊNCIA` → `NOME.SOBRENOME`);
+3. quem está **Inativo no Vanguard e ativo na Argus**: se estiver logado, é **deslogado** na hora;
+4. avisa a lista (BenHub/log) para alguém **inativar na Argus** (a API da Argus não inativa usuário).
+
+Quem não aparece no Vanguard é ignorado, e quem tem outro cadastro **Ativo** com o mesmo login (recontratado) também. Respeita `DRY_RUN`.
+
+```bash
+# Ensaio com uma exportação já baixada (sem robô)
+npm run desligados:agora -- --funcionarios C:\caminho\Funcionarios.xls
+# Com o robô (precisa de VANGUARD_USUARIO, VANGUARD_SENHA e VANGUARD_FUNCIONARIOS_URL)
+npm run desligados:agora
+```
+Para ligar na agenda: `DESLIGADOS_ATIVO=true` e reinicie o `benura-rotinas`.
 
 <a id="bases"></a>
 ## 📦 Bases de mailing (Ativo, URA, Digital)

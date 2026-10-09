@@ -27,6 +27,9 @@ const SELETORES_PADRAO = Object.freeze({
   equipe: '#cod_equipe',
   filtrar: 'button[name="enviarfiltro"]',
   extrairExcel: 'button[data-original-title="Extrair Excel"]',
+  // Tela Funcionários
+  procurarFuncionarios: ':is(button, a):has-text("Procurar")',
+  exportarFuncionarios: ':is(button, a):has-text("Exportar")',
 });
 
 class VanguardLoginError extends Error {
@@ -73,6 +76,34 @@ function marcarOpcoesNoNavegador({ seletor, textos, todas }) {
     faltando: todas ? [] : textos.filter((t) => !marcados.has(norm(t))),
     disponiveis: opcoes.map((o) => o.textContent.trim()),
   };
+}
+
+/**
+ * Roda no navegador, na tela Funcionários: põe o filtro de status em "Todos"
+ * (o select que tem a opção "Ativos") e a agência em "Todas", se houver.
+ * Os campos são achados pelo conteúdo, não por id.
+ * @returns {{ erro?: string, avisos: string[] }}
+ */
+function filtrosFuncionariosNoNavegador({ status }) {
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const selects = [...document.querySelectorAll('select')];
+  const avisar = (el) => (window.jQuery ? window.jQuery(el).trigger('change') : el.dispatchEvent(new Event('change', { bubbles: true })));
+  const campoStatus = selects.find((sel) => [...sel.options].some((o) => norm(o.textContent) === 'ATIVOS'));
+  if (!campoStatus) return { erro: 'campo de status (com a opção "Ativos") não encontrado', avisos: [] };
+  const opcao = [...campoStatus.options].find((o) => norm(o.textContent) === norm(status));
+  if (!opcao) return { erro: `status "${status}" não existe. Opções: ${[...campoStatus.options].map((o) => o.textContent.trim()).join(' | ')}`, avisos: [] };
+  campoStatus.value = opcao.value;
+  avisar(campoStatus);
+
+  const avisos = [];
+  const agencia = selects.find((sel) => [...sel.options].some((o) => /^\d+\s*-\s/.test(o.textContent.trim())));
+  const todas = agencia && [...agencia.options].find((o) => ['TODAS', 'TODOS'].includes(norm(o.textContent)) || o.value === '');
+  if (agencia && todas) {
+    agencia.value = todas.value;
+    avisar(agencia);
+  }
+  if (agencia && !todas) avisos.push('o filtro de agência não tem a opção "Todas": a exportação pode vir só da agência selecionada');
+  return { avisos };
 }
 
 /** Roda no navegador: preenche um campo de texto/data e avisa os ouvintes. */
@@ -122,6 +153,43 @@ class RoboEsteira {
     } finally {
       await navegador.close();
     }
+  }
+
+  /**
+   * Exporta a tela Funcionários com o status "Todos" (ativos e inativos).
+   * @param {{ hoje: string }} opcoes
+   * @returns {Promise<string>} arquivo baixado
+   */
+  async baixarFuncionarios({ hoje }) {
+    if (!this.cfg.urlFuncionarios) throw new Error('Informe VANGUARD_FUNCIONARIOS_URL (endereço da tela Funcionários do Vanguard).');
+    fs.mkdirSync(this.cfg.pastaDownload, { recursive: true });
+    const navegador = await this.abrirNavegador();
+    try {
+      const contexto = await navegador.newContext({ acceptDownloads: true });
+      contexto.setDefaultTimeout(this.cfg.timeoutMs);
+      const pagina = await contexto.newPage();
+      await this.entrar(pagina);
+      const arquivo = await this.exportarFuncionarios(pagina, hoje);
+      await this.sair(pagina);
+      return arquivo;
+    } finally {
+      await navegador.close();
+    }
+  }
+
+  async exportarFuncionarios(pagina, hoje) {
+    const s = this.seletores;
+    await pagina.goto(this.cfg.urlFuncionarios, { waitUntil: 'domcontentloaded' });
+    const { erro, avisos } = await pagina.evaluate(filtrosFuncionariosNoNavegador, { status: this.cfg.statusFuncionarios || 'Todos' });
+    if (erro) throw new Error(`Tela Funcionários: ${erro}`);
+    avisos.forEach((a) => this.log.aviso(`Tela Funcionários: ${a}.`));
+
+    await Promise.all([pagina.waitForLoadState('domcontentloaded'), pagina.locator(s.procurarFuncionarios).first().click()]);
+    const [download] = await Promise.all([pagina.waitForEvent('download'), pagina.locator(s.exportarFuncionarios).first().click()]);
+    const destino = path.join(this.cfg.pastaDownload, `FUNCIONARIOS-${hoje}${path.extname(download.suggestedFilename()) || '.xls'}`);
+    await download.saveAs(destino);
+    this.log.info('Vanguard: Funcionários exportados (status Todos).');
+    return destino;
   }
 
   abrirNavegador() {

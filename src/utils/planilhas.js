@@ -41,7 +41,7 @@ function paraObjetos(linhas) {
 const atributo = (tag, nome) => (tag.match(new RegExp(`\\b${nome}="([^"]*)"`)) || [])[1];
 
 /** Entidades XML: &amp; &lt; &gt; &quot; &apos; &#10; &#x41; */
-const ENTIDADES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+const ENTIDADES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 function desescapar(texto) {
   return texto.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (inteira, e) => {
     if (e[0] !== '#') return ENTIDADES[e] ?? inteira;
@@ -187,7 +187,24 @@ function lerCsv(arquivo) {
  */
 async function lerTabela(arquivo, opcoes = {}) {
   if (ehXlsx(arquivo)) return lerXlsx(arquivo, opcoes);
-  return lerCsv(arquivo);
+  const texto = decodificar(fs.readFileSync(arquivo));
+  if (/^\s*<(!doctype|html|table)\b/i.test(texto)) return lerHtml(texto);
+  return paraObjetos(separarCsv(texto, detectarSeparador(texto)));
 }
 
-module.exports = { lerTabela, lerCsv, lerXlsx, abasDoXlsx, separarCsv, detectarSeparador, decodificar };
+// ───────────────────────────── "Excel" em HTML ─────────────────────────────
+
+const textoDaCelulaHtml = (html) => desescapar(html.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+
+/**
+ * Tabela HTML salva como .xls — é o que o "Exportar" de sistemas web (como a
+ * tela Funcionários do Vanguard) costuma gerar. Lê a primeira <table>.
+ */
+function lerHtml(texto) {
+  const tabela = /<table\b[\s\S]*?<\/table>/i.exec(texto)?.[0] || '';
+  const linhas = [...tabela.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
+    .map(([, tr]) => [...tr.matchAll(/<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/gi)].map(([, c]) => textoDaCelulaHtml(c)));
+  return paraObjetos(linhas);
+}
+
+module.exports = { lerTabela, lerCsv, lerXlsx, lerHtml, abasDoXlsx, separarCsv, detectarSeparador, decodificar };

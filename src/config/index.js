@@ -205,6 +205,13 @@ function carregarConfig(overrides = {}) {
       ignorarRamais: envLista('FIM_EXPEDIENTE_IGNORAR_RAMAIS', ''),
       arquivoLog: env('FIM_EXPEDIENTE_LOG_FILE', path.join(RAIZ, 'logs', 'fim-expediente.jsonl')),
     },
+    // Quem está Inativo no Vanguard e ativo na Argus: avisa e desloga.
+    desligados: {
+      ativo: envBool('DESLIGADOS_ATIVO', false),
+      // Vazio = 07:30 e o horário do fim de expediente (HORARIO_FIM + margem)
+      horarios: envLista('DESLIGADOS_HORARIOS', ''),
+      arquivoLog: env('DESLIGADOS_LOG_FILE', path.join(RAIZ, 'logs', 'desligados.jsonl')),
+    },
   };
 
   // --- Bases de mailing (Ativo, URA, Digital) — dentro do benura-rotinas ---
@@ -226,6 +233,8 @@ function carregarConfig(overrides = {}) {
       usuario: env('VANGUARD_USUARIO', ''),
       senha: env('VANGUARD_SENHA', ''),
       timeoutMs: envNum('VANGUARD_TIMEOUT_MS', 120_000),
+      // Tela Funcionários (para a conferência de desligados): copie o endereço da barra do navegador
+      urlFuncionarios: env('VANGUARD_FUNCIONARIOS_URL', ''),
       navegador: {
         canal: env('VANGUARD_NAVEGADOR', 'chrome'), // chrome ou msedge (já instalados no PC)
         executavel: env('VANGUARD_NAVEGADOR_CAMINHO', ''),

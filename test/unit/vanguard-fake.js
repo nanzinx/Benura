@@ -22,10 +22,19 @@ const ESTEIRA = (filtrado) => `<!doctype html><form method="post" action="/index
   <button name="enviarfiltro" type="submit">Filtrar</button></form>
   ${filtrado ? '<button data-original-title="Extrair Excel" onclick="location.href=\'/index.php/esteira/excel\'">Excel</button>' : ''}`;
 
+/** Tela Funcionários: status (Ativos/Inativos/Todos) e agência, achados pelo conteúdo, não por id. */
+const FUNCIONARIOS = `<!doctype html><form method="get" action="/index.php/funcionario">
+  <select name="tipo_busca"><option>Nome</option></select>
+  <select name="situacao">${opcoes(['Ativos', 'Inativos', 'Todos'])}</select>
+  <select name="agencia"><option value="">Todas</option><option value="36241" selected>36241 - MAYSA</option></select>
+  <button type="submit">Procurar</button></form>
+  <a href="/index.php/funcionario/exportar">Exportar</a>`;
+
 /**
- * @param {{ usuario: string, senha: string, registros: Array<{ Codigo, Status, Nome, Beneficio, Etapa }> }} opcoesFake
+ * @param {{ usuario: string, senha: string, registros: Array<{ Codigo, Status, Nome, Beneficio, Etapa }>,
+ *           funcionarios?: Array<{ Nome, Usuario, Status }> }} opcoesFake
  */
-function criarVanguardFake({ usuario, senha, registros }) {
+function criarVanguardFake({ usuario, senha, registros, funcionarios = [] }) {
   const estado = { filtros: [], logins: 0, logouts: 0 };
   let filtroAtual = null;
 
@@ -62,6 +71,19 @@ function criarVanguardFake({ usuario, senha, registros }) {
       const linhas = registros.filter((r) => (!etapas.length || etapas.includes(r.Etapa)) && (!status.length || status.includes(r.Status)));
       const csv = ['Codigo;Status;Nome;Beneficio;Etapa', ...linhas.map((r) => [r.Codigo, r.Status, r.Nome, r.Beneficio, r.Etapa].join(';'))].join('\r\n');
       res.writeHead(200, { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="esteira.csv"' }).end(csv);
+    },
+    'GET /index.php/funcionario': (req, res) => {
+      const q = new URL(req.url, 'http://x').searchParams;
+      if (q.has('situacao')) estado.filtroFuncionarios = { situacao: q.get('situacao'), agencia: q.get('agencia') };
+      html(res, FUNCIONARIOS);
+    },
+    'GET /index.php/funcionario/exportar': (req, res) => {
+      const f = estado.filtroFuncionarios || { situacao: 'Ativos' };
+      const quer = { Ativos: ['Ativo'], Inativos: ['Inativo'], Todos: ['Ativo', 'Inativo'] }[f.situacao];
+      const linhas = funcionarios.filter((x) => quer.includes(x.Status))
+        .map((x) => `<tr><td>${x.Nome}</td><td>${x.Usuario}</td><td>Operador Call Center</td><td>${x.Status}</td></tr>`).join('');
+      res.writeHead(200, { 'Content-Type': 'application/vnd.ms-excel', 'Content-Disposition': 'attachment; filename="funcionarios.xls"' })
+        .end(`<html><body><table><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th>Status</th></tr>${linhas}</table></body></html>`);
     },
     'GET /index.php/auth/logout': (req, res) => {
       estado.logouts++;
