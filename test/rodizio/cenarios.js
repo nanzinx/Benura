@@ -183,8 +183,24 @@ const CENARIOS = {
     if (deslogados.join() !== '900,901') throw new Error(`deslogou ${deslogados}`);
 
     r.argus.definirStatus('200', 'livre');
-    await aguardar(() => r.chamadas('logaroperadorvirtual').length >= 1, { descricao: 'religar robôs' });
-    if (r.chamadas('logaroperadorvirtual')[0].dados.idGrupoUsuario !== 3) throw new Error('religou o grupo errado');
+    await aguardar(() => r.chamadas('logaroperadorvirtual').length >= 2, { descricao: 'religar robôs' });
+    const religados = r.chamadas('logaroperadorvirtual').map((c) => String(c.dados.ramal)).sort();
+    if (religados.join() !== '900,901') throw new Error(`religou ${religados}`);
+  },
+
+  async 'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
+    // 1 livre (200) → alvo 3: dos 10 ligados, desliga 7 e poupa o 900, que está em ligação.
+    await aguardar(() => ligados().length === 3, { descricao: 'reduzir para 3' });
+    if (!ligados().includes('900')) throw new Error('desligou o robô que estava em ligação');
+
+    r.argus.definirStatus('201', 'livre'); // 2 livres → alvo 6
+    await aguardar(() => ligados().length === 6, { descricao: 'aumentar para 6' });
+    if (r.chamadas('logaroperadorvirtual').some((c) => !c.dados.ramal)) throw new Error('ligou o grupo inteiro');
+
+    r.argus.definirStatus('200', 'em atendimento');
+    r.argus.definirStatus('201', 'em atendimento'); // ninguém livre → zera
+    await aguardar(() => ligados().length === 0, { descricao: 'desligar todos' });
   },
 
   async 'Robôs: humano da URA em pausa conta como ocupado'(r) {
@@ -300,7 +316,21 @@ function pidMorto() {
   return pid;
 }
 
+const ROBOS_10 = Array.from({ length: 10 }, (_, i) => String(900 + i));
+
 const VARIACOES = {
+  'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201', '202'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: {
+      100: 'livre', 200: 'livre', 201: 'em atendimento', 202: 'em atendimento',
+      ...Object.fromEntries(ROBOS_10.map((x) => [x, x === '900' ? 'em atendimento' : 'livre'])),
+    },
+    env: { ROBOS_POR_LIVRE: '3' },
+  },
   'Robôs: URA sem humanos → desliga': {
     grupos: GRUPOS_BASE.map((g) => (g.idGrupoUsuario === 2 ? { ...g, ramaisOperadores: [] } : g)),
   },

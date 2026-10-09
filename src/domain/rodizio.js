@@ -6,9 +6,9 @@
  *     vai para a URA (rodízio). Se ficar offline, perde o histórico.
  *  2. VOLTA AO ATIVO: depois de TEMPO_MIN na URA (e fora de atendimento), ou
  *     imediatamente se ficar offline, volta ao grupo de origem.
- *  3. ROBÔS: desligados quando ninguém na URA pode atender (todos ocupados,
- *     URA vazia/offline, ou a Argus sem visibilidade); religados quando algum
- *     humano fica livre de novo.
+ *  3. ROBÔS: ligados em proporção aos humanos livres na URA (ROBOS_POR_LIVRE
+ *     por livre); todos desligados quando ninguém na URA pode atender (todos
+ *     ocupados, URA vazia/offline, ou a Argus sem visibilidade).
  */
 
 /** Classes de status de operador. */
@@ -20,11 +20,8 @@ const Classe = Object.freeze({
   ERRO: 'erro', // a Argus não respondeu
 });
 
-/** Ações sobre os robôs da URA. */
+/** Ações sobre os robôs da URA: DESLIGAR = reduzir (até 0), RELIGAR = aumentar até o alvo. */
 const AcaoRobos = Object.freeze({ DESLIGAR: 'DESLIGAR', RELIGAR: 'RELIGAR', NENHUMA: 'NENHUMA' });
-
-/** Estados conhecidos dos robôs. */
-const EstadoRobos = Object.freeze({ LIGADOS: 'on', DESLIGADOS: 'off', DESCONHECIDO: 'unknown' });
 
 /** Status mais antigo que isso indica que a Argus parou de responder. */
 const VALIDADE_STATUS_MS = 6000;
@@ -61,40 +58,68 @@ function deveVoltarAoAtivo({ movido, classe, agora, tempoNaUraMs }) {
 const motivoDaVolta = (classe) => (classe === Classe.OFFLINE ? 'offline' : 'tempo expirado');
 
 /**
- * Regra 3: o que fazer com os robôs agora.
+ * Regra 3a: quantos robôs devem estar ligados agora.
+ *
+ * Proporcional aos humanos LIVRES na URA: cada livre "segura" `porLivre` robôs
+ * (padrão 7). Com 1 livre e dezenas de robôs ligados, o robô conecta clientes
+ * que ninguém atende e vira callback. Sem visibilidade da Argus, URA vazia ou
+ * ninguém livre → 0 (desliga tudo, como sempre foi).
+ *
+ * @returns {{ alvo: number, livres: number, motivo: string }}
+ */
+function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
+  const nenhum = (motivo) => ({ alvo: 0, livres: 0, motivo });
+  const semVisibilidade = ramaisUra.some((r) => {
+    const info = status.get(r);
+    return !info || info.classe === Classe.ERRO || agora - info.ts > VALIDADE_STATUS_MS;
+  });
+  if (semVisibilidade) return nenhum('sem visibilidade da Argus');
+
+  const humanos = ramaisUra.filter((r) => status.get(r).classe !== Classe.OFFLINE);
+  if (!humanos.length) return nenhum('URA vazia ou com todos offline');
+
+  const livres = humanos.filter((r) => status.get(r).classe === Classe.LIVRE).length;
+  if (!livres) return nenhum('nenhum humano livre na URA');
+
+  const alvo = Math.min(total, livres * cfg.porLivre, cfg.maximo || Infinity);
+  return { alvo, livres, motivo: `${livres} livre(s) na URA × ${cfg.porLivre}` };
+}
+
+/**
+ * Regra 3b: o que fazer com os robôs agora.
+ *
+ * Reduzir é imediato (é o que evita callback); aumentar espera `minDesligadoMs`
+ * desde a última redução, para não ficar liga-desliga a cada ciclo.
  *
  * @param {object} entrada
  * @param {string[]} entrada.ramaisUra - Humanos que estão na URA
  * @param {Map<string, { classe: string, ts: number }>} entrada.status
  * @param {number} entrada.agora
- * @param {{ estado: string, desligadosDesde: number }} entrada.robos
- * @param {{ reativar: boolean, minDesligadoMs: number }} entrada.cfg
- * @returns {{ acao: string, motivo: string }}
+ * @param {{ ligados: number|null, total: number, ultimaReducao: number }} entrada.robos - ligados null = ainda não lido
+ * @param {{ reativar: boolean, minDesligadoMs: number, porLivre: number, maximo?: number }} entrada.cfg
+ * @returns {{ acao: string, alvo: number, livres: number, motivo: string }}
  */
 function decidirRobos({ ramaisUra, status, agora, robos, cfg }) {
-  const desligar = (motivo) => ({
-    acao: robos.estado === EstadoRobos.DESLIGADOS ? AcaoRobos.NENHUMA : AcaoRobos.DESLIGAR,
-    motivo,
-  });
+  const decisao = alvoDeRobos({ ramaisUra, status, agora, total: robos.total, cfg });
+  const com = (acao, motivo = decisao.motivo) => ({ ...decisao, acao, motivo });
+  if (!robos.total) return com(AcaoRobos.NENHUMA, 'nenhum robô conhecido');
+  if (decisao.alvo === 0) return com(robos.ligados === 0 ? AcaoRobos.NENHUMA : AcaoRobos.DESLIGAR);
+  if (robos.ligados === null) return com(AcaoRobos.NENHUMA, 'aguardando a leitura dos robôs');
+  if (robos.ligados > decisao.alvo) return com(AcaoRobos.DESLIGAR);
 
-  const semVisibilidade = ramaisUra.some((r) => {
-    const info = status.get(r);
-    return !info || info.classe === Classe.ERRO || agora - info.ts > VALIDADE_STATUS_MS;
-  });
-  if (semVisibilidade) return desligar('sem visibilidade da Argus');
+  const podeAumentar = robos.ligados < decisao.alvo && cfg.reativar && agora - robos.ultimaReducao >= cfg.minDesligadoMs;
+  return com(podeAumentar ? AcaoRobos.RELIGAR : AcaoRobos.NENHUMA);
+}
 
-  const humanos = ramaisUra.filter((r) => status.get(r).classe !== Classe.OFFLINE);
-  if (!humanos.length) return desligar('URA vazia ou com todos offline');
-
-  const algumLivre = humanos.some((r) => status.get(r).classe === Classe.LIVRE);
-  if (!algumLivre) return desligar('nenhum humano livre na URA');
-
-  const podeReligar = cfg.reativar
-    && robos.estado === EstadoRobos.DESLIGADOS
-    && agora - robos.desligadosDesde >= cfg.minDesligadoMs;
-  return podeReligar
-    ? { acao: AcaoRobos.RELIGAR, motivo: 'há humano livre na URA' }
-    : { acao: AcaoRobos.NENHUMA, motivo: 'há humano livre na URA' };
+/**
+ * Quais robôs desligar para chegar ao alvo: primeiro os que NÃO estão em
+ * ligação (derrubar um robô falando corta o cliente).
+ * @param {Array<{ ramal: string, classe: string }>} ligados
+ * @returns {string[]}
+ */
+function escolherParaDesligar(ligados, quantidade) {
+  const peso = (classe) => (classe === Classe.ATENDIMENTO ? 1 : 0);
+  return [...ligados].sort((a, b) => peso(a.classe) - peso(b.classe)).slice(0, quantidade).map((r) => r.ramal);
 }
 
 /**
@@ -159,13 +184,14 @@ function jaEstavaDeslogado(descricao) {
 module.exports = {
   Classe,
   AcaoRobos,
-  EstadoRobos,
   VALIDADE_STATUS_MS,
   classificarStatus,
   deveIrParaUra,
   deveVoltarAoAtivo,
   motivoDaVolta,
+  alvoDeRobos,
   decidirRobos,
+  escolherParaDesligar,
   reconciliarMovidos,
   interpretarWebhook,
   jaEstavaDeslogado,

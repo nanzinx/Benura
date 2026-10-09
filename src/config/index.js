@@ -100,7 +100,13 @@ function carregarConfig(overrides = {}) {
     // Mesmos nomes de variável do script original, para o .env existente continuar valendo.
     rodizio: {
       grupoUraDefinido: env('GRUPO_URA_ID') !== '',
-      grupoRobosId: envNum('GRUPO_ROBOS_URA_ID', 0),
+      // Grupos dos robôs da URA (hoje URA PORT 3). GRUPO_ROBOS_URA_ID (um só) continua aceito.
+      gruposRobosIds: envListaNum('GRUPOS_ROBOS_URA_IDS').length
+        ? envListaNum('GRUPOS_ROBOS_URA_IDS')
+        : envListaNum('GRUPO_ROBOS_URA_ID').filter(Boolean),
+      // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
+      robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
+      robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
       pollAtivoMs: envNum('POLL_ATIVO_MS', 3000),
       pollUraMs: envNum('POLL_URA_MS', 500),
@@ -290,10 +296,13 @@ function validarRodizio(cfg) {
 
   if (!a.token) fatais.push('ARGUS_TOKEN é obrigatório.');
   if (!r.grupoUraDefinido) fatais.push('GRUPO_URA_ID é obrigatório.');
-  if (!r.grupoRobosId) fatais.push('GRUPO_ROBOS_URA_ID é obrigatório.');
+  if (!r.gruposRobosIds.length || r.gruposRobosIds.some((id) => !Number.isInteger(id))) {
+    fatais.push('GRUPOS_ROBOS_URA_IDS é obrigatório (grupos dos robôs da URA, ex.: 6).');
+  }
+  if (!(r.robosPorLivre >= 1)) fatais.push('ROBOS_POR_LIVRE deve ser 1 ou mais.');
   if (!a.gruposAtivosIds.length) fatais.push('GRUPOS_ATIVOS_IDS é obrigatório (whitelist dos grupos do Ativo).');
   if (a.gruposAtivosIds.includes(a.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');
-  if (r.grupoRobosId === a.grupoUraId) fatais.push('GRUPO_ROBOS_URA_ID não pode ser igual a GRUPO_URA_ID.');
+  if (r.gruposRobosIds.includes(a.grupoUraId)) fatais.push('GRUPOS_ROBOS_URA_IDS não pode conter o GRUPO_URA_ID.');
   if (r.tempoNaUraMs <= 0) fatais.push('TEMPO_MIN deve ser maior que zero.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: o webhook do rodízio aceita chamadas sem autenticação.');
   if (cfg.retornoFila.ativo && !cfg.retornoFila.skillHash) {

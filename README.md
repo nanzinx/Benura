@@ -216,12 +216,17 @@ npm run cadastro -- conferir YASMIN.FERREIRA@36241 \
 1. **Ativo → URA**: operador do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
 2. **URA → Ativo**: depois de `TEMPO_MIN` minutos (fora de atendimento), ou na hora se ficar offline, volta ao **grupo de origem**.
    Só volta quem o próprio rodízio colocou na URA. Quem já era da URA, ou foi colocado lá pelo roteador ou à mão, não é tocado.
-3. **Robôs**: desligados quando ninguém na URA pode atender (todos ocupados ou em pausa, URA vazia ou toda offline, ou a Argus sem responder).
-   Religados quando algum humano fica livre (após `MIN_ROBOS_OFF_MS`).
+3. **Robôs proporcionais aos livres**: ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
+   Com 1 livre, 7; com 2 livres, 14; e assim por diante, até o total de robôs (ou `ROBOS_MAXIMO`). Muitos robôs para poucos livres geram callback.
+   - **Reduzir é imediato** e desliga primeiro os robôs que **não estão em ligação**.
+   - **Aumentar** espera `MIN_ROBOS_OFF_MS` desde a última redução e liga robô por robô (`logaroperadorvirtual` por ramal).
+   - **Ninguém livre** (todos ocupados ou em pausa, URA vazia ou offline, ou a Argus sem responder) → **todos desligados** na hora.
+   - Os grupos dos robôs ficam em `GRUPOS_ROBOS_URA_IDS` (hoje URA PORT 3). A cada atualização de grupos, o rodízio confere na Argus quais robôs estão de fato ligados.
+   - O `/health` mostra `robos: { ligados, alvo, total, porLivre }`.
 4. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
 
 ### Testes de comportamento
-`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em **19 cenários**: ida, volta, robôs, webhook, correções e retorno da fila.
+`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em **20 cenários**: ida, volta, robôs proporcionais, webhook, correções e retorno da fila.
 A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js`. Foi assim que a
 refatoração foi comparada com o script original.
 

@@ -195,7 +195,7 @@ function montarFim(cfg = {}, inicial = {}) {
     client,
     cfg: {
       ativo: true, acao: 'relatar', margemMin: 10, ignorarRamais: [], horarioFim: '18:00', fusoHorario: 'America/Sao_Paulo',
-      grupoRobosId: 0, descricoesStatus: DESC, concorrencia: 5, dryRun: false, ...cfg,
+      gruposRobosIds: [], descricoesStatus: DESC, concorrencia: 5, dryRun: false, ...cfg,
     },
     repositorio: repo,
     auditoria: trilha,

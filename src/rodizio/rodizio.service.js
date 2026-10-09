@@ -73,14 +73,26 @@ class RodizioService {
     this.esquecerMovidosForaDaUra(naUra);
     this.ramaisUra = new Set([...naUra, ...Object.keys(this.movidos)]);
 
-    const robos = grupos.find((g) => g.idGrupoUsuario === this.cfg.grupoRobosId);
-    if (robos) this.ramaisRobos = (robos.ramaisOperadores || []).map(String);
+    const robos = grupos.filter((g) => this.cfg.gruposRobosIds.includes(g.idGrupoUsuario));
+    if (robos.length) this.ramaisRobos = robos.flatMap((g) => g.ramaisOperadores || []).map(String);
 
     this.gruposAtivos = grupos.filter((g) => g.idTipoGrupo === TipoGrupo.OPERACIONAL
       && g.idGrupoUsuario !== this.cfg.grupoUraId
       && this.cfg.gruposAtivosIds.includes(g.idGrupoUsuario));
 
     this.log.debug(`Grupos: URA=${this.ramaisUra.size} robôs=${this.ramaisRobos.length} ativos=${this.gruposAtivos.length}`);
+    await this.sincronizarRobos();
+  }
+
+  /** Confere na Argus quais robôs estão logados (ex.: alguém religou à mão). Não disputa com uma avaliação em curso. */
+  async sincronizarRobos() {
+    if (this.avaliandoRobos || !this.ramaisRobos.length) return;
+    this.avaliandoRobos = true;
+    try {
+      await this.robos.sincronizar(this.ramaisRobos);
+    } finally {
+      this.avaliandoRobos = false;
+    }
   }
 
   /** Quem saiu da URA por fora do rodízio (ex.: movido à mão) é esquecido, após carência. */
@@ -202,15 +214,20 @@ class RodizioService {
   }
 
   async aplicarDecisaoDosRobos() {
-    const { acao, motivo } = decidirRobos({
+    const { acao, alvo, motivo } = decidirRobos({
       ramaisUra: [...this.ramaisUra],
       status: this.statusUra,
       agora: Date.now(),
-      robos: this.robos.situacao(),
-      cfg: { reativar: this.cfg.reativarRobos, minDesligadoMs: this.cfg.minRobosDesligadosMs },
+      robos: this.robos.situacao(this.ramaisRobos.length),
+      cfg: {
+        reativar: this.cfg.reativarRobos,
+        minDesligadoMs: this.cfg.minRobosDesligadosMs,
+        porLivre: this.cfg.robosPorLivre,
+        maximo: this.cfg.robosMaximo,
+      },
     });
-    if (acao === AcaoRobos.DESLIGAR) await this.robos.desligar(this.ramaisRobos, motivo);
-    if (acao === AcaoRobos.RELIGAR) await this.robos.religar(motivo);
+    if (acao === AcaoRobos.DESLIGAR) await this.robos.reduzir(this.ramaisRobos, alvo, motivo);
+    if (acao === AcaoRobos.RELIGAR) await this.robos.aumentar(this.ramaisRobos, alvo, motivo);
   }
 
   // ───────────────────────────── Webhook ─────────────────────────────
@@ -255,7 +272,7 @@ class RodizioService {
 
   resumo() {
     return {
-      robos: this.robos.situacao().estado,
+      robos: { ...this.robos.resumo(), total: this.ramaisRobos.length, porLivre: this.cfg.robosPorLivre },
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),

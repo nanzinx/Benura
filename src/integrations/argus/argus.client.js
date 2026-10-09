@@ -197,6 +197,11 @@ class ArgusClient {
     return this.comando('deslogaroperador', { ramal: String(ramal) }, { timeoutMs: 1500, tentativas: 1 });
   }
 
+  /** Aciona um operador virtual (robô) específico (doc 4.6). */
+  logarOperadorVirtual(ramal) {
+    return this.comando('logaroperadorvirtual', { ramal: String(ramal) }, { timeoutMs: 2000, tentativas: 1 });
+  }
+
   /** Aciona todos os operadores virtuais ativos de um grupo. */
   logarOperadoresVirtuais(idGrupoUsuario) {
     return this.comando('logaroperadorvirtual', { idGrupoUsuario }, { timeoutMs: 2000 });
