@@ -6,6 +6,7 @@
     "Cada cenário é uma busca na esteira do Vanguard: tipoData, diasAtras (vazio = sem data), etapas (vazio = todas) e status (vazio = todos; filtrado pelo robô depois de baixar).",
     "Status e etapas são comparados sem acento, maiúsculas ou espaços duplos.",
     "equipes: a base é dividida em partes iguais, na ordem da lista. idSkill é o Cód. Skill da tela do grupo na Argus (o hash é buscado sozinho pela listarskills); skillHash direto também vale.",
+    "Caminhos: use o caminho no PC fixo onde o robô roda (ex.: C:\\BenURA\\bases\\...), com as barras dobradas como aqui; ou com / (C:/BenURA/bases/...).",
     "copiaDe: a equipe não entra na divisão e recebe a mesma base de outra equipe, na própria skill. \"rodizio\" reveza por dia entre as equipes; ou use o nome de uma equipe."
   ],
 
@@ -14,7 +15,7 @@
     "tipo": "remocao",
     "agenda": ["08:00"],
     "baseMestra": {
-      "arquivo": "\\\\SERVIDOR\\Bases\\Base filtrada automatico ativo.xlsx",
+      "arquivo": "C:\\BenURA\\bases\\Base filtrada automatico ativo.xlsx",
       "aba": "NÃO MEXA",
       "colunas": { "chave": "CPF", "beneficio": "Beneficio", "nome": "Nome" }
     },
@@ -50,17 +51,29 @@
     "tipo": "remocao",
     "agenda": ["08:00"],
     "baseMestra": {
-      "arquivo": "\\\\SERVIDOR\\Bases\\Base filtrada automatico ura.xlsx",
+      "arquivo": "C:\\BenURA\\bases\\Base filtrada automatico ura.xlsx",
       "aba": "NÃO MEXA",
       "colunas": { "chave": "CPF", "beneficio": "Beneficio", "nome": "Nome" }
     },
     "esteira": { "colunaChave": "Codigo" },
     "cenarios": [
       { "nome": "Andamento", "tipoData": "Data Cadastro", "etapas": ["Andamento"] },
-      { "nome": "Pago 60 dias", "tipoData": "Data Pagamento", "diasAtras": 60 }
+      { "nome": "Pago 60 dias", "tipoData": "Data Pagamento", "diasAtras": 60 },
+      {
+        "nome": "Reprova 60 dias",
+        "tipoData": "Data Reprovação",
+        "diasAtras": 60,
+        "status": [
+          "TAXA BAIXA", "FORA DA POLITICA", "NÃO PERTURBE", "CONTRATO N ENCONTRADO", "CONTRATO LIQUIDADO",
+          "MARGEM NEGATIVA", "CEDIDO", "NÃO COBRE SALDO", "CLIENTE COM AÇÃO JUDICIAL", "CANCELADO - CONTESTAÇÃO",
+          "REFINANCIOU", "TJE - CADASTRAR BIOMETRIA", "BENEFICIO BLOQUEADO - TBN", "DADOS DIVERGENTES - RECEITA/INSS",
+          "BENEFICIO IRÁ EXPIRAR", "BENEFICIO CESSADO", "MAIS DE 1 PARCELA EM ATRASO",
+          "CONTRATO FINALIZADO NA PORTABILIDADE", "CLIENTE FALECEU", "NÃO HÁ TABELAS DISPONÍVEIS", "ILETRADO - NÃO ASSINA"
+        ]
+      }
     ],
     "equipes": [
-      { "nome": "URA", "idSkill": 46, "_skill": "VANGUARD INSS - 28751 (grupos URA PORT) — a confirmar" }
+      { "nome": "URA", "idSkill": 46, "_skill": "VANGUARD INSS - 28751 (grupos URA PORT)" }
     ]
   },
 

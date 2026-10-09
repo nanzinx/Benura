@@ -323,14 +323,14 @@ flowchart LR
     M[(base mestra<br>aba NÃO MEXA)] --> F
     F -->|Ativo / URA:<br>mestra − esteira| E[embaralha e<br>divide por equipe]
     F -->|Digital:<br>esteira nos status| E
-    E --> C[📄 um CSV por equipe<br>na pasta de rede]
+    E --> C[📄 um CSV por equipe<br>na pasta de saída]
     C -->|BASES_MODO=argus| S[Argus: sobe na skill<br>e exclui o mailing anterior]
 ```
 
 | Base | Quando | De onde vêm os clientes |
 |---|---|---|
 | **Ativo** | todo dia às 08:00 | base mestra **menos** a esteira: *Andamento* (sem data) + *Pago* (60 dias) + *Reprova* (60 dias, nos status de reprova) |
-| **URA** | todo dia às 08:00 | igual ao Ativo, com a base mestra da URA (regras a validar) |
+| **URA** | todo dia às 08:00 | **mesmas regras do Ativo**, só muda a base mestra; sobe na skill 46 (VANGUARD INSS - 28751) |
 | **Digital** | de hora em hora, 08:00–18:00 | a **própria esteira** nos status do Digital (substitui a lista da hora anterior) |
 
 - **Tudo é configurado em `bases.json`** (copie de `bases.example.json`): agenda, base mestra, os cenários da esteira (tipo de data, dias para trás, etapas e status) e as equipes.
@@ -347,8 +347,8 @@ flowchart LR
 > Uma falha num horário é tentada de novo até 3 vezes, com 5 minutos de intervalo.
 
 **Como ligar, passo a passo:**
-1. `cp bases.example.json bases.json` e ajuste o caminho da base mestra e as equipes.
-2. No `.env`, preencha `VANGUARD_USUARIO`, `VANGUARD_SENHA` e `BASES_PASTA_SAIDA` (pasta de rede). Deixe `BASES_MODO=arquivos`.
+1. `cp bases.example.json bases.json` e ajuste o caminho das bases mestras (arquivos no próprio PC fixo, ex.: `C:\\BenURA\\bases\\…`, com as barras dobradas no JSON) e as equipes.
+2. No `.env`, preencha `VANGUARD_USUARIO`, `VANGUARD_SENHA` e `BASES_PASTA_SAIDA` (pasta no PC fixo onde os CSVs ficam). Deixe `BASES_MODO=arquivos`.
 3. Ensaio sem robô, com uma esteira já exportada: `npm run bases:agora -- ativo --esteira esteira.xlsx --so-arquivos`.
 4. Ensaio com o robô: `npm run bases:agora -- ativo --so-arquivos`. Para ver o navegador trabalhando, use `VANGUARD_MOSTRAR_NAVEGADOR=1`.
 5. Confira os CSVs, preencha os `skillHash` e passe para `BASES_MODO=argus`. Para ensaiar a subida sem subir nada, use `DRY_RUN=1`.
