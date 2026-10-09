@@ -10,7 +10,7 @@ const {
   TipoBase, criarFiltroStatus, chavesDaEsteira, removerDaBase, leadsDaEsteira, embaralhar, dividirIgual,
   montarCsvMailing, nomeDoArquivo, horariosDoDia, horarioPendente,
 } = require('../../src/domain/bases');
-const { lerTabela, lerXlsxCompleto, separarCsv } = require('../../src/utils/planilhas');
+const { lerTabela, abasDoXlsx, separarCsv } = require('../../src/utils/planilhas');
 const { RoboEsteira, VanguardLoginError, periodoDoCenario } = require('../../src/integrations/vanguard/esteira-robo');
 const { BasesService, EsteiraDeArquivo } = require('../../src/bases/bases.service');
 const { problemasDaBase, validarBases } = require('../../src/bases/configuracao');
@@ -109,9 +109,7 @@ test('lerTabela: CSV em Windows-1252 e .xlsx pela aba (sem acento no nome)', asy
   assert.deepEqual(linhas.map((l) => l.CPF), ['_A', '_B']);
   await assert.rejects(lerTabela(xlsx, { aba: 'outra' }), /Aba "outra" não encontrada/);
   assert.deepEqual(await lerTabela(xlsx, { aba: 'com buracos' }), [{ '': '', A: 1, C: 3 }]);
-  // O recurso final (leitura completa) dá o mesmo resultado que o streaming.
-  assert.deepEqual(await lerXlsxCompleto(xlsx, 'Com buracos'), [{ '': '', A: 1, C: 3 }]);
-  assert.deepEqual(await lerXlsxCompleto(xlsx, 'NÃO MEXA'), linhas);
+  assert.deepEqual(await abasDoXlsx(xlsx), ['LOTE', 'NÃO MEXA', 'Com buracos']);
 });
 
 test('lerTabela: .xlsx com as abas antes do workbook.xml (ordem que quebrava no Windows)', async () => {
