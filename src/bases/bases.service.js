@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   TipoBase, chavesDaEsteira, removerDaBase, paraLeads, leadsDaEsteira, embaralhar, dividirIgual,
-  montarCsvMailing, nomeDoArquivo, horariosDoDia, horarioPendente,
+  equipesDaDivisao, distribuir, montarCsvMailing, nomeDoArquivo, horariosDoDia, horarioPendente,
 } = require('../domain/bases');
 const { lerTabela } = require('../utils/planilhas');
 const { esperar } = require('../utils/http-client');
@@ -51,6 +51,7 @@ class BasesService {
   constructor({ cfg, esteira, client, repositorio, auditoria, notificador, logger, aleatorio = Math.random }) {
     Object.assign(this, { cfg, esteira, client, repositorio, auditoria, notificador, log: logger, aleatorio });
     this.cacheEsteira = new Map();
+    this.cacheSkills = null; // { data, hashPorId }
   }
 
   /** Chamado a cada tique: roda cada base ligada no horário dela. */
@@ -115,9 +116,12 @@ class BasesService {
     const data = dataLocal(this.cfg.fusoHorario, agora);
     const vez = horario || horaLocal(this.cfg.fusoHorario, agora);
     try {
+      const equipesComSkill = modo === 'argus' ? await this.resolverSkills(base.equipes, data) : base.equipes;
       const { leads, resumo } = await this.montarLeads(nome, base, data);
-      const partes = dividirIgual(embaralhar(leads, this.aleatorio), base.equipes.length, base.limitePorEquipe ?? Infinity);
-      const equipes = await this.entregar({ nome, base, partes, data, horario: vez, modo });
+      const divididas = equipesDaDivisao(equipesComSkill);
+      const partes = dividirIgual(embaralhar(leads, this.aleatorio), divididas.length, base.limitePorEquipe ?? Infinity);
+      const entregas = distribuir(equipesComSkill, partes, data);
+      const equipes = await this.entregar({ nome, entregas, data, horario: vez, modo });
       const relatorio = { base: nome, data, horario: vez, modo: this.modoEfetivo(modo), ...resumo, equipes };
       await this.auditoria.registrar('bases.gerada', relatorio);
       await this.notificarResultado(relatorio);
@@ -185,19 +189,37 @@ class BasesService {
   }
 
   /** Grava os CSVs e, no modo argus, sobe um por vez. */
-  async entregar({ nome, base, partes, data, horario, modo }) {
+  async entregar({ nome, entregas, data, horario, modo }) {
     const pasta = path.join(this.cfg.pastaSaida, nome.toUpperCase(), data);
     fs.mkdirSync(pasta, { recursive: true });
     const resultados = [];
-    for (const [i, equipe] of base.equipes.entries()) {
+    for (const [i, { equipe, leads, copiaDe }] of entregas.entries()) {
       const arquivo = path.join(pasta, nomeDoArquivo({ base: nome, equipe: equipe.nome, data, horario }));
-      const conteudo = Buffer.from(montarCsvMailing(partes[i]), this.cfg.codificacao);
+      const conteudo = Buffer.from(montarCsvMailing(leads), this.cfg.codificacao);
       fs.writeFileSync(arquivo, conteudo);
-      const item = { equipe: equipe.nome, clientes: partes[i].length, arquivo };
-      const subir = modo === 'argus' && partes[i].length > 0; // equipe sem clientes: não sobe arquivo vazio
+      const item = { equipe: equipe.nome, clientes: leads.length, arquivo, ...(copiaDe ? { copiaDe } : {}) };
+      const subir = modo === 'argus' && leads.length > 0; // equipe sem clientes: não sobe arquivo vazio
       resultados.push(subir ? { ...item, ...(await this.subir(equipe, arquivo, conteudo, i > 0)) } : item);
     }
     return resultados;
+  }
+
+  /**
+   * Completa o skillHash de cada equipe a partir do código da skill ("idSkill"),
+   * pela listarskills da Argus (uma consulta por dia). Código inexistente → erro, nada sobe.
+   */
+  async resolverSkills(equipes, data) {
+    if (equipes.every((e) => e.skillHash)) return equipes;
+    if (this.cacheSkills?.data !== data) {
+      const skills = await this.client.listarSkills();
+      this.cacheSkills = { data, hashPorId: new Map(skills.map((s) => [Number(s.idSkill), s.hashEndpointSkill])) };
+    }
+    const { hashPorId } = this.cacheSkills;
+    const faltando = equipes.filter((e) => !e.skillHash && !hashPorId.get(Number(e.idSkill)));
+    if (faltando.length) {
+      throw new BaseNaoGeradaError(`Skill não encontrada na Argus: ${faltando.map((e) => `${e.nome} (${e.idSkill})`).join(', ')}.`);
+    }
+    return equipes.map((e) => (e.skillHash ? e : { ...e, skillHash: hashPorId.get(Number(e.idSkill)) }));
   }
 
   /** Sobe o mailing novo e, só depois de aceito, exclui o anterior da mesma skill. */
@@ -246,7 +268,7 @@ class BasesService {
 
   notificarResultado(r) {
     const falhas = r.equipes.filter((e) => e.erro);
-    const porEquipe = r.equipes.map((e) => `${e.equipe} ${e.clientes}${e.erro ? ' (FALHOU)' : ''}`).join(', ');
+    const porEquipe = r.equipes.map((e) => `${e.equipe} ${e.clientes}${e.copiaDe ? ` (cópia de ${e.copiaDe})` : ''}${e.erro ? ' (FALHOU)' : ''}`).join(', ');
     const origem = r.baseMestra ? `mestra ${r.baseMestra}, removidos ${r.removidos}` : `${r.naEsteira} na esteira`;
     const destino = r.modo === 'arquivos' ? 'CSVs gerados na pasta' : `subida na Argus: ${r.modo}`;
     return this.notificador.notificar({

@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const { TipoBase, horariosDoDia } = require('../domain/bases');
+const { normalizarNome } = require('../utils/texto');
 
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -32,9 +33,22 @@ function problemasDaBase(nome, b, { modo }) {
   if (b.tipo === TipoBase.REMOCAO && b.baseMestra?.arquivo && !fs.existsSync(b.baseMestra.arquivo)) {
     erro(`base mestra não encontrada: ${b.baseMestra.arquivo}`);
   }
-  const semSkill = (b.equipes || []).filter((e) => !e.skillHash).map((e) => e.nome);
-  if (modo === 'argus' && semSkill.length) erro(`BASES_MODO=argus, mas sem "skillHash": ${semSkill.join(', ')}.`);
+  const semSkill = (b.equipes || []).filter((e) => !e.skillHash && !e.idSkill).map((e) => e.nome);
+  if (modo === 'argus' && semSkill.length) erro(`BASES_MODO=argus, mas sem "idSkill" (ou "skillHash"): ${semSkill.join(', ')}.`);
+  p.push(...problemasDasCopias(nome, b.equipes || []));
   return p;
+}
+
+/** Equipes-cópia precisam de pelo menos uma equipe na divisão e de uma origem válida. */
+function problemasDasCopias(nome, equipes) {
+  const divididas = equipes.filter((e) => !e.copiaDe);
+  const copias = equipes.filter((e) => e.copiaDe);
+  if (!copias.length) return [];
+  if (!divididas.length) return [`bases.json › ${nome}: todas as equipes são cópia; pelo menos uma precisa entrar na divisão.`];
+  const nomes = new Set(divididas.map((e) => normalizarNome(e.nome)));
+  return copias
+    .filter((e) => normalizarNome(e.copiaDe) !== 'RODIZIO' && !nomes.has(normalizarNome(e.copiaDe)))
+    .map((e) => `bases.json › ${nome}: ${e.nome} copia "${e.copiaDe}", que não é uma equipe da divisão (use o nome de uma equipe ou "rodizio").`);
 }
 
 /**

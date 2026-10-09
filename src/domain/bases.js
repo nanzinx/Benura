@@ -111,6 +111,41 @@ function dividirIgual(lista, partes, limite = Infinity) {
   });
 }
 
+/** Equipes que entram na divisão (as com "copiaDe" recebem cópia de outra e não dividem). */
+const equipesDaDivisao = (equipes) => equipes.filter((e) => !e.copiaDe);
+
+/**
+ * De qual equipe uma equipe-cópia recebe a base hoje.
+ *   "rodizio" → reveza por dia entre as equipes da divisão;
+ *   nome de uma equipe → sempre aquela.
+ * @returns {string} nome da equipe de origem
+ */
+function origemDaCopia(copiaDe, divididas, dataIso) {
+  if (!divididas.length) throw new Error('Nenhuma equipe na divisão para copiar.');
+  if (normalizarNome(copiaDe) === 'RODIZIO') {
+    const dia = Math.floor(Date.parse(`${dataIso}T12:00:00Z`) / 86_400_000);
+    return divididas[dia % divididas.length].nome;
+  }
+  const origem = divididas.find((e) => normalizarNome(e.nome) === normalizarNome(copiaDe));
+  if (!origem) throw new Error(`"copiaDe": "${copiaDe}" não é uma equipe da divisão (${divididas.map((e) => e.nome).join(', ')}).`);
+  return origem.nome;
+}
+
+/**
+ * Quem recebe o quê: as equipes da divisão recebem uma parte cada; as
+ * equipes-cópia recebem a mesma parte da equipe de origem.
+ * @returns {Array<{ equipe: object, leads: object[], copiaDe?: string }>}
+ */
+function distribuir(equipes, partes, dataIso) {
+  const divididas = equipesDaDivisao(equipes);
+  const parteDe = new Map(divididas.map((e, i) => [e.nome, partes[i]]));
+  return equipes.map((equipe) => {
+    if (!equipe.copiaDe) return { equipe, leads: parteDe.get(equipe.nome) };
+    const origem = origemDaCopia(equipe.copiaDe, divididas, dataIso);
+    return { equipe, leads: parteDe.get(origem), copiaDe: origem };
+  });
+}
+
 /** Tira o separador e quebras de linha de um campo do CSV. */
 const campoCsv = (v) => texto(v).replace(/[;\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -173,6 +208,9 @@ module.exports = {
   leadsDaEsteira,
   embaralhar,
   dividirIgual,
+  equipesDaDivisao,
+  origemDaCopia,
+  distribuir,
   montarCsvMailing,
   nomeDoArquivo,
   horariosDoDia,

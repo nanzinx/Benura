@@ -178,6 +178,15 @@ class ArgusClient {
     throw recusa('excluirmailing', resposta);
   }
 
+  /**
+   * Skills com o hash do endpoint de mailing (doc 2.1).
+   * @returns {Promise<Array<{ idSkill: number, descricaoSkill: string, hashEndpointSkill: string }>>}
+   */
+  async listarSkills(filtro = {}) {
+    const r = await this.comando('listarskills', filtro);
+    return Array.isArray(r.retornoGetSkillsItens) ? r.retornoGetSkillsItens : [];
+  }
+
   // ───────────────────────────── Operadores ─────────────────────────────
 
   /**

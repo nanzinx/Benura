@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const ExcelJS = require('exceljs');
 const {
-  TipoBase, criarFiltroStatus, chavesDaEsteira, removerDaBase, leadsDaEsteira, embaralhar, dividirIgual,
+  TipoBase, criarFiltroStatus, chavesDaEsteira, removerDaBase, leadsDaEsteira, embaralhar, dividirIgual, origemDaCopia, distribuir,
   montarCsvMailing, nomeDoArquivo, horariosDoDia, horarioPendente,
 } = require('../../src/domain/bases');
 const { lerTabela, abasDoXlsx, separarCsv } = require('../../src/utils/planilhas');
@@ -58,6 +58,21 @@ test('embaralhar mantém todos; dividirIgual faz partes iguais (sobra vai para a
   assert.deepEqual(dividirIgual(lista, 5).flat(), lista);
   assert.deepEqual(dividirIgual(lista, 5, 3).map((p) => p.length), [3, 3, 3, 3, 3]);
   assert.deepEqual(dividirIgual([], 3), [[], [], []]);
+});
+
+test('equipe-cópia: recebe a parte de outra equipe (fixa ou revezando por dia) e não entra na divisão', () => {
+  const equipes = [{ nome: 'AMANDA' }, { nome: 'MAYSA' }, { nome: 'ROBSON', copiaDe: 'rodizio' }];
+  const divididas = equipes.slice(0, 2);
+  const origens = ['2026-10-09', '2026-10-10', '2026-10-11'].map((d) => origemDaCopia('rodizio', divididas, d));
+  assert.equal(new Set(origens).size, 2, 'reveza entre as equipes');
+  assert.notEqual(origens[0], origens[1]);
+  assert.equal(origemDaCopia('maysa', divididas, '2026-10-09'), 'MAYSA');
+  assert.throws(() => origemDaCopia('ZÉ', divididas, '2026-10-09'), /não é uma equipe da divisão/);
+
+  const partes = [[lead('_A')], [lead('_B')]];
+  const entregas = distribuir([...divididas, { nome: 'ROBSON', copiaDe: 'AMANDA' }], partes, '2026-10-09');
+  assert.deepEqual(entregas.map((e) => [e.equipe.nome, e.leads.map((l) => l.chave), e.copiaDe]),
+    [['AMANDA', ['_A'], undefined], ['MAYSA', ['_B'], undefined], ['ROBSON', ['_A'], 'AMANDA']]);
 });
 
 test('montarCsvMailing segue o layout da Argus e limpa ";" e quebras de linha', () => {
@@ -271,6 +286,30 @@ test('BasesService modo argus: sobe por equipe, exclui o mailing anterior só de
   assert.equal(memoria.estado.mailings['hash-amanda'], 102);
 });
 
+test('BasesService: skill pelo código (listarskills) e ROBSON com cópia de outra equipe na própria skill', async () => {
+  const { xlsx, csv } = await arquivosDeExemplo({ mestra: ['_A', '_B', '_C', '_D'], esteira: [['_Z', 'X']] });
+  const client = argusDeMailing();
+  let consultas = 0;
+  client.listarSkills = async () => {
+    consultas++;
+    return [{ idSkill: 57, hashEndpointSkill: 'h57' }, { idSkill: 70, hashEndpointSkill: 'h70' }, { idSkill: 81, hashEndpointSkill: 'h81' }];
+  };
+  const equipes = [{ nome: 'AMANDA', idSkill: 57 }, { nome: 'MAYSA', idSkill: 70 }, { nome: 'ROBSON', idSkill: 81, copiaDe: 'MAYSA' }];
+  const { servico } = await montarServico({ bases: { ativo: baseAtivo(xlsx, equipes) }, modo: 'argus', esteira: new EsteiraDeArquivo(csv), client });
+
+  const r = await servico.executar('ativo', { horario: '08:00', agora: new Date('2026-10-09T11:00:00Z') });
+  assert.deepEqual(r.equipes.map((e) => [e.equipe, e.clientes, e.copiaDe]), [['AMANDA', 2, undefined], ['MAYSA', 2, undefined], ['ROBSON', 2, 'MAYSA']]);
+  assert.deepEqual(client.uploads.map((u) => u.hash), ['h57', 'h70', 'h81']);
+  assert.equal(fs.readFileSync(r.equipes[2].arquivo, 'latin1'), fs.readFileSync(r.equipes[1].arquivo, 'latin1'));
+  await servico.executar('ativo', { horario: '09:00', agora: new Date('2026-10-09T12:00:00Z') });
+  assert.equal(consultas, 1, 'listarskills uma vez por dia');
+
+  const semSkill = await montarServico({
+    bases: { ativo: baseAtivo(xlsx, [{ nome: 'AMANDA', idSkill: 999 }]) }, modo: 'argus', esteira: new EsteiraDeArquivo(csv), client,
+  });
+  await assert.rejects(semSkill.servico.executar('ativo'), /Skill não encontrada na Argus: AMANDA \(999\)/);
+});
+
 test('BasesService: DRY_RUN no modo argus não sobe nada', async () => {
   const { xlsx, csv } = await arquivosDeExemplo({ mestra: ['_A', '_B'], esteira: [['_Z', 'X']] });
   const bases = { ativo: baseAtivo(xlsx, [{ nome: 'AMANDA', skillHash: 'h' }]) };
@@ -339,6 +378,10 @@ test('validação do bases.json', () => {
   assert.match(p.join('\n'), /tipo.*agenda.*skillHash/s);
   assert.deepEqual(problemasDaBase('ativo', { ...ok, equipes: [{ nome: 'A' }] }, { modo: 'arquivos' }), []);
   assert.match(problemasDaBase('ativo', { ...ok, baseMestra: { arquivo: '/nao/existe.xlsx' } }, {}).join(), /não encontrada/);
+
+  assert.deepEqual(problemasDaBase('ativo', { ...ok, equipes: [{ nome: 'A', idSkill: 57 }, { nome: 'R', idSkill: 81, copiaDe: 'rodizio' }] }, { modo: 'argus' }), []);
+  assert.match(problemasDaBase('ativo', { ...ok, equipes: [{ nome: 'A', idSkill: 1 }, { nome: 'R', idSkill: 2, copiaDe: 'B' }] }, {}).join(), /copia "B"/);
+  assert.match(problemasDaBase('ativo', { ...ok, equipes: [{ nome: 'R', copiaDe: 'rodizio' }] }, {}).join(), /todas as equipes são cópia/);
 
   const cfg = { bases: { ativo: ok }, modo: 'argus', vanguard: { usuario: '', senha: '' } };
   assert.match(validarBases(cfg).join(), /VANGUARD_USUARIO/);

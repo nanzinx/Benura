@@ -5,7 +5,8 @@
     "tipo remocao = base mestra menos a esteira (Ativo, URA). tipo esteira = a base é a esteira filtrada (Digital).",
     "Cada cenário é uma busca na esteira do Vanguard: tipoData, diasAtras (vazio = sem data), etapas (vazio = todas) e status (vazio = todos; filtrado pelo robô depois de baixar).",
     "Status e etapas são comparados sem acento, maiúsculas ou espaços duplos.",
-    "equipes: a base é dividida em partes iguais, na ordem da lista. skillHash é o hash do endpoint da skill na Argus."
+    "equipes: a base é dividida em partes iguais, na ordem da lista. idSkill é o Cód. Skill da tela do grupo na Argus (o hash é buscado sozinho pela listarskills); skillHash direto também vale.",
+    "copiaDe: a equipe não entra na divisão e recebe a mesma base de outra equipe, na própria skill. \"rodizio\" reveza por dia entre as equipes; ou use o nome de uma equipe."
   ],
 
   "ativo": {
@@ -35,11 +36,12 @@
       }
     ],
     "equipes": [
-      { "nome": "AMANDA", "skillHash": "" },
-      { "nome": "ARIEL", "skillHash": "" },
-      { "nome": "DYELLE", "skillHash": "" },
-      { "nome": "GABRIEL", "skillHash": "" },
-      { "nome": "MAYSA", "skillHash": "" }
+      { "nome": "AMANDA", "idSkill": 57, "_skill": "VANGUARD INSS - 30069" },
+      { "nome": "ARIEL", "idSkill": 11, "_skill": "VANGUARD INSS - 9512" },
+      { "nome": "DYELLE", "idSkill": 103, "_skill": "VANGUARD INSS 38158" },
+      { "nome": "GABRIEL", "idSkill": 92, "_skill": "VANGUARD INSS - 37006" },
+      { "nome": "MAYSA", "idSkill": 70, "_skill": "VANGUARD INSS - 36241" },
+      { "nome": "ROBSON", "idSkill": 81, "_skill": "VANGUARD INSS - 33907", "copiaDe": "rodizio" }
     ]
   },
 
@@ -58,7 +60,7 @@
       { "nome": "Pago 60 dias", "tipoData": "Data Pagamento", "diasAtras": 60 }
     ],
     "equipes": [
-      { "nome": "ROBSON - URA", "skillHash": "" }
+      { "nome": "URA", "idSkill": 46, "_skill": "VANGUARD INSS - 28751 (grupos URA PORT) — a confirmar" }
     ]
   },
 
@@ -81,7 +83,7 @@
       }
     ],
     "equipes": [
-      { "nome": "DIGITAL 1", "skillHash": "" }
+      { "nome": "DIGITAL 1", "idSkill": 0, "_skill": "a definir" }
     ]
   }
 }
