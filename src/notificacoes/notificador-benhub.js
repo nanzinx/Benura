@@ -63,10 +63,15 @@ class NotificadorBenHub {
     try {
       return await this.postar(content, await this.obterToken());
     } catch (e) {
-      if (!(e instanceof HttpError) || ![401, 403].includes(e.status) || !this.podeEntrar()) throw e;
+      if (!this.deveEntrarDeNovo(e)) throw e;
       this.token = null;
       return this.postar(content, await this.obterToken());
     }
+  }
+
+  /** Token recusado (401/403) e há credenciais para entrar de novo. */
+  deveEntrarDeNovo(e) {
+    return e instanceof HttpError && [401, 403].includes(e.status) && this.podeEntrar();
   }
 
   postar(content, token) {
