@@ -24,7 +24,7 @@ class FimExpedienteService {
   /**
    * @param {object} deps
    * @param {import('../integrations/argus/argus.client').ArgusClient} deps.client
-   * @param {{ ativo, acao, margemMin, ignorarRamais, horarioFim, fusoHorario, grupoRobosId,
+   * @param {{ ativo, acao, margemMin, ignorarRamais, horarioFim, fusoHorario, gruposRobosIds,
    *           descricoesStatus, concorrencia, dryRun }} deps.cfg
    * @param {{ carregar(): object, salvar(estado: object): Promise<void> }} deps.repositorio
    * @param {{ registrar(acao: string, dados: object): Promise<object> }} deps.auditoria
@@ -65,7 +65,7 @@ class FimExpedienteService {
   async operadoresHumanos() {
     const [usuarios, grupos] = await Promise.all([this.client.listarUsuarios(), this.client.listarGrupos()]);
     const ramaisRobos = grupos
-      .filter((g) => g.idGrupoUsuario === this.cfg.grupoRobosId || (g.idTipoGrupo && g.idTipoGrupo !== GRUPO_OPERACIONAL))
+      .filter((g) => this.cfg.gruposRobosIds.includes(g.idGrupoUsuario) || (g.idTipoGrupo && g.idTipoGrupo !== GRUPO_OPERACIONAL))
       .flatMap((g) => g.ramaisOperadores || []);
     return operadoresParaVerificar(usuarios.map(mapearUsuario), { ignorarRamais: this.cfg.ignorarRamais, ramaisRobos });
   }

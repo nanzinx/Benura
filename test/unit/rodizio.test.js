@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 const {
-  Classe, AcaoRobos, EstadoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, decidirRobos,
+  Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, decidirRobos, alvoDeRobos, escolherParaDesligar,
   reconciliarMovidos, interpretarWebhook, jaEstavaDeslogado,
 } = require('../../src/domain/rodizio');
 const { adquirirTrava, TravaOcupadaError } = require('../../src/utils/trava-processo');
@@ -43,26 +43,40 @@ test('ida para a URA e volta ao Ativo', () => {
   assert.ok(deveVoltarAoAtivo({ ...base, classe: Classe.OFFLINE, agora: 1 }), 'offline volta na hora');
 });
 
-test('decidirRobos', () => {
+test('decidirRobos: robôs proporcionais aos livres; reduzir é imediato, aumentar espera', () => {
   const agora = 100_000;
   const st = (pares) => new Map(Object.entries(pares).map(([r, classe]) => [r, { classe, ts: agora }]));
-  const cfg = { reativar: true, minDesligadoMs: 3000 };
-  const ligados = { estado: EstadoRobos.LIGADOS, desligadosDesde: 0 };
-  const desligados = (desde) => ({ estado: EstadoRobos.DESLIGADOS, desligadosDesde: desde });
-  const d = (ramaisUra, status, robos = ligados) => decidirRobos({ ramaisUra, status, agora, robos, cfg }).acao;
+  const cfg = { reativar: true, minDesligadoMs: 3000, porLivre: 7 };
+  const robos = (ligados, ultimaReducao = 0, total = 58) => ({ ligados, total, ultimaReducao });
+  const d = (ramaisUra, status, r = robos(7), c = cfg) => decidirRobos({ ramaisUra, status, agora, robos: r, cfg: c });
 
-  assert.equal(d(['1', '2'], st({ 1: 'atendimento', 2: 'livre' })), AcaoRobos.NENHUMA);
-  assert.equal(d(['1', '2'], st({ 1: 'atendimento', 2: 'outro' })), AcaoRobos.DESLIGAR);
-  assert.equal(d([], new Map()), AcaoRobos.DESLIGAR, 'URA vazia');
-  assert.equal(d(['1'], st({ 1: 'offline' })), AcaoRobos.DESLIGAR, 'todos offline');
-  assert.equal(d(['1'], new Map()), AcaoRobos.DESLIGAR, 'sem status');
-  assert.equal(d(['1'], new Map([['1', { classe: 'livre', ts: agora - 7000 }]])), AcaoRobos.DESLIGAR, 'status velho');
-  assert.equal(d(['1'], st({ 1: 'atendimento' }), desligados(0)), AcaoRobos.NENHUMA, 'já desligados');
-  assert.equal(d(['1'], st({ 1: 'livre' }), desligados(agora - 1000)), AcaoRobos.NENHUMA, 'cedo para religar');
-  assert.equal(d(['1'], st({ 1: 'livre' }), desligados(agora - 3000)), AcaoRobos.RELIGAR);
-  assert.equal(decidirRobos({
-    ramaisUra: ['1'], status: st({ 1: 'livre' }), agora, robos: desligados(0), cfg: { ...cfg, reativar: false },
-  }).acao, AcaoRobos.NENHUMA, 'REATIVAR_ROBOS=false');
+  assert.deepEqual(alvoDeRobos({ ramaisUra: ['1'], status: st({ 1: 'livre' }), agora, total: 58, cfg }).alvo, 7);
+  assert.equal(d(['1', '2'], st({ 1: 'livre', 2: 'livre' })).alvo, 14);
+  assert.equal(d(['1', '2'], st({ 1: 'livre', 2: 'livre' })).acao, AcaoRobos.RELIGAR, '7 ligados, alvo 14 → aumenta');
+  assert.equal(d(['1', '2'], st({ 1: 'atendimento', 2: 'livre' })).acao, AcaoRobos.NENHUMA, 'alvo 7 = ligados 7');
+  assert.equal(d(['1'], st({ 1: 'livre' }), robos(20)).acao, AcaoRobos.DESLIGAR, '20 ligados, alvo 7 → reduz');
+  const muitos = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i), 'livre']));
+  assert.equal(d(Object.keys(muitos), st(muitos)).alvo, 58, 'teto no total de robôs');
+  assert.equal(d(Object.keys(muitos), st(muitos), robos(7), { ...cfg, maximo: 30 }).alvo, 30, 'ROBOS_MAXIMO');
+
+  assert.equal(d(['1', '2'], st({ 1: 'atendimento', 2: 'outro' })).acao, AcaoRobos.DESLIGAR, 'ninguém livre');
+  assert.equal(d([], new Map()).acao, AcaoRobos.DESLIGAR, 'URA vazia');
+  assert.equal(d(['1'], st({ 1: 'offline' })).acao, AcaoRobos.DESLIGAR, 'todos offline');
+  assert.equal(d(['1'], new Map()).acao, AcaoRobos.DESLIGAR, 'sem status');
+  assert.equal(d(['1'], new Map([['1', { classe: 'livre', ts: agora - 7000 }]])).acao, AcaoRobos.DESLIGAR, 'status velho');
+  assert.equal(d(['1'], st({ 1: 'atendimento' }), robos(0)).acao, AcaoRobos.NENHUMA, 'já desligados');
+  assert.equal(d(['1'], st({ 1: 'atendimento' }), robos(null)).acao, AcaoRobos.DESLIGAR, 'desconhecido + ninguém livre → desliga');
+  assert.equal(d(['1'], st({ 1: 'livre' }), robos(null)).acao, AcaoRobos.NENHUMA, 'aguarda ler os robôs');
+  assert.equal(d(['1'], st({ 1: 'livre' }), robos(0, agora - 1000)).acao, AcaoRobos.NENHUMA, 'cedo para aumentar');
+  assert.equal(d(['1'], st({ 1: 'livre' }), robos(0, agora - 3000)).acao, AcaoRobos.RELIGAR);
+  assert.equal(d(['1'], st({ 1: 'livre' }), robos(0), { ...cfg, reativar: false }).acao, AcaoRobos.NENHUMA, 'REATIVAR_ROBOS=false');
+  assert.equal(d(['1'], st({ 1: 'livre' }), robos(5, 0, 0)).acao, AcaoRobos.NENHUMA, 'nenhum robô conhecido');
+});
+
+test('escolherParaDesligar: primeiro quem não está em ligação', () => {
+  const ligados = [{ ramal: 'a', classe: 'atendimento' }, { ramal: 'b', classe: 'livre' }, { ramal: 'c', classe: 'outro' }];
+  assert.deepEqual(escolherParaDesligar(ligados, 2), ['b', 'c']);
+  assert.deepEqual(escolherParaDesligar(ligados, 3), ['b', 'c', 'a']);
 });
 
 test('reconciliarMovidos: carência, ausências e retorno à URA', () => {
@@ -203,7 +217,9 @@ test('429: pausa global sem re-tentativa; deslogar continua permitido', async (t
 
 // ───────────── Robôs e transferências ─────────────
 
-test('ControleRobos: re-tenta falhas, aceita "já deslogado" e fica DESCONHECIDO se algum resistir', async () => {
+const DESC_ROBOS = { livres: ['livre'], atendimento: ['em atendimento'] };
+
+test('ControleRobos: re-tenta falhas, aceita "já deslogado" e mantém ligado quem resistir', async () => {
   const tentativas = {};
   const client = {
     async deslogarOperador(ramal) {
@@ -214,15 +230,47 @@ test('ControleRobos: re-tenta falhas, aceita "já deslogado" e fica DESCONHECIDO
       return { codStatus: 1 };
     },
   };
-  const robos = new ControleRobos({ client, cfg: { grupoRobosId: 3, dryRun: false }, logger: loggerNulo });
+  const robos = new ControleRobos({ client, cfg: { dryRun: false, concorrencia: 5, descricoesStatus: DESC_ROBOS }, logger: loggerNulo });
 
-  await robos.desligar(['900', '901', '902'], 'teste');
-  assert.equal(robos.estado, EstadoRobos.DESLIGADOS);
+  await robos.reduzir(['900', '901', '902'], 0, 'teste');
+  assert.equal(robos.situacao(3).ligados, 0);
   assert.equal(tentativas['901'], 2);
 
-  await robos.desligar(['903'], 'teste');
-  assert.equal(robos.estado, EstadoRobos.DESCONHECIDO);
+  await robos.reduzir(['903'], 0, 'teste');
+  assert.equal(robos.situacao(1).ligados, 1, '903 continua contado como ligado');
   assert.equal(tentativas['903'], 3);
+});
+
+test('ControleRobos: sincroniza, aumenta só os que faltam e reduz poupando quem está em ligação', async () => {
+  const status = { 900: 'livre', 901: 'em atendimento', 902: null, 903: null, 904: null };
+  const chamadas = [];
+  const client = {
+    async statusOperador(r) { return status[r] ? { descricaoStatus: status[r] } : null; },
+    async logarOperadorVirtual(r) { chamadas.push(`+${r}`); status[r] = 'livre'; },
+    async deslogarOperador(r) { chamadas.push(`-${r}`); status[r] = null; },
+  };
+  const ramais = ['900', '901', '902', '903', '904'];
+  const robos = new ControleRobos({ client, cfg: { dryRun: false, concorrencia: 5, descricoesStatus: DESC_ROBOS }, logger: loggerNulo });
+
+  assert.equal(robos.situacao(5).ligados, null);
+  await robos.sincronizar(ramais);
+  assert.equal(robos.situacao(5).ligados, 2);
+
+  await robos.aumentar(ramais, 4, 'teste');
+  assert.deepEqual(chamadas, ['+902', '+903']);
+  assert.equal(robos.situacao(5).ligados, 4);
+
+  chamadas.length = 0;
+  await robos.reduzir(ramais, 1, 'teste');
+  assert.equal(chamadas.length, 3);
+  assert.equal(chamadas.includes('-901'), false, 'o robô em ligação fica');
+  assert.equal(robos.situacao(5).ligados, 1);
+
+  const simulado = new ControleRobos({ client, cfg: { dryRun: true, concorrencia: 5, descricoesStatus: DESC_ROBOS }, logger: loggerNulo });
+  await simulado.sincronizar(ramais);
+  chamadas.length = 0;
+  await simulado.aumentar(ramais, 5, 'teste');
+  assert.deepEqual(chamadas, [], 'DRY_RUN não chama a Argus');
 });
 
 test('Transferencias: recusa da Argus esfria o ramal; falha de rede não', async () => {

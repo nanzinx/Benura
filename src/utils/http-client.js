@@ -41,6 +41,10 @@ function montarInit({ metodo, headers, corpo, timeoutMs }) {
     signal: AbortSignal.timeout(timeoutMs),
   };
   if (corpo === undefined || metodo === 'GET') return init;
+  if (corpo instanceof FormData) {
+    init.body = corpo; // o fetch define o Content-Type multipart com o boundary
+    return init;
+  }
 
   init.headers['Content-Type'] = 'application/json';
   init.body = JSON.stringify(corpo);
@@ -80,7 +84,7 @@ function interpretarCorpo(texto) {
  * @param {object} [opcoes]
  * @param {string} [opcoes.metodo='GET']
  * @param {object} [opcoes.headers]
- * @param {*} [opcoes.corpo] - Serializado como JSON
+ * @param {*} [opcoes.corpo] - Serializado como JSON (FormData vai como multipart)
  * @param {number} [opcoes.timeoutMs=5000]
  * @returns {Promise<*>}
  * @throws {HttpError}

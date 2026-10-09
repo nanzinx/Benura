@@ -47,7 +47,10 @@ function criarArgusFake({ grupos, status }) {
       };
     },
 
-    deslogaroperador: () => ({ codStatus: 1, descStatus: 'Deslogado' }),
+    deslogaroperador: ({ ramal }) => {
+      estado.status[ramal] = null;
+      return { codStatus: 1, descStatus: 'Deslogado' };
+    },
 
     // Mailing: /apiargus/{hashSkill}/novo e /excluir
     novo: (lead) => {
@@ -61,9 +64,11 @@ function criarArgusFake({ grupos, status }) {
       return { items: [], count: antes - estado.leads.length };
     },
 
-    logaroperadorvirtual: ({ idGrupoUsuario }) => {
-      const qtde = estado.grupos.find((g) => g.idGrupoUsuario === idGrupoUsuario)?.ramaisOperadores.length ?? 0;
-      return { codStatus: 1, qtdeLogados: qtde, qtdeFalhas: 0 };
+    // Um robô ("ramal") ou todos os do grupo ("idGrupoUsuario").
+    logaroperadorvirtual: ({ ramal, idGrupoUsuario }) => {
+      const ramais = ramal ? [ramal] : estado.grupos.find((g) => g.idGrupoUsuario === idGrupoUsuario)?.ramaisOperadores ?? [];
+      for (const r of ramais) estado.status[r] = 'livre';
+      return { codStatus: 1, qtdeLogados: ramais.length, qtdeFalhas: 0 };
     },
   };
 

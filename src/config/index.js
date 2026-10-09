@@ -100,7 +100,13 @@ function carregarConfig(overrides = {}) {
     // Mesmos nomes de variável do script original, para o .env existente continuar valendo.
     rodizio: {
       grupoUraDefinido: env('GRUPO_URA_ID') !== '',
-      grupoRobosId: envNum('GRUPO_ROBOS_URA_ID', 0),
+      // Grupos dos robôs da URA (hoje URA PORT 3). GRUPO_ROBOS_URA_ID (um só) continua aceito.
+      gruposRobosIds: envListaNum('GRUPOS_ROBOS_URA_IDS').length
+        ? envListaNum('GRUPOS_ROBOS_URA_IDS')
+        : envListaNum('GRUPO_ROBOS_URA_ID').filter(Boolean),
+      // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
+      robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
+      robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
       pollAtivoMs: envNum('POLL_ATIVO_MS', 3000),
       pollUraMs: envNum('POLL_URA_MS', 500),
@@ -170,6 +176,19 @@ function carregarConfig(overrides = {}) {
   cfg.notificacoes = {
     tipo: env('NOTIFICADOR', 'log'),
     arquivo: env('NOTIFICACOES_FILE', path.join(RAIZ, 'logs', 'notificacoes.jsonl')),
+    benhub: {
+      url: env('BENHUB_URL', 'https://benhub.benconsig.com'),
+      // id do grupo no BenHub (o número em /api/internal-chat/{id}/messages)
+      chatId: env('BENHUB_CHAT_ID', ''),
+      // usuário próprio do robô: o token do BenHub vence em ~24 h e é renovado com ele
+      email: env('BENHUB_EMAIL', ''),
+      senha: env('BENHUB_SENHA', ''),
+      token: env('BENHUB_TOKEN', ''),
+      caminhoLogin: env('BENHUB_LOGIN_PATH', '/api/auth/login'),
+      campoUsuario: env('BENHUB_LOGIN_CAMPO_USUARIO', 'email'),
+      campoSenha: env('BENHUB_LOGIN_CAMPO_SENHA', 'password'),
+      timeoutMs: envNum('BENHUB_TIMEOUT_MS', 10_000),
+    },
   };
 
   // --- Rotinas diárias (rotinas.js / benura-rotinas) ---
@@ -185,6 +204,33 @@ function carregarConfig(overrides = {}) {
       margemMin: envNum('FIM_EXPEDIENTE_MARGEM_MIN', 10),
       ignorarRamais: envLista('FIM_EXPEDIENTE_IGNORAR_RAMAIS', ''),
       arquivoLog: env('FIM_EXPEDIENTE_LOG_FILE', path.join(RAIZ, 'logs', 'fim-expediente.jsonl')),
+    },
+  };
+
+  // --- Bases de mailing (Ativo, URA, Digital) — dentro do benura-rotinas ---
+  cfg.bases = {
+    // Uma entrada por base (agenda, filtros da esteira, equipes e skills). Veja bases.example.json.
+    arquivoConfig: env('BASES_CONFIG_FILE', path.join(RAIZ, 'bases.json')),
+    // arquivos = só gera os CSVs na pasta; argus = também sobe na skill de cada equipe
+    modo: env('BASES_MODO', 'arquivos'),
+    pastaSaida: env('BASES_PASTA_SAIDA', path.join(RAIZ, 'bases-geradas')),
+    pastaDownloads: env('BASES_PASTA_ESTEIRA', path.join(RAIZ, 'bases-geradas', 'esteira')),
+    diasSemana: envListaNum('BASES_DIAS_SEMANA').length ? envListaNum('BASES_DIAS_SEMANA') : [1, 2, 3, 4, 5],
+    toleranciaMin: envNum('BASES_TOLERANCIA_MIN', 120),
+    pausaEntreUploadsMs: envNum('BASES_PAUSA_UPLOAD_MS', 20_000),
+    codificacao: env('BASES_CODIFICACAO', 'latin1'),
+    arquivoEstado: env('BASES_STATE_FILE', path.join(RAIZ, 'state-bases.json')),
+    arquivoLog: env('BASES_LOG_FILE', path.join(RAIZ, 'logs', 'bases.jsonl')),
+    vanguard: {
+      url: env('VANGUARD_URL', 'https://gestao.sistemacorban.com.br'),
+      usuario: env('VANGUARD_USUARIO', ''),
+      senha: env('VANGUARD_SENHA', ''),
+      timeoutMs: envNum('VANGUARD_TIMEOUT_MS', 120_000),
+      navegador: {
+        canal: env('VANGUARD_NAVEGADOR', 'chrome'), // chrome ou msedge (já instalados no PC)
+        executavel: env('VANGUARD_NAVEGADOR_CAMINHO', ''),
+        headless: !envBool('VANGUARD_MOSTRAR_NAVEGADOR', false),
+      },
     },
   };
 
@@ -263,10 +309,13 @@ function validarRodizio(cfg) {
 
   if (!a.token) fatais.push('ARGUS_TOKEN é obrigatório.');
   if (!r.grupoUraDefinido) fatais.push('GRUPO_URA_ID é obrigatório.');
-  if (!r.grupoRobosId) fatais.push('GRUPO_ROBOS_URA_ID é obrigatório.');
+  if (!r.gruposRobosIds.length || r.gruposRobosIds.some((id) => !Number.isInteger(id))) {
+    fatais.push('GRUPOS_ROBOS_URA_IDS é obrigatório (grupos dos robôs da URA, ex.: 6).');
+  }
+  if (!(r.robosPorLivre >= 1)) fatais.push('ROBOS_POR_LIVRE deve ser 1 ou mais.');
   if (!a.gruposAtivosIds.length) fatais.push('GRUPOS_ATIVOS_IDS é obrigatório (whitelist dos grupos do Ativo).');
   if (a.gruposAtivosIds.includes(a.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');
-  if (r.grupoRobosId === a.grupoUraId) fatais.push('GRUPO_ROBOS_URA_ID não pode ser igual a GRUPO_URA_ID.');
+  if (r.gruposRobosIds.includes(a.grupoUraId)) fatais.push('GRUPOS_ROBOS_URA_IDS não pode conter o GRUPO_URA_ID.');
   if (r.tempoNaUraMs <= 0) fatais.push('TEMPO_MIN deve ser maior que zero.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: o webhook do rodízio aceita chamadas sem autenticação.');
   if (cfg.retornoFila.ativo && !cfg.retornoFila.skillHash) {
