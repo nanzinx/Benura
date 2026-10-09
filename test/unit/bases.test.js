@@ -103,10 +103,39 @@ test('lerTabela: CSV em Windows-1252 e .xlsx pela aba (sem acento no nome)', asy
   const wb = new ExcelJS.Workbook();
   wb.addWorksheet('LOTE').addRows([['CPF'], ['_X']]);
   wb.addWorksheet('NÃO MEXA').addRows([['CPF', 'Beneficio', 'Nome'], ['_A', 1, 'ANA'], [], ['_B', null, 'BIA']]);
+  wb.addWorksheet('Com buracos').addRows([[null, 'A', null, 'C'], [null, 1, null, 3]]);
   await wb.xlsx.writeFile(xlsx);
   const linhas = await lerTabela(xlsx, { aba: 'nao mexa' });
   assert.deepEqual(linhas.map((l) => l.CPF), ['_A', '_B']);
   await assert.rejects(lerTabela(xlsx, { aba: 'outra' }), /Aba "outra" não encontrada/);
+  assert.deepEqual(await lerTabela(xlsx, { aba: 'com buracos' }), [{ '': '', A: 1, C: 3 }]);
+});
+
+test('lerTabela: .xlsx com as abas antes do workbook.xml (ordem que quebrava no Windows)', async () => {
+  const JSZip = require('jszip');
+  const pasta = tmp();
+  const original = path.join(pasta, 'original.xlsx');
+  const wb = new ExcelJS.Workbook();
+  wb.addWorksheet('LOTE').addRows([['CPF'], ['_X']]);
+  wb.addWorksheet('NÃO MEXA').addRows([['CPF', 'Nome'], ['_A', 'ANA'], ['_B', 'BIA']]);
+  await wb.xlsx.writeFile(original);
+
+  // Mesmo conteúdo, com rels e sharedStrings primeiro e o workbook.xml por último.
+  const zip = await JSZip.loadAsync(fs.readFileSync(original));
+  const prioridade = (n) => {
+    if (n === 'xl/workbook.xml') return 3;
+    if (/^xl\/worksheets\/sheet/.test(n)) return 2;
+    return 1;
+  };
+  const nomes = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort((a, b) => prioridade(a) - prioridade(b));
+  const reordenado = new JSZip();
+  for (const n of nomes) reordenado.file(n, await zip.file(n).async('nodebuffer'));
+  const xlsx = path.join(pasta, 'reordenado.xlsx');
+  fs.writeFileSync(xlsx, await reordenado.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
+
+  assert.deepEqual((await lerTabela(xlsx, { aba: 'NÃO MEXA' })).map((l) => l.CPF), ['_A', '_B']);
+  assert.deepEqual((await lerTabela(xlsx)).map((l) => l.CPF), ['_X']);
+  await assert.rejects(lerTabela(xlsx, { aba: 'outra' }), /Abas: LOTE, NÃO MEXA/);
 });
 
 // ───────────── Robô da esteira (navegador de verdade contra um Vanguard falso) ─────────────

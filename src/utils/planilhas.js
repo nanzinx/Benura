@@ -3,12 +3,16 @@
  * Leitura de planilhas (.xlsx) e CSV como lista de objetos { cabeçalho: valor }.
  *
  * O .xlsx é lido em streaming (a base mestra tem centenas de milhares de linhas).
+ * O nome de cada aba vem do workbook.xml, lido antes: o leitor em streaming do
+ * exceljs depende da ordem das partes dentro do arquivo e às vezes entrega a
+ * aba antes de saber o nome dela (quebrava no Windows).
  * O CSV aceita ";" ou "," (detectado pela primeira linha), aspas e UTF-8 ou
  * Windows-1252 (o padrão do Excel em português).
  */
 
 const fs = require('fs');
 const ExcelJS = require('exceljs');
+const JSZip = require('jszip');
 const { normalizarNome } = require('./texto');
 
 /** Arquivo .xlsx começa com "PK" (é um zip), mesmo que o nome diga .csv. */
@@ -37,10 +41,28 @@ function valorDaCelula(v) {
 /** Monta objetos a partir de linhas já separadas (a primeira é o cabeçalho). */
 function paraObjetos(linhas) {
   const [cabecalho = [], ...dados] = linhas;
-  const nomes = cabecalho.map((c) => String(c ?? '').trim());
+  const nomes = Array.from(cabecalho, (c) => String(c ?? '').trim()); // Array.from: linhas do Excel podem ter "buracos"
   return dados
     .filter((l) => l.some((v) => String(v ?? '').trim() !== ''))
     .map((l) => Object.fromEntries(nomes.map((n, i) => [n, l[i] ?? ''])));
+}
+
+const atributo = (tag, nome) => (tag.match(new RegExp(`\\b${nome}="([^"]*)"`)) || [])[1];
+const desescapar = (s) => s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+/**
+ * Abas do .xlsx, na ordem do Excel, com o número do arquivo de cada uma
+ * (xl/worksheets/sheetN.xml). Lê só o workbook.xml e os rels (pequenos).
+ * @returns {Promise<Array<{ nome: string, arquivo: string }>>}
+ */
+async function abasDoXlsx(arquivo) {
+  const zip = await JSZip.loadAsync(await fs.promises.readFile(arquivo));
+  const [workbook, rels] = await Promise.all(['xl/workbook.xml', 'xl/_rels/workbook.xml.rels'].map((p) => zip.file(p)?.async('string') ?? ''));
+  const alvoDe = new Map((rels.match(/<Relationship\b[^>]*>/g) || []).map((t) => [atributo(t, 'Id'), atributo(t, 'Target')]));
+  return (workbook.match(/<sheet\b[^>]*>/g) || []).map((t) => ({
+    nome: desescapar(atributo(t, 'name') || ''),
+    arquivo: ((alvoDe.get(atributo(t, 'r:id')) || '').match(/sheet(\d+)\.xml$/) || [])[1],
+  }));
 }
 
 /**
@@ -48,19 +70,28 @@ function paraObjetos(linhas) {
  * @returns {Promise<object[]>}
  */
 async function lerXlsx(arquivo, { aba } = {}) {
+  const abas = await abasDoXlsx(arquivo);
+  const escolhida = aba ? abas.find((a) => normalizarNome(a.nome) === normalizarNome(aba)) : abas[0];
+  if (!escolhida) throw new Error(`Aba "${aba}" não encontrada em ${arquivo}. Abas: ${abas.map((a) => a.nome).join(', ')}`);
+
   const leitor = new ExcelJS.stream.xlsx.WorkbookReader(arquivo, {
     sharedStrings: 'cache', hyperlinks: 'ignore', styles: 'ignore', worksheets: 'emit',
   });
-  const alvo = aba ? normalizarNome(aba) : null;
-  const abas = [];
+  leitor.model = { sheets: [] }; // o exceljs troca pelo modelo real ao ler o workbook.xml
+  const nomesReais = new Set(abas.map((a) => a.nome));
   for await (const planilha of leitor) {
-    abas.push(planilha.name);
-    if (alvo && normalizarNome(planilha.name) !== alvo) continue;
-    const linhas = [];
-    for await (const linha of planilha) linhas.push(linha.values.slice(1).map(valorDaCelula));
-    return paraObjetos(linhas);
+    // Sem o workbook.xml lido, o exceljs usa um nome provisório ("Sheet2") e o id é o número do arquivo.
+    const provisorio = !nomesReais.has(planilha.name);
+    const ehAlvo = planilha.name === escolhida.nome || (provisorio && String(planilha.id) === escolhida.arquivo);
+    if (ehAlvo) return lerLinhas(planilha);
   }
-  throw new Error(`Aba "${aba}" não encontrada em ${arquivo}. Abas: ${abas.join(', ')}`);
+  throw new Error(`Aba "${escolhida.nome}" não pôde ser lida em ${arquivo}.`);
+}
+
+async function lerLinhas(planilha) {
+  const linhas = [];
+  for await (const linha of planilha) linhas.push(Array.from(linha.values, valorDaCelula).slice(1));
+  return paraObjetos(linhas);
 }
 
 /** UTF-8 quando válido; senão Windows-1252 (latin1 cobre os acentos do português). */
@@ -125,4 +156,4 @@ async function lerTabela(arquivo, opcoes = {}) {
   return lerCsv(arquivo);
 }
 
-module.exports = { lerTabela, lerCsv, lerXlsx, separarCsv, detectarSeparador, decodificar };
+module.exports = { lerTabela, lerCsv, lerXlsx, abasDoXlsx, separarCsv, detectarSeparador, decodificar };
