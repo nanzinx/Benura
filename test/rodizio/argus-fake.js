@@ -12,11 +12,13 @@ const http = require('http');
  * @param {object} opcoes
  * @param {Array<{ idGrupoUsuario, idTipoGrupo, ramaisOperadores }>} opcoes.grupos
  * @param {Record<string, string|null>} opcoes.status - ramal → descricaoStatus (null = offline)
+ * @param {object[]} [opcoes.usuarios] - resposta de /listarusuarios (supervisores e vínculos)
  */
-function criarArgusFake({ grupos, status }) {
+function criarArgusFake({ grupos, status, usuarios = [] }) {
   const estado = {
     grupos: structuredClone(grupos),
     status: { ...status },
+    usuarios: structuredClone(usuarios),
     chamadas: [],
     leads: [],
     responderComStatusHttp: null, // ex.: 403 para simular token inválido
@@ -26,6 +28,7 @@ function criarArgusFake({ grupos, status }) {
 
   const comandos = {
     listargrupos: () => ({ codStatus: 1, grupos: estado.grupos }),
+    listarusuarios: () => ({ codStatus: 1, usuarios: estado.usuarios }),
 
     statusoperador: ({ ramal }) => {
       const grupo = grupoDe(ramal);
@@ -84,7 +87,7 @@ function criarArgusFake({ grupos, status }) {
       const nome = segmentos.pop();
       const dados = corpo ? JSON.parse(corpo) : {};
       const skill = segmentos.pop(); // "cmd" nos comandos; o hash da skill no mailing
-      if (nome !== 'statusoperador' && nome !== 'listargrupos') estado.chamadas.push({ em: Date.now(), comando: nome, skill, dados });
+      if (!['statusoperador', 'listargrupos', 'listarusuarios'].includes(nome)) estado.chamadas.push({ em: Date.now(), comando: nome, skill, dados });
 
       if (estado.responderComStatusHttp) {
         res.writeHead(estado.responderComStatusHttp).end('{}');

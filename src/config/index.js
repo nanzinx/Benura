@@ -109,6 +109,7 @@ function carregarConfig(overrides = {}) {
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
+      // Minutos ocioso (Livre) seguidos na URA antes de voltar ao Ativo. Atender zera a contagem.
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
       // Intervalo entre as consultas à Argus (Ativo e URA). 5 s evita o liga-desliga
       // de robôs a cada oscilação de status; o webhook de atendimento continua imediato.
@@ -136,8 +137,6 @@ function carregarConfig(overrides = {}) {
       porta: envNum('RODIZIO_PORT', 3000),
       arquivoEstado: env('RODIZIO_STATE_FILE', path.join(RAIZ, 'state.json')),
       arquivoTrava: env('RODIZIO_LOCK_FILE', path.join(RAIZ, 'argus.lock')),
-      // Estado do roteador (só leitura): quem ele fixou na URA hoje não volta ao Ativo pelo rodízio.
-      arquivoEstadoRoteador: env('STATE_FILE', path.join(RAIZ, 'state-vendas.json')),
     },
 
     // --- Regras de negócio ---

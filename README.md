@@ -185,9 +185,11 @@ src/utils/                         HTTP com retry, persistência atômica, trava
 
 ### Regras
 1. **Ativo → URA**: operador do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
-2. **URA → Ativo**: depois de `TEMPO_MIN` minutos (fora de atendimento), ou na hora se ficar offline, volta ao **grupo de origem**.
-   Só volta quem o próprio rodízio colocou na URA. Quem já era da URA, ou foi colocado lá pelo roteador ou à mão, não é tocado.
-   Se o roteador fixar na URA (vendeu hoje) alguém que o rodízio tinha emprestado, ele **fica na URA**: o rodízio lê o estado do roteador (`STATE_FILE`).
+2. **URA → Ativo**: **qualquer** humano do RECEPTIVO - URA **ocioso (Livre) há `TEMPO_MIN` minutos seguidos** (padrão 3) volta ao Ativo, sem exceção.
+   Atender uma ligação (ou entrar em pausa) zera a contagem, como a coluna "Tempo" do painel.
+   - Quem o rodízio moveu volta ao **grupo de origem**; os demais (colocados à mão, pelo roteador ou antes de o programa iniciar) voltam ao **grupo do supervisor** (diretório da Argus ou `SUPERVISORES_GRUPOS_FILE`). Sem grupo identificável, fica na URA com um aviso.
+   - Quem o rodízio moveu e ficou offline volta na hora.
+   - Quem voltou retorna à URA pela regra 1, assim que atender no Ativo.
 3. **Robôs proporcionais aos livres**: ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
    Com 1 livre, 7; com 2 livres, 14; e assim por diante, até o total de robôs (ou `ROBOS_MAXIMO`). Muitos robôs para poucos livres geram callback.
    - **Reduzir é imediato** e desliga primeiro os robôs que **não estão em ligação**.
@@ -291,7 +293,7 @@ O roteador, o rodízio, as rotinas e a supervisão (pelo painel) mexem nos mesmo
 
 | | Conflito | Proteção |
 |---|---|---|
-| C1 | O rodízio devolvia ao Ativo quem o roteador tinha fixado na URA (vendeu hoje) | O rodízio lê o estado do roteador e não devolve quem tem fila URA hoje |
+| C1 | Roteador e rodízio decidiam sobre o mesmo vendedor sem se falar | Regra única na URA: todo ocioso há `TEMPO_MIN` volta ao Ativo e retorna à URA ao atender no Ativo |
 | C2 | Duas cópias (PM2 + janela, dois PCs, script antigo) brigam pelos robôs | Trava de instância em roteador, rodízio e rotinas; aviso de robôs mexidos por fora |
 | C3 | Sem webhook, os robôs ficavam até 5 s ligados depois que o último livre atende | URA em alerta (lê a cada 1 s com 1 a 2 livres); aviso quando nenhum webhook chega |
 | C4 | Robôs sobem e descem de 7 em 7 a cada emprestado que entra e sai | `MIN_ROBOS_OFF_MS` padrão 15 s para voltar a aumentar (reduzir segue imediato) |
