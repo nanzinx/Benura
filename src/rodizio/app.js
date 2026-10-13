@@ -16,6 +16,8 @@ const { EstadoRodizioRepository } = require('./estado-rodizio.repository');
 const { Transferencias } = require('./transferencias');
 const { ControleRobos } = require('./controle-robos');
 const { RodizioService } = require('./rodizio.service');
+const { FixosDoRoteador } = require('./fixos-do-roteador');
+const { dataLocal } = require('../utils/datas');
 const { criarRotasDoRodizio } = require('./controllers');
 const { RetornoFilaService } = require('../retorno-fila/retorno-fila.service');
 const { ArquivoDeEstado } = require('../utils/persistencia-json');
@@ -43,6 +45,10 @@ function montarRodizio(overrides) {
     repositorio: new EstadoRodizioRepository({ arquivo: cfgRodizio.arquivoEstado, logger: log.filho('estado') }),
     cfg: cfgRodizio,
     logger: log.filho('rodizio'),
+    fixosRoteador: new FixosDoRoteador({
+      arquivo: cfgRodizio.arquivoEstadoRoteador,
+      relogio: { hoje: () => dataLocal(cfg.agenda.fusoHorario) },
+    }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
   return { cfg, cfgRodizio, log, rodizio, retornoFila };
@@ -73,12 +79,12 @@ function exigirConfigValida(cfg, log) {
 /** Os três ciclos do rodízio, cada um sem sobreposição. */
 function iniciarCiclos({ rodizio, cfgRodizio, log }) {
   const ciclo = (nome, intervaloMs, tarefa) => executarPeriodicamente({
-    nome, intervaloMs, tarefa, logger: log, alertaLentoMs: Math.max(5000, intervaloMs * 2),
+    nome, intervaloMs, tarefa, logger: log, alertaLentoMs: Math.max(5000, cfgRodizio.pollUraMs * 2, cfgRodizio.pollAtivoMs * 2),
   });
   return {
     grupos: ciclo('atualizarGrupos', cfgRodizio.refreshGruposMs, () => rodizio.atualizarGrupos()),
     ativo: ciclo('cicloAtivo', cfgRodizio.pollAtivoMs, () => rodizio.cicloAtivo()),
-    ura: ciclo('cicloUra', cfgRodizio.pollUraMs, () => rodizio.cicloUra()),
+    ura: ciclo('cicloUra', () => rodizio.intervaloUraMs(), () => rodizio.cicloUra()),
   };
 }
 
@@ -106,7 +112,7 @@ function montarServidor({ cfg, log, rodizio, retornoFila }, ciclos) {
 
 function logarInicio({ cfg, cfgRodizio, log }) {
   const retorno = cfg.retornoFila.ativo ? `ligado (origem ${cfg.retornoFila.origem})` : 'desligado';
-  log.info(`Rodízio iniciado | HTTP na porta ${cfgRodizio.porta} (GET /health, POST /webhook) | `
+  log.info(`Rodízio iniciado | HTTP na porta ${cfgRodizio.porta} (GET /health, POST /webhook, POST /robos/manual, POST /robos/automatico) | `
     + `TEMPO_MIN=${cfgRodizio.tempoNaUraMs / 60_000} | URA=${cfgRodizio.grupoUraId} | robôs=grupos ${cfgRodizio.gruposRobosIds.join(',')} (${cfgRodizio.robosPorLivre} por livre) | `
     + `Ativo=${cfgRodizio.gruposAtivosIds.join(',')} | retorno da fila: ${retorno}${cfgRodizio.dryRun ? ' | DRY_RUN' : ''}`);
 }

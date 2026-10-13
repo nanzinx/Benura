@@ -55,7 +55,8 @@ function montarRotinas(overrides) {
 }
 
 function exigirConfigValida(cfg, log) {
-  const { fatais } = validarConfig(cfg, { escopo: 'rotinas' });
+  const { fatais, avisos } = validarConfig(cfg, { escopo: 'rotinas' });
+  avisos.forEach((a) => log.aviso(a));
   if (!fatais.length) return;
   fatais.forEach((f) => log.erro(f));
   process.exit(1);

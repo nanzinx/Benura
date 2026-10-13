@@ -5,9 +5,10 @@
  * Três ciclos independentes, cada um agendado sem sobreposição (app.js):
  *
  *   atualizarGrupos()  ~30 s  lê os grupos da Argus: quem está na URA, no Ativo e quais são os robôs
- *   cicloAtivo()       ~3 s   quem atendeu no Ativo e ficou livre → URA
- *   cicloUra()         ~0,5 s lê o status de quem está na URA, decide os robôs e devolve
- *                             ao Ativo quem cumpriu o tempo (ou ficou offline)
+ *   cicloAtivo()       ~5 s   quem atendeu no Ativo e ficou livre → URA
+ *   cicloUra()         ~5 s   lê o status de quem está na URA, decide os robôs e devolve
+ *                             ao Ativo quem cumpriu o tempo (ou ficou offline); ~1 s com
+ *                             poucos livres (URA em alerta)
  *
  * O webhook de início de atendimento antecipa a informação do status (que é
  * lido por polling) e dispara a avaliação dos robôs na hora.
@@ -22,6 +23,12 @@ const {
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { mapearComLimite } = require('../utils/concorrencia');
 
+/** Depois de quanto tempo sem webhook avisar (e de quanto em quanto repetir). */
+const AVISO_SEM_WEBHOOK_MS = 60 * 60_000;
+
+/** Sem roteador (testes, ou roteador desligado): ninguém é fixo na URA. */
+const SEM_FIXOS = Object.freeze({ ramais: () => new Set() });
+
 class RodizioService {
   /**
    * @param {object} deps
@@ -31,9 +38,10 @@ class RodizioService {
    * @param {import('./estado-rodizio.repository').EstadoRodizioRepository} deps.repositorio
    * @param {object} deps.cfg - Seção `rodizio` da configuração
    * @param {object} deps.logger
+   * @param {{ ramais(): Set<string> }} [deps.fixosRoteador] - quem o roteador fixou na URA hoje
    */
-  constructor({ client, transferencias, robos, repositorio, cfg, logger }) {
-    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger });
+  constructor({ client, transferencias, robos, repositorio, cfg, logger, fixosRoteador = SEM_FIXOS }) {
+    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, fixosRoteador });
 
     /** ramal → { origemGrupoId, entrouEm, ausentes } — persistido: quem o rodízio colocou na URA */
     this.movidos = {};
@@ -50,6 +58,38 @@ class RodizioService {
     this.emTransferencia = new Set();
     this.avaliandoRobos = false;
     this.reavaliarRobos = false;
+    /** Até quando a supervisão comanda os robôs pelo painel (0 = o BenURA comanda). */
+    this.manualAte = 0;
+    /** Humanos livres na URA na última decisão dos robôs (null = ainda não decidiu). */
+    this.ultimosLivres = null;
+    this.iniciadoEm = Date.now();
+    this.ultimoWebhookEm = 0;
+    this.ultimoAvisoSemWebhookEm = 0;
+  }
+
+  /**
+   * Intervalo do ciclo da URA. Com poucos livres (1 a LIVRES_ALERTA), o próximo
+   * atendimento pode zerar os livres com os robôs ainda ligados: sem webhook,
+   * só a leitura percebe isso, então ela acelera até a situação passar.
+   */
+  intervaloUraMs() {
+    const emAlerta = this.ultimosLivres > 0 && this.ultimosLivres <= this.cfg.livresAlerta;
+    return emAlerta ? Math.min(this.cfg.pollUraAlertaMs, this.cfg.pollUraMs) : this.cfg.pollUraMs;
+  }
+
+  /** Qualquer webhook da Argus que chegou (prova de que estão configurados). */
+  registrarWebhookRecebido() {
+    this.ultimoWebhookEm = Date.now();
+  }
+
+  /** Sem o webhook tipo 1, desligar os robôs depende só da leitura: avisa (no máximo 1×/hora). */
+  avisarSeSemWebhook(agora = Date.now()) {
+    const semWebhookHa = agora - Math.max(this.ultimoWebhookEm, this.iniciadoEm);
+    if (semWebhookHa < AVISO_SEM_WEBHOOK_MS || agora - this.ultimoAvisoSemWebhookEm < AVISO_SEM_WEBHOOK_MS) return;
+    if (!this.robos.situacao(this.ramaisRobos.length).ligados) return; // sem robô ligado, não há risco
+    this.ultimoAvisoSemWebhookEm = agora;
+    this.log.aviso(`Nenhum webhook da Argus em ${Math.round(semWebhookHa / 60_000)} min. Sem o webhook de início de atendimento `
+      + `(tipo 1 → POST /webhook?token=…), os robôs podem levar até ${this.cfg.pollUraMs / 1000} s para desligar quando o último livre atende.`);
   }
 
   inicializar() {
@@ -159,6 +199,8 @@ class RodizioService {
     await mapearComLimite(ramais, this.cfg.concorrencia, (ramal) => this.atualizarStatusUra(ramal));
     await this.avaliarRobos();
 
+    this.liberarFixosDoRoteador();
+    this.avisarSeSemWebhook();
     const agora = Date.now();
     const devolver = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
     await mapearComLimite(devolver, this.cfg.concorrencia, (ramal) => this.devolverAoAtivo(ramal));
@@ -174,6 +216,20 @@ class RodizioService {
     if (classe === Classe.LIVRE && dentroDaCarencia) return;
 
     this.statusUra.set(ramal, { classe, ts: Date.now() });
+  }
+
+  /**
+   * Movido que o roteador fixou na URA hoje (vendeu) deixa de ser "emprestado":
+   * fica na URA e o rodízio não o devolve ao Ativo.
+   */
+  liberarFixosDoRoteador() {
+    const fixos = this.fixosRoteador.ramais();
+    const liberados = Object.keys(this.movidos).filter((ramal) => fixos.has(ramal));
+    if (!liberados.length) return;
+
+    for (const ramal of liberados) delete this.movidos[ramal];
+    this.salvar();
+    this.log.info(`Ficam na URA (fixados pelo roteador hoje): ${liberados.join(', ')}.`);
   }
 
   deveDevolver(ramal, agora) {
@@ -205,6 +261,7 @@ class RodizioService {
    * e webhook) não se sobrepõem: quem chega durante uma avaliação pede outra rodada.
    */
   async avaliarRobos() {
+    if (this.emModoManual()) return;
     if (this.avaliandoRobos) {
       this.reavaliarRobos = true;
       return;
@@ -221,7 +278,7 @@ class RodizioService {
   }
 
   async aplicarDecisaoDosRobos() {
-    const { acao, alvo, motivo } = decidirRobos({
+    const { acao, alvo, motivo, livres } = decidirRobos({
       ramaisUra: [...this.ramaisUra],
       status: this.statusUra,
       agora: Date.now(),
@@ -235,6 +292,7 @@ class RodizioService {
         validadeStatusMs: Math.max(VALIDADE_STATUS_MS, this.cfg.pollUraMs * 2 + 1000),
       },
     });
+    this.ultimosLivres = livres;
     if (acao === AcaoRobos.DESLIGAR) await this.robos.reduzir(this.ramaisRobos, alvo, motivo);
     if (acao === AcaoRobos.RELIGAR) await this.robos.aumentar(this.ramaisRobos, alvo, motivo);
   }
@@ -288,9 +346,37 @@ class RodizioService {
     }
   }
 
+  // ───────────────────────────── Modo manual ─────────────────────────────
+
+  emModoManual(agora = Date.now()) {
+    if (!this.manualAte || agora < this.manualAte) return this.manualAte > 0;
+    this.manualAte = 0;
+    this.log.info('Fim do modo manual: o BenURA volta a comandar os robôs.');
+    return false;
+  }
+
+  /** A supervisão assume os robôs pelo painel por `minutos`; o BenURA não liga nem desliga nenhum. */
+  assumirRobosManualmente(minutos) {
+    this.manualAte = Date.now() + minutos * 60_000;
+    this.log.aviso(`Modo manual por ${minutos} min: o BenURA não mexe nos robôs até ${new Date(this.manualAte).toISOString()}.`);
+    return this.manualAte;
+  }
+
+  devolverRobosAoBenura() {
+    this.manualAte = 0;
+    this.log.info('Modo manual encerrado: o BenURA volta a comandar os robôs.');
+  }
+
   resumo() {
     return {
-      robos: { ...this.robos.resumo(), total: this.ramaisRobos.length, porLivre: this.cfg.robosPorLivre },
+      robos: {
+        ...this.robos.resumo(),
+        total: this.ramaisRobos.length,
+        porLivre: this.cfg.robosPorLivre,
+        manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,
+      },
+      intervaloUraMs: this.intervaloUraMs(),
+      ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),

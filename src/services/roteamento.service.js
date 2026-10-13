@@ -135,6 +135,8 @@ class RoteamentoService {
     this.log.info(`${vendedores.length} vendedor(es): ${ura.length} → URA, ${ativo.length} → Ativo.`);
 
     const { estado, falhas } = await this.aplicarDistribuicao(ura, ativo);
+    // Carrossel e esteira colada usam critérios diferentes: registra de onde veio a carga.
+    estado.carga = { fonte: vendasOntem.fonte || 'carrossel', diaAnterior: vendasOntem.diaOntem, extracao: vendasOntem.ultimaExtracao };
     this.estado = estado;
     await this.repositorio.salvar(this.estado);
 
@@ -231,12 +233,14 @@ class RoteamentoService {
 
     await this.reprocessarPendentes();
 
-    const { vendedores: vendasHoje, origem } = await this.carrossel.listarVendas('hoje');
+    const { vendedores: vendasHoje, origem, fonte = 'carrossel' } = await this.carrossel.listarVendas('hoje');
     await this.diretorio.atualizar();
 
     let promovidos = 0;
     for (const v of this.resolverRamais(vendasHoje)) {
-      const promovido = await this.aplicarGatilho(v.ramal, v.totalVendas, { nome: v.nome, equipe: v.equipe, origem });
+      const promovido = await this.aplicarGatilho(v.ramal, v.totalVendas, {
+        nome: v.nome, equipe: v.equipe, origem: origem === 'fallback' ? `${fonte}, cache` : fonte,
+      });
       if (promovido) promovidos++;
     }
 
@@ -279,7 +283,7 @@ class RoteamentoService {
 
     this.log.info(`Gatilho: ${registro.nome} (ramal ${ramal}) vendeu ${formatarReais(vendaHoje)} hoje [${origem}]. Ativo → URA.`);
     Object.assign(registro, {
-      fila: Fila.URA, promovidoNoDia: true, vendaQueDisparou: vendaHoje, sincronizado: false, tentativasSync: 0,
+      fila: Fila.URA, promovidoNoDia: true, vendaQueDisparou: vendaHoje, fonteDaVenda: origem, sincronizado: false, tentativasSync: 0,
     });
     await this.sincronizar(ramal, registro, `venda hoje (${formatarReais(vendaHoje)})`);
     return true;
@@ -352,6 +356,7 @@ class RoteamentoService {
     return {
       data: this.estado.data,
       cargaInicialFeita: this.cargaInicialFeitaHoje(),
+      carga: this.estado.carga || null,
       meta: this.regras.metaDiaria,
       ultimoMonitoramento: this.ultimoMonitoramento,
       ura: vendedores.filter((v) => v.fila === Fila.URA),

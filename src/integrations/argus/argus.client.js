@@ -11,6 +11,7 @@
  * então não é re-tentado e vira `ArgusAutenticacaoError`.
  */
 
+const fs = require('fs');
 const { requisitar, comRetry, HttpError, ehRetentavel } = require('../../utils/http-client');
 
 class ArgusError extends Error {
@@ -69,6 +70,26 @@ function naoLogadoComo500(e) {
   throw e;
 }
 
+/** Fim da pausa por limite gravado por qualquer processo (0 se não houver). */
+function lerPausa(arquivo) {
+  try {
+    const { ate } = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+    return Number.isFinite(ate) ? ate : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Melhor esforço: sem conseguir gravar, a pausa vale só para este processo. */
+function gravarPausa(arquivo, ate) {
+  if (!arquivo) return;
+  try {
+    fs.writeFileSync(arquivo, JSON.stringify({ ate, em: new Date().toISOString(), pid: process.pid }));
+  } catch {
+    /* sem pausa compartilhada */
+  }
+}
+
 /** Converte uma falha HTTP no erro de domínio da Argus. */
 function traduzirErro(comando, e) {
   if (e instanceof HttpError && e.status === 403) return new ArgusAutenticacaoError(comando, e);
@@ -85,6 +106,7 @@ class ArgusClient {
     this.cfg = cfg;
     this.log = logger;
     this.pausaAte = 0;
+    this.pausaLidaEm = 0;
   }
 
   /**
@@ -122,13 +144,26 @@ class ArgusClient {
   }
 
   exigirForaDaPausa(nome) {
+    this.lerPausaCompartilhada();
     if (Date.now() >= this.pausaAte || PERMITIDOS_NA_PAUSA.has(nome)) return;
     throw new ArgusLimiteError(nome, this.pausaAte);
+  }
+
+  /**
+   * Roteador, rodízio e rotinas são processos separados: um 429 recebido por um
+   * deles vale para todos (o limite da Argus é do token). Relê o arquivo no
+   * máximo uma vez por segundo.
+   */
+  lerPausaCompartilhada(agora = Date.now()) {
+    if (!this.cfg.arquivoPausa || agora - this.pausaLidaEm < 1000) return;
+    this.pausaLidaEm = agora;
+    this.pausaAte = Math.max(this.pausaAte, lerPausa(this.cfg.arquivoPausa));
   }
 
   traduzirFalha(nome, e) {
     if (!(e instanceof HttpError) || e.status !== 429) return traduzirErro(nome, e);
     this.pausaAte = Date.now() + (this.cfg.pausaLimiteMs ?? 5000);
+    gravarPausa(this.cfg.arquivoPausa, this.pausaAte);
     this.log.aviso(`Argus pediu para desacelerar (HTTP 429). Pausa global até ${new Date(this.pausaAte).toISOString()}.`);
     return new ArgusLimiteError(nome, this.pausaAte);
   }

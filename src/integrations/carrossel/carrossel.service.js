@@ -10,6 +10,9 @@
 
 const { mapearRanking } = require('./carrossel.mapper');
 
+/** 'esteira' quando o ranking veio da esteira colada (CarrosselComRedundancia), senão 'carrossel'. */
+const fonteDoRanking = (ultimaExtracao) => (String(ultimaExtracao || '').startsWith('Esteira colada') ? 'esteira' : 'carrossel');
+
 class CarrosselIndisponivelError extends Error {
   constructor(mensagem, cause) {
     super(mensagem, { cause });
@@ -59,7 +62,12 @@ class CarrosselService {
     if (ranking.descartados > 0) this.log.aviso(`${ranking.descartados} registro(s) do Carrossel ignorado(s) por não terem nome.`);
     this.log.debug(`Carrossel "${periodo}": ${ranking.vendedores.length} vendedor(es) (extração: ${ranking.ultimaExtracao}).`);
 
-    const resultado = { vendedores: ranking.vendedores, diaOntem: ranking.diaOntem, ultimaExtracao: ranking.ultimaExtracao };
+    const resultado = {
+      vendedores: ranking.vendedores,
+      diaOntem: ranking.diaOntem,
+      ultimaExtracao: ranking.ultimaExtracao,
+      fonte: fonteDoRanking(ranking.ultimaExtracao),
+    };
     this.ultimoValido.set(periodo, { resultado, em: Date.now() });
     return { ...resultado, origem: 'api' };
   }

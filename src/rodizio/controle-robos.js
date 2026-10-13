@@ -17,6 +17,10 @@ const { esperar } = require('../utils/http-client');
 const { mapearComLimite } = require('../utils/concorrencia');
 
 const TENTATIVAS_DESLIGAR = 3;
+/** Depois de um comando nosso, a Argus pode demorar a refletir: não é mudança "por fora". */
+const CARENCIA_COMANDO_MS = 15_000;
+/** Avisa no máximo uma vez nesse intervalo sobre robôs mexidos por fora. */
+const INTERVALO_AVISO_FORA_MS = 5 * 60_000;
 const ESPERA_ENTRE_TENTATIVAS_MS = 500;
 const LIGAR_EM_PARALELO = 5;
 
@@ -35,6 +39,11 @@ class ControleRobos {
     this.ligados = null;
     this.ultimaReducao = 0;
     this.alvo = null;
+    /** ramal → quando o BenURA mandou ligar/desligar */
+    this.ultimoComando = new Map();
+    /** robôs ligados/desligados por fora do BenURA (outra cópia, script antigo, painel) */
+    this.mudancasPorFora = 0;
+    this.ultimoAvisoForaEm = 0;
   }
 
   /** Para a regra de decisão. */
@@ -44,16 +53,38 @@ class ControleRobos {
 
   /** Para o /health. */
   resumo() {
-    return { ligados: this.ligados ? this.ligados.size : null, alvo: this.alvo };
+    return { ligados: this.ligados ? this.ligados.size : null, alvo: this.alvo, mudancasPorFora: this.mudancasPorFora };
   }
 
   /** Lê da Argus quais robôs estão logados (quem não respondeu mantém o que se sabia). */
   async sincronizar(ramais) {
     const lidos = await mapearComLimite(ramais, this.cfg.concorrencia, (r) => this.lerClasse(r));
-    const anterior = this.ligados || new Set();
+    const anterior = this.ligados;
     this.ligados = new Set(lidos
-      .filter(({ ramal, classe }) => (classe === Classe.ERRO ? anterior.has(ramal) : classe !== Classe.OFFLINE))
+      .filter(({ ramal, classe }) => (classe === Classe.ERRO ? (anterior || new Set()).has(ramal) : classe !== Classe.OFFLINE))
       .map(({ ramal }) => ramal));
+    if (anterior) this.conferirMudancasPorFora(anterior, this.ligados);
+  }
+
+  /**
+   * Robô que mudou de estado sem comando nosso recente foi mexido por fora:
+   * outra cópia do rodízio, o script antigo ou alguém no painel. As duas partes
+   * brigando fazem os robôs oscilarem sem parar; o aviso diz isso no log.
+   */
+  conferirMudancasPorFora(esperados, lidos, agora = Date.now()) {
+    if (this.cfg.dryRun) return; // em DRY_RUN nada muda de verdade: a diferença é esperada
+    const recente = (r) => agora - (this.ultimoComando.get(r) || 0) < CARENCIA_COMANDO_MS;
+    const ligadosFora = [...lidos].filter((r) => !esperados.has(r) && !recente(r));
+    const desligadosFora = [...esperados].filter((r) => !lidos.has(r) && !recente(r));
+    const total = ligadosFora.length + desligadosFora.length;
+    if (!total) return;
+
+    this.mudancasPorFora += total;
+    if (agora - this.ultimoAvisoForaEm < INTERVALO_AVISO_FORA_MS) return;
+    this.ultimoAvisoForaEm = agora;
+    this.log.aviso(`Robôs mexidos por fora do BenURA: ${ligadosFora.length} ligado(s), ${desligadosFora.length} desligado(s) `
+      + 'sem comando nosso. Outra cópia do rodízio, o script antigo ou alguém no painel? '
+      + 'Para a supervisão assumir os robôs, use POST /robos/manual.');
   }
 
   async lerClasse(ramal) {
@@ -114,6 +145,7 @@ class ControleRobos {
 
   /** @returns {Promise<boolean>} true se o robô ficou deslogado */
   async deslogar(ramal) {
+    this.ultimoComando.set(String(ramal), Date.now());
     if (this.cfg.dryRun) {
       this.log.info(`[DRY_RUN] Deslogaria robô ${ramal}`);
       return true;
@@ -148,6 +180,7 @@ class ControleRobos {
 
   /** @returns {Promise<boolean>} true se o robô ficou logado */
   async logar(ramal) {
+    this.ultimoComando.set(String(ramal), Date.now());
     if (this.cfg.dryRun) {
       this.log.info(`[DRY_RUN] Ligaria robô ${ramal}`);
       return true;

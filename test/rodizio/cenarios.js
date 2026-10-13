@@ -20,6 +20,7 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const { criarArgusFake } = require('./argus-fake');
+const { dataLocal } = require('../../src/utils/datas');
 
 const RAIZ = path.join(__dirname, '..', '..');
 const ALVO = path.resolve(process.argv[2] || path.join(RAIZ, 'argus-automacao.js'));
@@ -87,9 +88,10 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, env 
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
       RODIZIO_PORT: String(porta),
-      STATE_FILE: path.join(pasta, 'state.json'),
+      STATE_FILE: path.join(pasta, 'state-vendas.json'),
       RODIZIO_STATE_FILE: path.join(pasta, 'state.json'),
       RODIZIO_LOCK_FILE: path.join(pasta, 'argus.lock'),
+      ARGUS_PAUSA_FILE: path.join(pasta, 'argus-pausa.json'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
       RETORNO_LOG_FILE: path.join(pasta, 'logs', 'retorno-fila.jsonl'),
       ...env,
@@ -124,6 +126,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, env 
   return {
     argus,
     base,
+    pasta,
     saida,
     chamadas,
     transferencias,
@@ -167,6 +170,18 @@ const CENARIOS = {
     await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 12_000, descricao: '101→Ativo' });
     const segundos = (Date.now() - entrou) / 1000;
     if (segundos < 4.5) throw new Error(`voltou cedo demais (${segundos.toFixed(1)}s; TEMPO_MIN = 6s)`);
+  },
+
+  async 'URA: quem o roteador fixou hoje (vendeu) não volta ao Ativo'(r) {
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
+    // O roteador detecta a venda de 101 e o fixa na URA até o fim do dia.
+    const estado = { versao: 2, data: dataLocal('America/Sao_Paulo'), vendedores: { 101: { fila: 'URA' } } };
+    fs.writeFileSync(path.join(r.pasta, 'state-vendas.json'), JSON.stringify(estado));
+    await esperar(8000); // além de TEMPO_MIN (6 s)
+    if (r.transferencias().includes('101→1')) throw new Error('devolveu ao Ativo quem o roteador fixou na URA');
   },
 
   async 'URA: movido que fica offline volta imediatamente'(r) {
@@ -214,6 +229,19 @@ const CENARIOS = {
     r.argus.definirStatus('200', 'em atendimento');
     r.argus.definirStatus('201', 'em atendimento'); // ninguém livre → zera
     await aguardar(() => ligados().length === 0, { descricao: 'desligar todos' });
+  },
+
+  async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {
+    const post = (rota, corpo = {}) => fetch(`${r.base}${rota}?token=${TOKEN}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    if ((await post('/robos/manual', { minutos: 5 })).status !== 200) throw new Error('POST /robos/manual falhou');
+    r.argus.definirStatus('200', 'em atendimento'); // ninguém livre: em modo automático desligaria tudo
+    await esperar(2000);
+    if (r.chamadas('deslogaroperador').length) throw new Error('mexeu nos robôs em modo manual');
+
+    await post('/robos/automatico');
+    await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'desligar ao voltar ao automático' });
   },
 
   async 'Robôs: humano da URA em pausa conta como ocupado'(r) {

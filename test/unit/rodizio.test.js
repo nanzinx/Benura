@@ -319,3 +319,106 @@ test('Transferencias: recusa da Argus esfria o ramal; falha de rede não', async
   modo = 'ok';
   assert.equal(await t.transferir('2', 2), true);
 });
+
+test('FixosDoRoteador: só a fila URA do estado de hoje; relê quando o arquivo muda', () => {
+  const { FixosDoRoteador, ramaisFixosNaUra } = require('../../src/rodizio/fixos-do-roteador');
+  const estado = { data: '2026-10-13', vendedores: { 101: { fila: 'URA' }, 102: { fila: 'ATIVO' } } };
+  assert.deepEqual([...ramaisFixosNaUra(estado, '2026-10-13')], ['101']);
+  assert.equal(ramaisFixosNaUra(estado, '2026-10-14').size, 0, 'estado de outro dia não vale');
+  assert.equal(ramaisFixosNaUra(null, '2026-10-13').size, 0);
+
+  const arquivo = path.join(tmp('fixos-'), 'state-vendas.json');
+  const fixos = new FixosDoRoteador({ arquivo, relogio: { hoje: () => '2026-10-13' } });
+  assert.equal(fixos.ramais().size, 0, 'sem o arquivo do roteador ninguém é fixo');
+  fs.writeFileSync(arquivo, JSON.stringify(estado));
+  assert.deepEqual([...fixos.ramais()], ['101']);
+});
+
+test('ControleRobos: avisa robôs mexidos por fora, mas não os que acabamos de comandar', async () => {
+  const avisos = [];
+  const logger = { ...loggerNulo, aviso: (m) => avisos.push(m) };
+  const status = { 900: 'livre', 901: 'livre', 902: null };
+  const client = {
+    async statusOperador(r) { return { descricaoStatus: status[r] || 'Deslogado' }; },
+    async logarOperadorVirtual(r) { status[r] = 'livre'; },
+    async deslogarOperador(r) { status[r] = null; },
+  };
+  const ramais = ['900', '901', '902'];
+  const robos = new ControleRobos({ client, cfg: { dryRun: false, concorrencia: 5, descricoesStatus: DESC_ROBOS }, logger });
+  await robos.sincronizar(ramais);
+  await robos.aumentar(ramais, 3, 'teste'); // 902 ligado por nós
+  await robos.sincronizar(ramais);
+  assert.equal(robos.resumo().mudancasPorFora, 0, 'comando nosso não conta');
+
+  status['900'] = null; // alguém desligou no painel
+  await robos.sincronizar(ramais);
+  assert.equal(robos.resumo().mudancasPorFora, 1);
+  assert.match(avisos.join(), /mexidos por fora/);
+});
+
+test('URA em alerta: com 1 a LIVRES_ALERTA livres a URA é lida mais rápido', () => {
+  const { RodizioService } = require('../../src/rodizio/rodizio.service');
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, robos: {}, repositorio: {}, logger: loggerNulo,
+    cfg: { pollUraMs: 5000, pollUraAlertaMs: 1000, livresAlerta: 2 },
+  });
+  const intervalo = (livres) => { svc.ultimosLivres = livres; return svc.intervaloUraMs(); };
+  assert.equal(intervalo(null), 5000, 'antes da primeira decisão');
+  assert.equal(intervalo(0), 5000, 'ninguém livre: robôs já desligados, sem risco');
+  assert.equal(intervalo(1), 1000);
+  assert.equal(intervalo(2), 1000);
+  assert.equal(intervalo(3), 5000);
+});
+
+test('executarPeriodicamente aceita intervalo recalculado a cada rodada', async () => {
+  const { executarPeriodicamente } = require('../../src/utils/periodico');
+  let rodadas = 0;
+  const ciclo = executarPeriodicamente({
+    nome: 't', intervaloMs: () => (rodadas < 3 ? 5 : 60_000), tarefa: async () => { rodadas++; }, logger: loggerNulo,
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  await ciclo.parar();
+  assert.equal(rodadas, 3, 'três rodadas rápidas e depois espera o intervalo longo');
+});
+
+test('429 recebido por um processo pausa os outros (arquivo de pausa compartilhado)', async (t) => {
+  const arquivoPausa = path.join(tmp('pausa-'), 'argus-pausa.json');
+  const chamadas = [];
+  const srv = http.createServer((req, res) => {
+    chamadas.push(req.url);
+    res.writeHead(chamadas.length === 1 ? 429 : 200, { 'Content-Type': 'application/json' })
+      .end(JSON.stringify({ codStatus: 1, grupos: [] }));
+  });
+  await new Promise((r) => srv.listen(0, r));
+  t.after(() => srv.close());
+  const cfg = { baseUrl: `http://127.0.0.1:${srv.address().port}`, token: 't', timeoutMs: 2000, tentativas: 1, pausaLimiteMs: 60_000, arquivoPausa };
+  const roteador = new ArgusClient(cfg, loggerNulo);
+  const rodizio = new ArgusClient(cfg, loggerNulo);
+
+  await assert.rejects(roteador.listarGrupos(), ArgusLimiteError);
+  await assert.rejects(rodizio.listarGrupos(), ArgusLimiteError, 'o outro processo respeita a pausa');
+  assert.equal(chamadas.length, 1, 'nada foi enviado durante a pausa');
+});
+
+test('config: avisa valores antigos do .env que anulam correções', () => {
+  const { validarConfig, carregarConfig } = require('../../src/config');
+  const base = carregarConfig({ argus: { token: 't', gruposAtivosIds: [1] } });
+  const comAntigos = {
+    ...base,
+    rodizio: {
+      ...base.rodizio,
+      grupoUraDefinido: true,
+      gruposRobosIds: [6],
+      pollUraMs: 500,
+      minRobosDesligadosMs: 3000,
+      descricoesStatus: { livres: ['livre'], atendimento: ['em atendimento'], offline: [] },
+    },
+  };
+  const { avisos } = validarConfig(comAntigos, { escopo: 'rodizio' });
+  for (const nome of ['POLL_URA_MS', 'MIN_ROBOS_OFF_MS', 'STATUS_ATENDIMENTO', 'STATUS_OFFLINE']) {
+    assert.ok(avisos.some((a) => a.startsWith(nome)), `aviso de ${nome}`);
+  }
+
+  const deslogarSemPlantao = { ...base, rotinas: { ...base.rotinas, fimExpediente: { ...base.rotinas.fimExpediente, ativo: true, acao: 'deslogar', ignorarRamais: [] } } };
+  assert.match(validarConfig(deslogarSemPlantao, { escopo: 'rotinas' }).avisos.join(), /plantão/);
+});
