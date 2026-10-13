@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Rotas HTTP do rodízio: saúde e webhooks da Argus.
+ * Rotas HTTP do rodízio: saúde, webhooks da Argus e modo manual dos robôs.
  *
  * Um único endereço recebe todos os webhooks configurados na Argus e os
  * distribui: início de atendimento → rodízio; encerramento de URA → retorno da fila.
@@ -48,9 +48,25 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
     return { status: 200, corpo: { ok: true } };
   }
 
+  /** POST /robos/manual { minutos } — a supervisão assume os robôs pelo painel. */
+  async function robosManual({ corpo }) {
+    const minutos = Number(corpo?.minutos ?? 30);
+    if (!(minutos > 0 && minutos <= 600)) return { status: 400, corpo: { erro: 'minutos deve estar entre 1 e 600' } };
+    const ate = rodizio.assumirRobosManualmente(minutos);
+    return { status: 200, corpo: { manualAte: new Date(ate).toISOString() } };
+  }
+
+  /** POST /robos/automatico — o BenURA volta a comandar os robôs. */
+  async function robosAutomatico() {
+    rodizio.devolverRobosAoBenura();
+    return { status: 200, corpo: { manualAte: null } };
+  }
+
   return [
     { metodo: 'GET', caminho: '/health', handler: health },
     { metodo: 'POST', caminho: '/webhook', handler: webhook, protegida: true, prefixo: true },
+    { metodo: 'POST', caminho: '/robos/manual', handler: robosManual, protegida: true },
+    { metodo: 'POST', caminho: '/robos/automatico', handler: robosAutomatico, protegida: true },
   ];
 }
 

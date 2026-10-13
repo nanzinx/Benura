@@ -160,6 +160,8 @@ function carregarConfig(overrides = {}) {
     usarMock: envBool('USAR_MOCK'),
     debug: envBool('DEBUG'),
     arquivoEstado: env('STATE_FILE', path.join(process.cwd(), 'state-vendas.json')),
+    // Uma instância só do roteador (PM2 e uma janela ao mesmo tempo transfeririam em dobro).
+    arquivoTrava: env('ROTEADOR_LOCK_FILE', path.join(RAIZ, 'roteador.lock')),
     // Esteira colada em GET /manual (redundância do Carrossel)
     arquivoEsteiraManual: env('ESTEIRA_MANUAL_FILE', path.join(process.cwd(), 'state-esteira-manual.json')),
   };

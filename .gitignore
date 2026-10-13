@@ -4,6 +4,7 @@ state*.json
 state*.json.bak
 state*.json.tmp
 argus.lock
+roteador.lock
 auditoria*.jsonl
 logs/
 .simulacao/

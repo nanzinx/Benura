@@ -230,6 +230,19 @@ const CENARIOS = {
     await aguardar(() => ligados().length === 0, { descricao: 'desligar todos' });
   },
 
+  async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {
+    const post = (rota, corpo = {}) => fetch(`${r.base}${rota}?token=${TOKEN}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    if ((await post('/robos/manual', { minutos: 5 })).status !== 200) throw new Error('POST /robos/manual falhou');
+    r.argus.definirStatus('200', 'em atendimento'); // ninguém livre: em modo automático desligaria tudo
+    await esperar(2000);
+    if (r.chamadas('deslogaroperador').length) throw new Error('mexeu nos robôs em modo manual');
+
+    await post('/robos/automatico');
+    await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'desligar ao voltar ao automático' });
+  },
+
   async 'Robôs: humano da URA em pausa conta como ocupado'(r) {
     r.argus.definirStatus('200', 'pausa');
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'deslogar robôs' });

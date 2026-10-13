@@ -97,6 +97,7 @@ function adquirirTravaOuEncerrar(caminho, logger) {
 function encerrarSeOcupada(e, logger) {
   if (!(e instanceof TravaOcupadaError)) throw e;
   logger.erro(e.message);
+  logger.erro('Duas cópias mexeriam na Argus ao mesmo tempo. Pare a outra (Ctrl+C na janela dela ou `npx pm2 kill`) e tente de novo.');
   return process.exit(1);
 }
 

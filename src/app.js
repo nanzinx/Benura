@@ -24,6 +24,7 @@ const { Agendador } = require('./services/agendador');
 const { criarControllers } = require('./http/controllers');
 const { criarServidor } = require('./http/server');
 const { registrarDesligamento, fecharServidor, escutar } = require('./utils/ciclo-de-vida');
+const { adquirirTravaOuEncerrar } = require('./utils/trava-processo');
 
 /**
  * Monta a camada da Argus (cliente, diretório de usuários e discadora).
@@ -130,6 +131,7 @@ async function iniciar() {
   const { cfg, log, roteamento, agendador, servidor } = app;
 
   exigirConfigValida(cfg, log);
+  const trava = adquirirTravaOuEncerrar(cfg.arquivoTrava, log);
   logarResumo(cfg, log);
 
   roteamento.inicializar();
@@ -146,6 +148,7 @@ async function iniciar() {
       () => agendador.parar(),
       () => fecharServidor(servidor),
       () => roteamento.repositorio.aguardarEscritas(),
+      () => trava.liberar(),
     ],
   });
   return app;

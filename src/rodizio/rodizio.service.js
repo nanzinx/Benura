@@ -54,6 +54,8 @@ class RodizioService {
     this.emTransferencia = new Set();
     this.avaliandoRobos = false;
     this.reavaliarRobos = false;
+    /** Até quando a supervisão comanda os robôs pelo painel (0 = o BenURA comanda). */
+    this.manualAte = 0;
   }
 
   inicializar() {
@@ -224,6 +226,7 @@ class RodizioService {
    * e webhook) não se sobrepõem: quem chega durante uma avaliação pede outra rodada.
    */
   async avaliarRobos() {
+    if (this.emModoManual()) return;
     if (this.avaliandoRobos) {
       this.reavaliarRobos = true;
       return;
@@ -307,9 +310,35 @@ class RodizioService {
     }
   }
 
+  // ───────────────────────────── Modo manual ─────────────────────────────
+
+  emModoManual(agora = Date.now()) {
+    if (!this.manualAte || agora < this.manualAte) return this.manualAte > 0;
+    this.manualAte = 0;
+    this.log.info('Fim do modo manual: o BenURA volta a comandar os robôs.');
+    return false;
+  }
+
+  /** A supervisão assume os robôs pelo painel por `minutos`; o BenURA não liga nem desliga nenhum. */
+  assumirRobosManualmente(minutos) {
+    this.manualAte = Date.now() + minutos * 60_000;
+    this.log.aviso(`Modo manual por ${minutos} min: o BenURA não mexe nos robôs até ${new Date(this.manualAte).toISOString()}.`);
+    return this.manualAte;
+  }
+
+  devolverRobosAoBenura() {
+    this.manualAte = 0;
+    this.log.info('Modo manual encerrado: o BenURA volta a comandar os robôs.');
+  }
+
   resumo() {
     return {
-      robos: { ...this.robos.resumo(), total: this.ramaisRobos.length, porLivre: this.cfg.robosPorLivre },
+      robos: {
+        ...this.robos.resumo(),
+        total: this.ramaisRobos.length,
+        porLivre: this.cfg.robosPorLivre,
+        manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,
+      },
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),

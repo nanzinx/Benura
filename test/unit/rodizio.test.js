@@ -333,3 +333,25 @@ test('FixosDoRoteador: só a fila URA do estado de hoje; relê quando o arquivo 
   fs.writeFileSync(arquivo, JSON.stringify(estado));
   assert.deepEqual([...fixos.ramais()], ['101']);
 });
+
+test('ControleRobos: avisa robôs mexidos por fora, mas não os que acabamos de comandar', async () => {
+  const avisos = [];
+  const logger = { ...loggerNulo, aviso: (m) => avisos.push(m) };
+  const status = { 900: 'livre', 901: 'livre', 902: null };
+  const client = {
+    async statusOperador(r) { return { descricaoStatus: status[r] || 'Deslogado' }; },
+    async logarOperadorVirtual(r) { status[r] = 'livre'; },
+    async deslogarOperador(r) { status[r] = null; },
+  };
+  const ramais = ['900', '901', '902'];
+  const robos = new ControleRobos({ client, cfg: { dryRun: false, concorrencia: 5, descricoesStatus: DESC_ROBOS }, logger });
+  await robos.sincronizar(ramais);
+  await robos.aumentar(ramais, 3, 'teste'); // 902 ligado por nós
+  await robos.sincronizar(ramais);
+  assert.equal(robos.resumo().mudancasPorFora, 0, 'comando nosso não conta');
+
+  status['900'] = null; // alguém desligou no painel
+  await robos.sincronizar(ramais);
+  assert.equal(robos.resumo().mudancasPorFora, 1);
+  assert.match(avisos.join(), /mexidos por fora/);
+});

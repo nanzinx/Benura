@@ -112,7 +112,7 @@ function montarServidor({ cfg, log, rodizio, retornoFila }, ciclos) {
 
 function logarInicio({ cfg, cfgRodizio, log }) {
   const retorno = cfg.retornoFila.ativo ? `ligado (origem ${cfg.retornoFila.origem})` : 'desligado';
-  log.info(`Rodízio iniciado | HTTP na porta ${cfgRodizio.porta} (GET /health, POST /webhook) | `
+  log.info(`Rodízio iniciado | HTTP na porta ${cfgRodizio.porta} (GET /health, POST /webhook, POST /robos/manual, POST /robos/automatico) | `
     + `TEMPO_MIN=${cfgRodizio.tempoNaUraMs / 60_000} | URA=${cfgRodizio.grupoUraId} | robôs=grupos ${cfgRodizio.gruposRobosIds.join(',')} (${cfgRodizio.robosPorLivre} por livre) | `
     + `Ativo=${cfgRodizio.gruposAtivosIds.join(',')} | retorno da fila: ${retorno}${cfgRodizio.dryRun ? ' | DRY_RUN' : ''}`);
 }
