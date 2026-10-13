@@ -42,6 +42,8 @@ class RodizioService {
     this.ramaisRobos = [];
     /** ramal → { classe, ts, doWebhook } */
     this.statusUra = new Map();
+    /** ramais cuja última leitura de status falhou (para avisar uma vez só) */
+    this.ramaisComFalha = new Set();
     /** ramais do Ativo que atenderam uma ligação desde que ficaram online */
     this.atenderamNoAtivo = new Set();
     /** ramais com transferência em andamento */
@@ -253,10 +255,19 @@ class RodizioService {
   async lerStatus(ramal) {
     try {
       const status = await this.client.statusOperador(ramal);
+      if (this.ramaisComFalha.delete(ramal)) this.log.info(`Status do ramal ${ramal} voltou a ser lido.`);
       return { classe: classificarStatus(status, this.cfg.descricoesStatus), status };
-    } catch {
+    } catch (e) {
+      this.avisarFalhaDeLeitura(ramal, e);
       return { classe: Classe.ERRO };
     }
+  }
+
+  /** Avisa uma vez por ramal (o ciclo da URA roda a cada meio segundo). */
+  avisarFalhaDeLeitura(ramal, e) {
+    if (this.ramaisComFalha.has(ramal)) return;
+    this.ramaisComFalha.add(ramal);
+    this.log.aviso(`Não foi possível ler o status do ramal ${ramal}: ${e.message}`);
   }
 
   /** Evita duas transferências simultâneas do mesmo ramal. */

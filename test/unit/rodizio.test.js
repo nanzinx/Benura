@@ -22,6 +22,19 @@ const tmp = (prefixo) => fs.mkdtempSync(path.join(os.tmpdir(), prefixo));
 
 // ───────────── Regras puras ─────────────
 
+test('classificarStatus com o padrão da config entende os textos da Argus real', () => {
+  const salvo = process.env.STATUS_ATENDIMENTO;
+  delete process.env.STATUS_ATENDIMENTO;
+  try {
+    const { descricoesStatus } = require('../../src/config').carregarConfig().rodizio;
+    assert.equal(classificarStatus({ descricaoStatus: 'Atendimento' }, descricoesStatus), Classe.ATENDIMENTO);
+    assert.equal(classificarStatus({ descricaoStatus: 'Livre' }, descricoesStatus), Classe.LIVRE);
+    assert.equal(classificarStatus({ descricaoStatus: 'Pausado', descricaoPausa: 'Banheiro' }, descricoesStatus), Classe.OUTRO);
+  } finally {
+    if (salvo !== undefined) process.env.STATUS_ATENDIMENTO = salvo;
+  }
+});
+
 test('classificarStatus', () => {
   assert.equal(classificarStatus(null, DESC), Classe.OFFLINE);
   assert.equal(classificarStatus({ descricaoStatus: ' Em Atendimento ' }, DESC), Classe.ATENDIMENTO);
@@ -180,17 +193,21 @@ function servidor(handler) {
   });
 }
 
-test('statusOperador: logado, não logado (codStatus 0) e erro (codStatus -1)', async (t) => {
+test('statusOperador: logado, não logado (codStatus 0 ou HTTP 500) e erro (codStatus -1, 403)', async (t) => {
   const respostas = {
     1: [200, { codStatus: 1, statusOperador: { descricaoStatus: 'Livre' } }],
     2: [200, { codStatus: 0, descStatus: 'não logado' }],
     3: [200, { codStatus: -1, descStatus: 'erro' }],
+    4: [500, { codStatus: -1, descStatus: 'Erro interno' }],
+    5: [403, {}],
   };
   const { srv, client } = await servidor((cmd, corpo) => respostas[corpo.ramal]);
   t.after(() => srv.close());
   assert.equal((await client.statusOperador('1')).descricaoStatus, 'Livre');
   assert.equal(await client.statusOperador('2'), null);
   await assert.rejects(client.statusOperador('3'), ArgusError);
+  assert.equal(await client.statusOperador('4'), null, 'a Argus real responde 500 para quem não está logado');
+  await assert.rejects(client.statusOperador('5'), ArgusError);
 });
 
 test('429: pausa global sem re-tentativa; deslogar continua permitido', async (t) => {

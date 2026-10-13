@@ -29,7 +29,8 @@ function criarArgusFake({ grupos, status }) {
 
     statusoperador: ({ ramal }) => {
       const desc = estado.status[ramal];
-      if (desc == null) return { codStatus: 0, descStatus: 'Operador não está logado' };
+      // Como a Argus real: quem não está logado recebe HTTP 500.
+      if (desc == null) return { httpStatus: 500, codStatus: -1, descStatus: 'Erro interno' };
       return {
         codStatus: 1,
         statusOperador: { ramal: String(ramal), descricaoStatus: desc, descricaoPausa: '', idGrupo: grupoDe(ramal)?.idGrupoUsuario },
@@ -87,8 +88,9 @@ function criarArgusFake({ grupos, status }) {
         return;
       }
       const fn = comandos[nome];
-      res.writeHead(fn ? 200 : 404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(fn ? fn(dados) : { codStatus: -1, descStatus: 'comando desconhecido' }));
+      const { httpStatus = fn ? 200 : 404, ...resposta } = fn ? fn(dados) : { codStatus: -1, descStatus: 'comando desconhecido' };
+      res.writeHead(httpStatus, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(resposta));
     });
   });
 
