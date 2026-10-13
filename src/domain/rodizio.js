@@ -75,7 +75,7 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
   const nenhum = (motivo) => ({ alvo: 0, livres: 0, motivo });
   const semVisibilidade = ramaisUra.some((r) => {
     const info = status.get(r);
-    return !info || info.classe === Classe.ERRO || agora - info.ts > VALIDADE_STATUS_MS;
+    return !info || info.classe === Classe.ERRO || agora - info.ts > (cfg.validadeStatusMs ?? VALIDADE_STATUS_MS);
   });
   if (semVisibilidade) return nenhum('sem visibilidade da Argus');
 
@@ -100,7 +100,7 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
  * @param {Map<string, { classe: string, ts: number }>} entrada.status
  * @param {number} entrada.agora
  * @param {{ ligados: number|null, total: number, ultimaReducao: number }} entrada.robos - ligados null = ainda não lido
- * @param {{ reativar: boolean, minDesligadoMs: number, porLivre: number, maximo?: number }} entrada.cfg
+ * @param {{ reativar: boolean, minDesligadoMs: number, porLivre: number, maximo?: number, validadeStatusMs?: number }} entrada.cfg
  * @returns {{ acao: string, alvo: number, livres: number, motivo: string }}
  */
 function decidirRobos({ ramaisUra, status, agora, robos, cfg }) {

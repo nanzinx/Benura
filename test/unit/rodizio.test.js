@@ -66,6 +66,10 @@ test('decidirRobos: robôs proporcionais aos livres; reduzir é imediato, aument
   const d = (ramaisUra, status, r = robos(7), c = cfg) => decidirRobos({ ramaisUra, status, agora, robos: r, cfg: c });
 
   assert.deepEqual(alvoDeRobos({ ramaisUra: ['1'], status: st({ 1: 'livre' }), agora, total: 58, cfg }).alvo, 7);
+  // Poll de 5 s: status com 8 s ainda vale se a validade acompanha o intervalo; com o padrão (6 s) não.
+  const velho = new Map([['1', { classe: 'livre', ts: agora - 8000 }]]);
+  assert.equal(alvoDeRobos({ ramaisUra: ['1'], status: velho, agora, total: 58, cfg }).motivo, 'sem visibilidade da Argus');
+  assert.equal(alvoDeRobos({ ramaisUra: ['1'], status: velho, agora, total: 58, cfg: { ...cfg, validadeStatusMs: 11_000 } }).alvo, 7);
   assert.equal(d(['1', '2'], st({ 1: 'livre', 2: 'livre' })).alvo, 14);
   assert.equal(d(['1', '2'], st({ 1: 'livre', 2: 'livre' })).acao, AcaoRobos.RELIGAR, '7 ligados, alvo 14 → aumenta');
   assert.equal(d(['1', '2'], st({ 1: 'atendimento', 2: 'livre' })).acao, AcaoRobos.NENHUMA, 'alvo 7 = ligados 7');
