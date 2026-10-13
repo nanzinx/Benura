@@ -57,6 +57,11 @@ function responder(res, status, corpo) {
   res.end(JSON.stringify(corpo, null, 2));
 }
 
+function responderHtml(res, status, html) {
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
 /** Rota com `prefixo: true` atende o caminho e tudo abaixo dele (ex.: /webhook, /webhook/argus). */
 const casaCaminho = (rota, pathname) => (rota.prefixo ? pathname.startsWith(rota.caminho) : pathname === rota.caminho);
 
@@ -72,18 +77,23 @@ function autorizar(rota, req, tokenAdmin) {
   if (!tokenValido(extrairToken(req), tokenAdmin)) throw new ErroHttp(401, 'Token inválido ou ausente');
 }
 
+/** A esteira colada pode ter milhares de linhas. */
+const LIMITE_ESTEIRA_BYTES = 10 * 1024 * 1024;
+
 /** Rotas do roteador de vendas. */
 const rotasDoRoteador = (controllers) => [
   { metodo: 'GET', caminho: '/health', handler: controllers.health },
   { metodo: 'GET', caminho: '/status', handler: controllers.status },
   { metodo: 'POST', caminho: '/recarregar', handler: controllers.recarregar, protegida: true },
   { metodo: 'POST', caminho: '/webhook/venda', handler: controllers.webhookVenda, protegida: true },
+  { metodo: 'GET', caminho: '/manual', handler: controllers.paginaManual },
+  { metodo: 'POST', caminho: '/manual', handler: controllers.colarEsteira, protegida: true, limiteCorpoBytes: LIMITE_ESTEIRA_BYTES },
 ];
 
 /**
  * @param {object} deps
  * @param {ReturnType<import('./controllers').criarControllers>} [deps.controllers] - Controladores do roteador
- * @param {Array<{ metodo, caminho, handler, protegida?, prefixo? }>} [deps.rotas] - Ou rotas explícitas
+ * @param {Array<{ metodo, caminho, handler, protegida?, prefixo?, limiteCorpoBytes? }>} [deps.rotas] - Ou rotas explícitas
  * @param {{ tokenAdmin: string, limiteCorpoBytes: number }} deps.cfg
  * @param {object} deps.logger
  * @returns {http.Server}
@@ -93,7 +103,7 @@ function criarServidor({ controllers, rotas = rotasDoRoteador(controllers), cfg,
   async function atender(req) {
     const rota = encontrarRota(rotas, req);
     autorizar(rota, req, cfg.tokenAdmin);
-    const corpo = req.method === 'POST' ? await lerCorpoJson(req, cfg.limiteCorpoBytes) : null;
+    const corpo = req.method === 'POST' ? await lerCorpoJson(req, rota.limiteCorpoBytes ?? cfg.limiteCorpoBytes) : null;
     return rota.handler({ req, corpo });
   }
 
@@ -105,8 +115,9 @@ function criarServidor({ controllers, rotas = rotasDoRoteador(controllers), cfg,
 
   return http.createServer(async (req, res) => {
     try {
-      const { status, corpo } = await atender(req);
-      responder(res, status, corpo);
+      const { status, corpo, html } = await atender(req);
+      if (html !== undefined) responderHtml(res, status, html);
+      else responder(res, status, corpo);
     } catch (e) {
       responderErro(req, res, e);
     }

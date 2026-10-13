@@ -113,6 +113,22 @@ Consome `GET {CARROSSEL_API_URL}/ranking/vendedores` do Carrosel-BenApi, que dev
 - Se o Carrossel responder `ultimaExtracao: "Erro"` ou vier sem vendas de ontem, a carga do dia é adiada e tentada de novo.
 - Só `src/integrations/carrossel/carrossel.mapper.js` conhece esse formato.
 
+### Carrossel fora do ar: esteira colada
+Se o Carrossel cair (ou responder `ultimaExtracao: "Erro"`), o roteador usa a **esteira colada à mão** com as mesmas regras.
+Quando o Carrossel volta, ele volta a ser a fonte.
+
+1. Na esteira, filtre **Etapa = Andamento** e o período por **data de cadastro**, incluindo o **dia anterior trabalhado e hoje**.
+2. Abra `http://localhost:3001/manual` e escolha o CSV exportado, **ou** copie a tabela (com o cabeçalho) e cole.
+3. Clique em **Enviar**. A página mostra quem passou da meta no dia anterior e quem vendeu hoje.
+   - Durante o dia, cole de novo para atualizar as vendas de hoje.
+
+Detalhes:
+- **Colunas usadas:** só `Agente`, `Valor Contrato` e `Data/Hora` (cadastro). `Proposta`, se vier, evita contar a mesma proposta duas vezes.
+- **"Dia anterior":** o **último dia trabalhado**, ou seja, a data mais recente antes de hoje com vendas na esteira. Segunda-feira usa a sexta; depois de feriado, usa o dia útil.
+- **Colagens se somam por dia:** cada colagem substitui só os dias que contém. Dá para colar a esteira de ontem e a de hoje separadamente.
+- **Validade:** só vale a esteira colada **hoje**. O arquivo é `ESTEIRA_MANUAL_FILE`, padrão `state-esteira-manual.json`.
+- **Proteção:** se houver `WEBHOOK_TOKEN`, a página pede o token.
+
 ### Vendedor do Carrossel → ramal da Argus (automático)
 O Carrossel identifica vendedores **só pelo nome**; a Argus só entende **ramal**. A ponte é feita
 automaticamente pelo `/listarusuarios` da Argus, que traz nome, login, ramal, grupo e supervisor de todos os usuários.
@@ -130,6 +146,8 @@ automaticamente pelo `/listarusuarios` da Argus, que traz nome, login, ramal, gr
 | `GET` | `/status` | — | vendedores por fila, pendências |
 | `POST` | `/recarregar` | 🔒 token | refaz a carga inicial |
 | `POST` | `/webhook/venda` | 🔒 token | `{ "ramal": "1004", "valor": 1500 }` |
+| `GET` | `/manual` | — | página para colar a esteira |
+| `POST` | `/manual` | 🔒 token | `{ "texto": "<esteira>" }` → resumo |
 
 Token: `Authorization: Bearer <WEBHOOK_TOKEN>` ou `X-Webhook-Token: <WEBHOOK_TOKEN>`.
 

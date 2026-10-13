@@ -11,6 +11,8 @@ const { formatarReais } = require('./utils/moeda');
 const { CarrosselClient } = require('./integrations/carrossel/carrossel.client');
 const { CarrosselMockClient } = require('./integrations/carrossel/carrossel.mock-client');
 const { CarrosselService } = require('./integrations/carrossel/carrossel.service');
+const { CarrosselComRedundancia } = require('./integrations/carrossel/carrossel-com-redundancia');
+const { EsteiraManualRepository } = require('./integrations/carrossel/esteira-manual.repository');
 const { ArgusClient } = require('./integrations/argus/argus.client');
 const { ArgusMockClient } = require('./integrations/argus/argus.mock-client');
 const { DiretorioOperadores } = require('./integrations/argus/diretorio-operadores.service');
@@ -61,9 +63,16 @@ function criarApp(overrides) {
 
   const relogio = { hoje: () => dataLocal(cfg.agenda.fusoHorario) };
 
-  const carrosselClient = cfg.usarMock
-    ? new CarrosselMockClient(log.filho('carrossel-mock'))
-    : new CarrosselClient(cfg.carrossel, log.filho('carrossel'));
+  const esteira = new EsteiraManualRepository({ arquivo: cfg.arquivoEsteiraManual, logger: log.filho('esteira') });
+  const carrosselClient = new CarrosselComRedundancia({
+    client: cfg.usarMock
+      ? new CarrosselMockClient(log.filho('carrossel-mock'))
+      : new CarrosselClient(cfg.carrossel, log.filho('carrossel')),
+    esteira,
+    relogio,
+    metrica: cfg.carrossel.metrica,
+    logger: log.filho('carrossel'),
+  });
   const { argusClient, diretorio, discadora } = montarArgus(cfg, log);
 
   const roteamento = new RoteamentoService({
@@ -78,12 +87,12 @@ function criarApp(overrides) {
 
   const agendador = new Agendador({ roteamento, agenda: cfg.agenda, logger: log.filho('agendador') });
   const servidor = criarServidor({
-    controllers: criarControllers({ roteamento, logger: log.filho('http') }),
+    controllers: criarControllers({ roteamento, esteira, relogio, metaDiaria: cfg.regras.metaDiaria, logger: log.filho('http') }),
     cfg: cfg.http,
     logger: log.filho('http'),
   });
 
-  return { cfg, log, argusClient, diretorio, discadora, roteamento, agendador, servidor };
+  return { cfg, log, argusClient, diretorio, discadora, roteamento, agendador, servidor, esteira };
 }
 
 /** Loga avisos e encerra o processo se houver problema fatal na configuração. */
@@ -127,7 +136,8 @@ async function iniciar() {
   await aquecerArgus(app);
 
   await escutar(servidor, cfg.http.porta);
-  log.info(`HTTP na porta ${cfg.http.porta}: GET /health, GET /status, POST /recarregar, POST /webhook/venda`);
+  log.info(`HTTP na porta ${cfg.http.porta}: GET /health, GET /status, POST /recarregar, POST /webhook/venda, `
+    + `GET /manual (esteira colada se o Carrossel cair)`);
 
   agendador.iniciar();
   registrarDesligamento({
