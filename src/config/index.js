@@ -118,6 +118,8 @@ function carregarConfig(overrides = {}) {
       descricoesStatus: {
         livres: envListaTexto('STATUS_LIVRE', 'livre,disponivel'),
         atendimento: envListaTexto('STATUS_ATENDIMENTO', 'atendimento,em atendimento,falando,conversa'),
+        // Robô desligado: a Argus responde sucesso com status "Deslogado".
+        offline: envListaTexto('STATUS_OFFLINE', 'deslogado,offline,desconectado'),
       },
       // Nomes próprios para não colidir com o roteador (que usa PORT e STATE_FILE).
       porta: envNum('RODIZIO_PORT', 3000),

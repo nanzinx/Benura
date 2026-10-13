@@ -28,12 +28,15 @@ function criarArgusFake({ grupos, status }) {
     listargrupos: () => ({ codStatus: 1, grupos: estado.grupos }),
 
     statusoperador: ({ ramal }) => {
-      const desc = estado.status[ramal];
-      // Como a Argus real: quem não está logado recebe HTTP 500.
+      const grupo = grupoDe(ramal);
+      // Como a Argus real: humano não logado recebe HTTP 500; robô desligado
+      // (grupo virtual) responde sucesso com o status "Deslogado".
+      const virtual = grupo && grupo.idTipoGrupo !== 1;
+      const desc = estado.status[ramal] ?? (virtual ? 'Deslogado' : null);
       if (desc == null) return { httpStatus: 500, codStatus: -1, descStatus: 'Erro interno' };
       return {
         codStatus: 1,
-        statusOperador: { ramal: String(ramal), descricaoStatus: desc, descricaoPausa: '', idGrupo: grupoDe(ramal)?.idGrupoUsuario },
+        statusOperador: { ramal: String(ramal), descricaoStatus: desc, descricaoPausa: '', idGrupo: grupo?.idGrupoUsuario },
       };
     },
 

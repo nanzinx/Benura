@@ -30,6 +30,7 @@ test('classificarStatus com o padrão da config entende os textos da Argus real'
     assert.equal(classificarStatus({ descricaoStatus: 'Atendimento' }, descricoesStatus), Classe.ATENDIMENTO);
     assert.equal(classificarStatus({ descricaoStatus: 'Livre' }, descricoesStatus), Classe.LIVRE);
     assert.equal(classificarStatus({ descricaoStatus: 'Pausado', descricaoPausa: 'Banheiro' }, descricoesStatus), Classe.OUTRO);
+    assert.equal(classificarStatus({ descricaoStatus: 'Deslogado' }, descricoesStatus), Classe.OFFLINE, 'robô desligado');
   } finally {
     if (salvo !== undefined) process.env.STATUS_ATENDIMENTO = salvo;
   }
@@ -41,6 +42,7 @@ test('classificarStatus', () => {
   assert.equal(classificarStatus({ descricaoStatus: 'Livre' }, DESC), Classe.LIVRE);
   assert.equal(classificarStatus({ descricaoStatus: 'Livre', descricaoPausa: 'Almoço' }, DESC), Classe.OUTRO);
   assert.equal(classificarStatus({ descricaoStatus: 'Tabulando' }, DESC), Classe.OUTRO);
+  assert.equal(classificarStatus({ descricaoStatus: ' DESLOGADO ' }, DESC), Classe.OFFLINE, 'padrão vale sem a lista na config');
 });
 
 test('ida para a URA e volta ao Ativo', () => {
@@ -262,7 +264,8 @@ test('ControleRobos: sincroniza, aumenta só os que faltam e reduz poupando quem
   const status = { 900: 'livre', 901: 'em atendimento', 902: null, 903: null, 904: null };
   const chamadas = [];
   const client = {
-    async statusOperador(r) { return status[r] ? { descricaoStatus: status[r] } : null; },
+    // Como a Argus real: robô desligado responde sucesso com o status "Deslogado".
+    async statusOperador(r) { return { descricaoStatus: status[r] || 'Deslogado' }; },
     async logarOperadorVirtual(r) { chamadas.push(`+${r}`); status[r] = 'livre'; },
     async deslogarOperador(r) { chamadas.push(`-${r}`); status[r] = null; },
   };
