@@ -463,3 +463,38 @@ test('URA → Ativo: não movido volta ao grupo do supervisor; sem grupo, fica e
   assert.equal(avisos.length, 1, '202 sem grupo: um aviso só');
   assert.ok(svc.ramaisUra.has('202'));
 });
+
+test('decidirRobos: como na operação manual — redução parcial só confirmada, alvo 0 na hora, subida em degraus', () => {
+  const agora = 100_000;
+  const st = (pares) => new Map(Object.entries(pares).map(([r, classe]) => [r, { classe, ts: agora }]));
+  const cfg = { reativar: true, minDesligadoMs: 0, porLivre: 7, reduzirAposMs: 10_000, intervaloSubidaMs: 10_000 };
+  const d = (status, robos) => decidirRobos({ ramaisUra: Object.keys(status), status: st(status), agora, robos: { total: 58, ultimaReducao: 0, ...robos }, cfg });
+
+  // 1 livre (alvo 7) com 20 ligados: excesso recém-surgido espera; confirmado há 10 s reduz.
+  assert.equal(d({ 1: 'livre' }, { ligados: 20, excessoDesde: null }).acao, AcaoRobos.NENHUMA);
+  assert.equal(d({ 1: 'livre' }, { ligados: 20, excessoDesde: agora - 5_000 }).acao, AcaoRobos.NENHUMA);
+  assert.equal(d({ 1: 'livre' }, { ligados: 20, excessoDesde: agora - 10_000 }).acao, AcaoRobos.DESLIGAR);
+  assert.ok(d({ 1: 'livre' }, { ligados: 20, excessoDesde: null }).excesso);
+
+  // Ninguém livre: desliga na hora, sem esperar.
+  assert.equal(d({ 1: 'atendimento' }, { ligados: 20, excessoDesde: null }).acao, AcaoRobos.DESLIGAR);
+
+  // Subida: só depois do intervalo desde o último aumento.
+  assert.equal(d({ 1: 'livre', 2: 'livre' }, { ligados: 7, ultimoAumento: agora - 5_000 }).acao, AcaoRobos.NENHUMA);
+  assert.equal(d({ 1: 'livre', 2: 'livre' }, { ligados: 7, ultimoAumento: agora - 10_000 }).acao, AcaoRobos.RELIGAR);
+});
+
+test('ControleRobos.aumentar: sobe no máximo um degrau por vez', async () => {
+  const logados = [];
+  const client = { async logarOperadorVirtual(r) { logados.push(r); } };
+  const ramais = Array.from({ length: 20 }, (_, i) => String(900 + i));
+  const robos = new ControleRobos({ client, cfg: { dryRun: false, concorrencia: 5, descricoesStatus: DESC_ROBOS, degrauSubida: 7 }, logger: loggerNulo });
+  robos.ligados = new Set();
+
+  await robos.aumentar(ramais, 20, 'teste');
+  assert.equal(logados.length, 7);
+  await robos.aumentar(ramais, 20, 'teste');
+  await robos.aumentar(ramais, 20, 'teste');
+  assert.equal(logados.length, 20, '7 + 7 + 6');
+  assert.ok(robos.situacao(20).ultimoAumento > 0);
+});

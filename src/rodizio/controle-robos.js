@@ -38,6 +38,7 @@ class ControleRobos {
     /** @type {Set<string>|null} ramais ligados; null = ainda não lido */
     this.ligados = null;
     this.ultimaReducao = 0;
+    this.ultimoAumento = 0;
     this.alvo = null;
     /** ramal → quando o BenURA mandou ligar/desligar */
     this.ultimoComando = new Map();
@@ -50,7 +51,7 @@ class ControleRobos {
 
   /** Para a regra de decisão. */
   situacao(total) {
-    return { ligados: this.ligados ? this.ligados.size : null, total, ultimaReducao: this.ultimaReducao };
+    return { ligados: this.ligados ? this.ligados.size : null, total, ultimaReducao: this.ultimaReducao, ultimoAumento: this.ultimoAumento };
   }
 
   /** Para o /health. */
@@ -184,17 +185,25 @@ class ControleRobos {
     return false;
   }
 
-  /** Liga, um a um, os robôs desligados que faltam para chegar ao alvo. */
+  /**
+   * Liga os robôs que faltam para o alvo, no máximo `degrauSubida` por vez: todos
+   * discando no mesmo segundo trazem derivações juntas e o excedente vira callback.
+   */
   async aumentar(ramais, alvo, motivo) {
     this.alvo = alvo;
     const ligados = this.ligados || new Set();
-    const candidatos = ramais.map(String).filter((r) => !ligados.has(r)).slice(0, alvo - ligados.size);
+    const faltam = alvo - ligados.size;
+    const degrau = this.cfg.degrauSubida > 0 ? Math.min(faltam, this.cfg.degrauSubida) : faltam;
+    const candidatos = ramais.map(String).filter((r) => !ligados.has(r)).slice(0, degrau);
     if (!candidatos.length) return;
+    this.ultimoAumento = Date.now();
 
     const resultados = await mapearComLimite(candidatos, LIGAR_EM_PARALELO, (r) => this.logar(r));
     const ok = candidatos.filter((_, i) => resultados[i]);
     this.ligados = new Set([...ligados, ...ok]);
-    this.log.info(`ROBÔS AUMENTADOS para ${alvo} (${motivo}): +${ok.length}/${candidatos.length} | ligados agora: ${this.ligados.size}`);
+    const resto = alvo - this.ligados.size;
+    this.log.info(`ROBÔS AUMENTADOS para ${alvo} (${motivo}): +${ok.length}/${candidatos.length} | ligados agora: ${this.ligados.size}`
+      + `${resto > 0 ? ` | faltam ${resto} (próximo degrau)` : ''}`);
   }
 
   /** @returns {Promise<boolean>} true se o robô ficou logado */

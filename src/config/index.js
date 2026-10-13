@@ -125,6 +125,11 @@ function carregarConfig(overrides = {}) {
       // Espera desde a última redução para voltar a AUMENTAR (reduzir é sempre imediato).
       // 15 s amortece o sobe-e-desce de 7 em 7 quando um emprestado entra e sai da URA.
       minRobosDesligadosMs: envNum('MIN_ROBOS_OFF_MS', 15_000),
+      // Como na operação manual: reduzir com gente livre só quando a queda dura isso
+      // (ninguém livre continua desligando na hora) e religar em degraus.
+      reduzirAposMs: envNum('ROBOS_REDUZIR_APOS_MS', 10_000),
+      degrauSubida: envNum('ROBOS_DEGRAU', 7),
+      intervaloSubidaMs: envNum('ROBOS_SUBIDA_INTERVALO_MS', 10_000),
       concorrencia: envNum('CONCORRENCIA', 20),
       carenciaWebhookMs: envNum('WEBHOOK_GRACE_MS', 1500),
       descricoesStatus: {
