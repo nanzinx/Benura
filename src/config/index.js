@@ -108,8 +108,10 @@ function carregarConfig(overrides = {}) {
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
-      pollAtivoMs: envNum('POLL_ATIVO_MS', 3000),
-      pollUraMs: envNum('POLL_URA_MS', 500),
+      // Intervalo entre as consultas à Argus (Ativo e URA). 5 s evita o liga-desliga
+      // de robôs a cada oscilação de status; o webhook de atendimento continua imediato.
+      pollAtivoMs: envNum('POLL_ATIVO_MS', 5000),
+      pollUraMs: envNum('POLL_URA_MS', 5000),
       refreshGruposMs: envNum('REFRESH_GRUPOS_MS', 30_000),
       reativarRobos: env('REATIVAR_ROBOS', 'true') !== 'false',
       minRobosDesligadosMs: envNum('MIN_ROBOS_OFF_MS', 3000),
@@ -118,6 +120,8 @@ function carregarConfig(overrides = {}) {
       descricoesStatus: {
         livres: envListaTexto('STATUS_LIVRE', 'livre,disponivel'),
         atendimento: envListaTexto('STATUS_ATENDIMENTO', 'atendimento,em atendimento,falando,conversa'),
+        // Robô desligado: a Argus responde sucesso com status "Deslogado".
+        offline: envListaTexto('STATUS_OFFLINE', 'deslogado,offline,desconectado'),
       },
       // Nomes próprios para não colidir com o roteador (que usa PORT e STATE_FILE).
       porta: envNum('RODIZIO_PORT', 3000),

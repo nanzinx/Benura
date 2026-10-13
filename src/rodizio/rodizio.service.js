@@ -17,7 +17,7 @@
 
 const {
   Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta,
-  decidirRobos, reconciliarMovidos,
+  decidirRobos, reconciliarMovidos, VALIDADE_STATUS_MS,
 } = require('../domain/rodizio');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { mapearComLimite } = require('../utils/concorrencia');
@@ -231,6 +231,8 @@ class RodizioService {
         minDesligadoMs: this.cfg.minRobosDesligadosMs,
         porLivre: this.cfg.robosPorLivre,
         maximo: this.cfg.robosMaximo,
+        // Com poll lento, o status "envelhece" entre ciclos: não pode virar "sem visibilidade".
+        validadeStatusMs: Math.max(VALIDADE_STATUS_MS, this.cfg.pollUraMs * 2 + 1000),
       },
     });
     if (acao === AcaoRobos.DESLIGAR) await this.robos.reduzir(this.ramaisRobos, alvo, motivo);
@@ -268,7 +270,7 @@ class RodizioService {
     }
   }
 
-  /** Avisa uma vez por ramal (o ciclo da URA roda a cada meio segundo). */
+  /** Avisa uma vez por ramal (o ciclo da URA repete a leitura a cada POLL_URA_MS). */
   avisarFalhaDeLeitura(ramal, e) {
     if (this.ramaisComFalha.has(ramal)) return;
     this.ramaisComFalha.add(ramal);

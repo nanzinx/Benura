@@ -202,7 +202,7 @@ const CENARIOS = {
   },
 
   async 'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera'(r) {
-    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]); // desligado = sem status ("Deslogado" na Argus)
     // 1 livre (200) → alvo 3: dos 10 ligados, desliga 7 e poupa o 900, que está em ligação.
     await aguardar(() => ligados().length === 3, { descricao: 'reduzir para 3' });
     if (!ligados().includes('900')) throw new Error('desligou o robô que estava em ligação');

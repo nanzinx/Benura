@@ -20,6 +20,9 @@ const Classe = Object.freeze({
   ERRO: 'erro', // a Argus não respondeu
 });
 
+/** Robô desligado responde com sucesso e este status (humano deslogado recebe HTTP 500). */
+const STATUS_OFFLINE_PADRAO = Object.freeze(['deslogado', 'offline', 'desconectado']);
+
 /** Ações sobre os robôs da URA: DESLIGAR = reduzir (até 0), RELIGAR = aumentar até o alvo. */
 const AcaoRobos = Object.freeze({ DESLIGAR: 'DESLIGAR', RELIGAR: 'RELIGAR', NENHUMA: 'NENHUMA' });
 
@@ -35,11 +38,12 @@ const AUSENCIAS_PARA_ESQUECER = 2;
 /**
  * Classifica o status de um operador.
  * @param {object|null} status - statusOperador da Argus (null = não logado)
- * @param {{ livres: string[], atendimento: string[] }} descricoes - descricaoStatus aceitas (minúsculas)
+ * @param {{ livres: string[], atendimento: string[], offline?: string[] }} descricoes - descricaoStatus aceitas (minúsculas)
  */
-function classificarStatus(status, { livres, atendimento }) {
+function classificarStatus(status, { livres, atendimento, offline = STATUS_OFFLINE_PADRAO }) {
   if (!status) return Classe.OFFLINE;
   const descricao = String(status.descricaoStatus || '').trim().toLowerCase();
+  if (offline.includes(descricao)) return Classe.OFFLINE;
   if (atendimento.includes(descricao)) return Classe.ATENDIMENTO;
   if (livres.includes(descricao) && !status.descricaoPausa) return Classe.LIVRE;
   return Classe.OUTRO;
@@ -71,7 +75,7 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
   const nenhum = (motivo) => ({ alvo: 0, livres: 0, motivo });
   const semVisibilidade = ramaisUra.some((r) => {
     const info = status.get(r);
-    return !info || info.classe === Classe.ERRO || agora - info.ts > VALIDADE_STATUS_MS;
+    return !info || info.classe === Classe.ERRO || agora - info.ts > (cfg.validadeStatusMs ?? VALIDADE_STATUS_MS);
   });
   if (semVisibilidade) return nenhum('sem visibilidade da Argus');
 
@@ -96,7 +100,7 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
  * @param {Map<string, { classe: string, ts: number }>} entrada.status
  * @param {number} entrada.agora
  * @param {{ ligados: number|null, total: number, ultimaReducao: number }} entrada.robos - ligados null = ainda não lido
- * @param {{ reativar: boolean, minDesligadoMs: number, porLivre: number, maximo?: number }} entrada.cfg
+ * @param {{ reativar: boolean, minDesligadoMs: number, porLivre: number, maximo?: number, validadeStatusMs?: number }} entrada.cfg
  * @returns {{ acao: string, alvo: number, livres: number, motivo: string }}
  */
 function decidirRobos({ ramaisUra, status, agora, robos, cfg }) {
@@ -186,6 +190,7 @@ module.exports = {
   AcaoRobos,
   VALIDADE_STATUS_MS,
   classificarStatus,
+  STATUS_OFFLINE_PADRAO,
   deveIrParaUra,
   deveVoltarAoAtivo,
   motivoDaVolta,
