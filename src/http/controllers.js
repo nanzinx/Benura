@@ -4,13 +4,45 @@
  * Não contêm regra de negócio.
  */
 
+const { EsteiraInvalidaError, resumoDaEsteira, formatarDia } = require('../domain/esteira-manual');
+const { PAGINA_MANUAL } = require('./pagina-manual');
+
+/** Esteira com cabeçalho errado é erro de quem colou (422), não do servidor. */
+function esteiraInvalidaComo422(e) {
+  if (e instanceof EsteiraInvalidaError) return { status: 422, corpo: { erro: e.message } };
+  throw e;
+}
+
 /**
  * @param {object} deps
  * @param {import('../services/roteamento.service').RoteamentoService} deps.roteamento
+ * @param {import('../integrations/carrossel/esteira-manual.repository').EsteiraManualRepository} [deps.esteira]
+ * @param {{ hoje(): string }} [deps.relogio]
+ * @param {number} [deps.metaDiaria]
  * @param {object} deps.logger
  */
-function criarControllers({ roteamento, logger }) {
+function criarControllers({ roteamento, esteira, relogio, metaDiaria, logger }) {
+  /** Guarda a esteira e devolve o que ela vai decidir hoje. */
+  async function guardarEsteira(texto) {
+    const hoje = relogio.hoje();
+    const { dias, vendas, ignoradas } = await esteira.colar(texto, hoje);
+    const resumo = resumoDaEsteira(esteira.dias(), hoje, metaDiaria);
+    logger.info(`Esteira colada: ${vendas} venda(s) de ${dias.map(formatarDia).join(', ')}; dia anterior ${resumo.diaAnterior || 'não encontrado'}.`);
+    return { status: 200, corpo: { diasColados: dias.map(formatarDia), vendas, ignoradas, hoje: formatarDia(hoje), metaDiaria, ...resumo } };
+  }
+
   return {
+    /** GET /manual — página para colar a esteira quando o Carrossel cai. */
+    async paginaManual() {
+      return { status: 200, html: PAGINA_MANUAL };
+    },
+
+    /** POST /manual — { texto }: esteira colada (CSV com ";" ou tabela com TAB). */
+    async colarEsteira({ corpo }) {
+      if (typeof corpo?.texto !== 'string') return { status: 400, corpo: { erro: 'Envie { "texto": "<esteira colada>" }' } };
+      return guardarEsteira(corpo.texto).catch(esteiraInvalidaComo422);
+    },
+
     /** GET /health */
     async health() {
       return {

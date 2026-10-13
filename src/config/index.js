@@ -154,6 +154,8 @@ function carregarConfig(overrides = {}) {
     usarMock: envBool('USAR_MOCK'),
     debug: envBool('DEBUG'),
     arquivoEstado: env('STATE_FILE', path.join(process.cwd(), 'state-vendas.json')),
+    // Esteira colada em GET /manual (redundância do Carrossel)
+    arquivoEsteiraManual: env('ESTEIRA_MANUAL_FILE', path.join(process.cwd(), 'state-esteira-manual.json')),
   };
 
   // --- Atualizador da produção (atualizador.js) ---
