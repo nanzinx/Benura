@@ -198,3 +198,30 @@ test('GET /manual devolve a página; POST /manual exige token, aceita esteira gr
   assert.deepEqual(corpo.diasColados, ['10/10/2026', '13/10/2026']);
   assert.equal(corpo.vendeuHoje.length, 3);
 });
+
+test('a carga e cada promoção registram de onde vieram as vendas (Carrossel ou esteira)', async () => {
+  const relogio = { hoje: () => HOJE };
+  const esteira = new EsteiraManualRepository({ arquivo: tmp(), logger: loggerNulo });
+  await esteira.colar(esteiraCsv([['1', '10/10/2026', 'V1', '60.000,00'], ['2', '13/10/2026', 'V2', '10,00']]), HOJE);
+  const caido = { async buscarRankingVendedores() { throw new Error('ECONNREFUSED'); } };
+  const client = new CarrosselComRedundancia({ client: caido, esteira, relogio, metrica: 'vendaConcluida', logger: loggerNulo });
+  const diretorio = {
+    atualizar: async () => diretorio,
+    ramalPorNome: (nome) => (/^V\d+$/.test(nome) ? nome.slice(1) : null),
+    vendedoresGerenciados: () => ['1', '2'].map((ramal) => ({ nome: `V${ramal}`, chave: `V${ramal}`, ramal })),
+    listarExcecoesRamal: () => [],
+  };
+  const svc = new RoteamentoService({
+    carrossel: new CarrosselService({ client, metrica: 'vendaConcluida', logger: loggerNulo }),
+    discadora: { moverPara: async () => ({ resultado: Resultado.TRANSFERIDO }) },
+    repositorio: { carregar: () => estadoVazio(), salvar: async () => {}, aguardarEscritas: async () => {} },
+    diretorio, relogio, regras: { metaDiaria: 50_000 }, logger: loggerNulo,
+  }).inicializar();
+
+  await svc.executarCargaInicial();
+  await svc.monitorarVendas();
+  const status = svc.resumo();
+  assert.equal(status.carga.fonte, 'esteira');
+  assert.equal(status.carga.diaAnterior, '10/10/2026');
+  assert.equal(status.ura.find((v) => v.ramal === '2').fonteDaVenda, 'esteira');
+});

@@ -94,6 +94,8 @@ function carregarConfig(overrides = {}) {
       // Cache do diretório de usuários (/listarusuarios).
       cacheDiretorioMs: envNum('ARGUS_CACHE_DIRETORIO_MS', 5 * 60_000),
       dryRun: envBool('DRY_RUN'),
+      // Pausa por limite (HTTP 429) compartilhada entre roteador, rodízio e rotinas.
+      arquivoPausa: env('ARGUS_PAUSA_FILE', path.join(RAIZ, 'argus-pausa.json')),
     },
 
     // --- Rodízio Ativo ↔ URA e robôs (argus-automacao.js) ---
@@ -119,7 +121,9 @@ function carregarConfig(overrides = {}) {
       livresAlerta: envNum('LIVRES_ALERTA', 2),
       refreshGruposMs: envNum('REFRESH_GRUPOS_MS', 30_000),
       reativarRobos: env('REATIVAR_ROBOS', 'true') !== 'false',
-      minRobosDesligadosMs: envNum('MIN_ROBOS_OFF_MS', 3000),
+      // Espera desde a última redução para voltar a AUMENTAR (reduzir é sempre imediato).
+      // 15 s amortece o sobe-e-desce de 7 em 7 quando um emprestado entra e sai da URA.
+      minRobosDesligadosMs: envNum('MIN_ROBOS_OFF_MS', 15_000),
       concorrencia: envNum('CONCORRENCIA', 20),
       carenciaWebhookMs: envNum('WEBHOOK_GRACE_MS', 1500),
       descricoesStatus: {
@@ -291,7 +295,23 @@ function validarRodizio(cfg) {
     fatais.push('RETORNO_FILA_ATIVO=true exige RETORNO_SKILL_HASH (hash da skill que recebe os retornos; veja /listarskills).');
   }
   if (cfg.retornoFila.janelaHoras <= 0) fatais.push('RETORNO_JANELA_HORAS deve ser maior que zero.');
+  avisos.push(...avisosDeEnvAntigo(r));
   return { fatais, avisos };
+}
+
+/**
+ * O .env manda mais que o padrão: um .env feito com uma versão antiga anula
+ * correções novas sem ninguém perceber. Avisa os valores que já causaram problema.
+ */
+function avisosDeEnvAntigo(r) {
+  const avisos = [];
+  const { atendimento, offline } = r.descricoesStatus;
+  if (r.pollUraMs < 2000) avisos.push(`POLL_URA_MS=${r.pollUraMs} é de uma versão antiga e faz os robôs oscilarem. Use 5000 (ou apague a linha do .env).`);
+  if (r.pollAtivoMs < 2000) avisos.push(`POLL_ATIVO_MS=${r.pollAtivoMs} é de uma versão antiga. Use 5000 (ou apague a linha do .env).`);
+  if (r.minRobosDesligadosMs < 10_000) avisos.push(`MIN_ROBOS_OFF_MS=${r.minRobosDesligadosMs} deixa os robôs subirem e descerem a cada oscilação. Use 15000 (ou apague a linha do .env).`);
+  if (!atendimento.includes('atendimento')) avisos.push('STATUS_ATENDIMENTO não tem "atendimento", o texto que a Argus usa: quem está em ligação pode ser devolvido ao Ativo. Apague a linha do .env.');
+  if (!offline.includes('deslogado')) avisos.push('STATUS_OFFLINE não tem "deslogado", o texto que a Argus usa para robô desligado. Apague a linha do .env.');
+  return avisos;
 }
 
 /** Validação das rotinas diárias. */
@@ -300,7 +320,12 @@ function validarRotinas(cfg, fataisGerais) {
   const { fimExpediente: f } = cfg.rotinas;
   if (!['relatar', 'deslogar'].includes(f.acao)) fatais.push(`FIM_EXPEDIENTE_ACAO inválida: "${f.acao}" (use relatar ou deslogar).`);
   if (f.margemMin < 0 || f.margemMin > 180) fatais.push('FIM_EXPEDIENTE_MARGEM_MIN deve estar entre 0 e 180.');
-  return { fatais, avisos: [] };
+  const avisos = [];
+  if (f.ativo && f.acao === 'deslogar' && !f.ignorarRamais.length) {
+    avisos.push('FIM_EXPEDIENTE_ACAO=deslogar sem FIM_EXPEDIENTE_IGNORAR_RAMAIS: o plantão também será desconectado. '
+      + 'Liste os ramais de plantão ou use "relatar".');
+  }
+  return { fatais, avisos };
 }
 
 const urlValida = (u) => {

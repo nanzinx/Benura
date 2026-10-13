@@ -31,7 +31,11 @@ class CarrosselComRedundancia {
     }
     if (payload?.ultimaExtracao === 'Erro') return this.daEsteira(new Error('o Carrossel reportou ultimaExtracao "Erro"'), payload);
 
-    if (this.usandoEsteira) this.log.info('Carrossel voltou: a esteira colada deixa de ser usada.');
+    if (this.usandoEsteira) {
+      this.log.aviso('Carrossel voltou: a esteira colada deixa de ser usada. As decisões tomadas com ela continuam valendo '
+        + '(critérios diferentes: Valor Contrato em Andamento × vendaConcluida). Confira GET /status e, se a carga do dia '
+        + 'usou dados incompletos, refaça com POST /recarregar.');
+    }
     this.usandoEsteira = false;
     return payload;
   }

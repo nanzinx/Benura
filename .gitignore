@@ -5,6 +5,7 @@ state*.json.bak
 state*.json.tmp
 argus.lock
 roteador.lock
+argus-pausa.json
 auditoria*.jsonl
 logs/
 .simulacao/

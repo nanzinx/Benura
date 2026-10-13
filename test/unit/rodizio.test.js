@@ -380,3 +380,45 @@ test('executarPeriodicamente aceita intervalo recalculado a cada rodada', async 
   await ciclo.parar();
   assert.equal(rodadas, 3, 'três rodadas rápidas e depois espera o intervalo longo');
 });
+
+test('429 recebido por um processo pausa os outros (arquivo de pausa compartilhado)', async (t) => {
+  const arquivoPausa = path.join(tmp('pausa-'), 'argus-pausa.json');
+  const chamadas = [];
+  const srv = http.createServer((req, res) => {
+    chamadas.push(req.url);
+    res.writeHead(chamadas.length === 1 ? 429 : 200, { 'Content-Type': 'application/json' })
+      .end(JSON.stringify({ codStatus: 1, grupos: [] }));
+  });
+  await new Promise((r) => srv.listen(0, r));
+  t.after(() => srv.close());
+  const cfg = { baseUrl: `http://127.0.0.1:${srv.address().port}`, token: 't', timeoutMs: 2000, tentativas: 1, pausaLimiteMs: 60_000, arquivoPausa };
+  const roteador = new ArgusClient(cfg, loggerNulo);
+  const rodizio = new ArgusClient(cfg, loggerNulo);
+
+  await assert.rejects(roteador.listarGrupos(), ArgusLimiteError);
+  await assert.rejects(rodizio.listarGrupos(), ArgusLimiteError, 'o outro processo respeita a pausa');
+  assert.equal(chamadas.length, 1, 'nada foi enviado durante a pausa');
+});
+
+test('config: avisa valores antigos do .env que anulam correções', () => {
+  const { validarConfig, carregarConfig } = require('../../src/config');
+  const base = carregarConfig({ argus: { token: 't', gruposAtivosIds: [1] } });
+  const comAntigos = {
+    ...base,
+    rodizio: {
+      ...base.rodizio,
+      grupoUraDefinido: true,
+      gruposRobosIds: [6],
+      pollUraMs: 500,
+      minRobosDesligadosMs: 3000,
+      descricoesStatus: { livres: ['livre'], atendimento: ['em atendimento'], offline: [] },
+    },
+  };
+  const { avisos } = validarConfig(comAntigos, { escopo: 'rodizio' });
+  for (const nome of ['POLL_URA_MS', 'MIN_ROBOS_OFF_MS', 'STATUS_ATENDIMENTO', 'STATUS_OFFLINE']) {
+    assert.ok(avisos.some((a) => a.startsWith(nome)), `aviso de ${nome}`);
+  }
+
+  const deslogarSemPlantao = { ...base, rotinas: { ...base.rotinas, fimExpediente: { ...base.rotinas.fimExpediente, ativo: true, acao: 'deslogar', ignorarRamais: [] } } };
+  assert.match(validarConfig(deslogarSemPlantao, { escopo: 'rotinas' }).avisos.join(), /plantão/);
+});

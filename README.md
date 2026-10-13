@@ -31,6 +31,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 - [🔄 Rodízio Ativo ↔ URA e robôs](#rodizio)
 - [📲 Retorno de quem desistiu da fila](#retorno-da-fila)
 - [🌙 Fim de expediente limpo](#fim-de-expediente)
+- [🛡️ Conflitos e proteções](#conflitos)
 - [🧰 Rodando com PM2](#pm2)
 - [🚀 Esteira automática](#esteira)
 
@@ -186,17 +187,22 @@ src/utils/                         HTTP com retry, persistência atômica, trava
 1. **Ativo → URA**: operador do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
 2. **URA → Ativo**: depois de `TEMPO_MIN` minutos (fora de atendimento), ou na hora se ficar offline, volta ao **grupo de origem**.
    Só volta quem o próprio rodízio colocou na URA. Quem já era da URA, ou foi colocado lá pelo roteador ou à mão, não é tocado.
+   Se o roteador fixar na URA (vendeu hoje) alguém que o rodízio tinha emprestado, ele **fica na URA**: o rodízio lê o estado do roteador (`STATE_FILE`).
 3. **Robôs proporcionais aos livres**: ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
    Com 1 livre, 7; com 2 livres, 14; e assim por diante, até o total de robôs (ou `ROBOS_MAXIMO`). Muitos robôs para poucos livres geram callback.
    - **Reduzir é imediato** e desliga primeiro os robôs que **não estão em ligação**.
-   - **Aumentar** espera `MIN_ROBOS_OFF_MS` desde a última redução e liga robô por robô (`logaroperadorvirtual` por ramal).
+   - **Aumentar** espera `MIN_ROBOS_OFF_MS` (padrão **15 s**) desde a última redução e liga robô por robô (`logaroperadorvirtual` por ramal).
+   - A URA é lida a cada `POLL_URA_MS` (**5 s**). Com **1 a `LIVRES_ALERTA` (2) livres** ela entra **em alerta** e passa a ser lida a cada `POLL_URA_ALERTA_MS` (**1 s**): o próximo atendimento pode zerar os livres com robôs ligados.
+   - Robô que liga ou desliga **sem comando do BenURA** (outra cópia, script antigo, painel) gera um aviso no log e conta em `/health` (`robos.mudancasPorFora`).
+   - **Modo manual**: `POST /robos/manual` `{ "minutos": 30 }` (com token) faz o BenURA parar de mexer nos robôs para a supervisão assumir pelo painel; `POST /robos/automatico` devolve.
    - **Ninguém livre** (todos ocupados ou em pausa, URA vazia ou offline, ou a Argus sem responder) → **todos desligados** na hora.
    - Os grupos dos robôs ficam em `GRUPOS_ROBOS_URA_IDS` (hoje URA PORT 3). A cada atualização de grupos, o rodízio confere na Argus quais robôs estão de fato ligados.
-   - O `/health` mostra `robos: { ligados, alvo, total, porLivre }`.
+   - O `/health` mostra `robos: { ligados, alvo, total, porLivre, mudancasPorFora, manualAte }`, `intervaloUraMs` e `ultimoWebhook`.
 4. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
+   Se nenhum webhook chegar em 1 h com robôs ligados, o log avisa que ele não está configurado.
 
 ### Testes de comportamento
-`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em **20 cenários**: ida, volta, robôs proporcionais, webhook, correções e retorno da fila.
+`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em **23 cenários**: ida, volta, robôs proporcionais, webhook, correções e retorno da fila.
 A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js`. Foi assim que a
 refatoração foi comparada com o script original.
 
@@ -277,6 +283,26 @@ USAR_MOCK=1 ARGUS_TOKEN=x FIM_EXPEDIENTE_ACAO=deslogar npm run rotinas:agora -- 
 > No PowerShell, defina as variáveis antes: `$env:USAR_MOCK=1; $env:ARGUS_TOKEN='x'; npm run rotinas:agora -- --forcar`
 
 ---
+
+<a id="conflitos"></a>
+## 🛡️ Conflitos e proteções
+
+O roteador, o rodízio, as rotinas e a supervisão (pelo painel) mexem nos mesmos grupos da Argus. O que cada conflito causaria e como o BenURA se protege:
+
+| | Conflito | Proteção |
+|---|---|---|
+| C1 | O rodízio devolvia ao Ativo quem o roteador tinha fixado na URA (vendeu hoje) | O rodízio lê o estado do roteador e não devolve quem tem fila URA hoje |
+| C2 | Duas cópias (PM2 + janela, dois PCs, script antigo) brigam pelos robôs | Trava de instância em roteador, rodízio e rotinas; aviso de robôs mexidos por fora |
+| C3 | Sem webhook, os robôs ficavam até 5 s ligados depois que o último livre atende | URA em alerta (lê a cada 1 s com 1 a 2 livres); aviso quando nenhum webhook chega |
+| C4 | Robôs sobem e descem de 7 em 7 a cada emprestado que entra e sai | `MIN_ROBOS_OFF_MS` padrão 15 s para voltar a aumentar (reduzir segue imediato) |
+| C5 | O rodízio desfazia o que a supervisão fazia no painel | `POST /robos/manual` / `POST /robos/automatico` |
+| C6 | `.env` antigo anulava correções novas | Aviso ao iniciar para valores que já causaram problema |
+| C7 | Cada processo pausava sozinho num HTTP 429 | Pausa compartilhada em `ARGUS_PAUSA_FILE` |
+| C8 | Carrossel e esteira colada usam critérios diferentes | `/status` mostra a fonte da carga e de cada promoção; aviso quando o Carrossel volta |
+| C9 | Supervisor move alguém à mão | Esperado: o roteador respeita grupos externos e o rodízio esquece o emprestado em ~1 min |
+| C10 | Fim de expediente com `deslogar` desconectaria o plantão | Aviso quando `deslogar` está sem `FIM_EXPEDIENTE_IGNORAR_RAMAIS` |
+
+**Regra de ouro:** um PC só, um jeito só de iniciar (PM2 **ou** janelas). Para conferir: `npx pm2 list` e `Get-Process node`.
 
 <a id="pm2"></a>
 ## 🧰 Rodando com PM2
