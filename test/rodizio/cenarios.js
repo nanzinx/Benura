@@ -322,7 +322,8 @@ const VARIACOES = {
   'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera': {
     grupos: [
       { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
-      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201', '202'] },
+      // 203 deslogado: a Argus responde HTTP 500 e ele não pode tirar a visibilidade da URA.
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201', '202', '203'] },
       { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
     ],
     status: {

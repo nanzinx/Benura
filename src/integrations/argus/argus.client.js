@@ -60,6 +60,15 @@ const recusa = (comando, resposta) => new ArgusError(
   { comando, resposta },
 );
 
+/**
+ * A Argus real responde HTTP 500 ao /statusoperador de quem não está logado.
+ * Tratar como "não logado" é seguro: só reduz os livres (e os robôs), nunca aumenta.
+ */
+function naoLogadoComo500(e) {
+  if (e.cause instanceof HttpError && e.cause.status === 500) return null;
+  throw e;
+}
+
 /** Converte uma falha HTTP no erro de domínio da Argus. */
 function traduzirErro(comando, e) {
   if (e instanceof HttpError && e.status === 403) return new ArgusAutenticacaoError(comando, e);
@@ -195,7 +204,8 @@ class ArgusClient {
    * @throws {ArgusError} quando a Argus não respondeu ou respondeu codStatus -1
    */
   async statusOperador(ramal) {
-    const resposta = await this.enviar('statusoperador', { ramal: String(ramal) }, { timeoutMs: 2000, tentativas: 1 });
+    const resposta = await this.enviar('statusoperador', { ramal: String(ramal) }, { timeoutMs: 2000, tentativas: 1 })
+      .catch(naoLogadoComo500);
     if (resposta?.codStatus === 1 && resposta.statusOperador) return resposta.statusOperador;
     if (resposta?.codStatus === -1) throw recusa('statusoperador', resposta);
     return null; // demais códigos: operador não logado
