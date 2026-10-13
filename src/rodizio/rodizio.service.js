@@ -7,8 +7,8 @@
  *   atualizarGrupos()  ~30 s  lê os grupos da Argus: quem está na URA, no Ativo e quais são os robôs
  *   cicloAtivo()       ~5 s   quem atendeu no Ativo e ficou livre → URA
  *   cicloUra()         ~5 s   lê o status de quem está na URA, decide os robôs e devolve
- *                             ao Ativo quem cumpriu o tempo (ou ficou offline); ~1 s com
- *                             poucos livres (URA em alerta)
+ *                             ao Ativo quem está ocioso há TEMPO_MIN (ou o movido que ficou
+ *                             offline); ~1 s com poucos livres (URA em alerta)
  *
  * O webhook de início de atendimento antecipa a informação do status (que é
  * lido por polling) e dispara a avaliação dos robôs na hora.
@@ -26,9 +26,6 @@ const { mapearComLimite } = require('../utils/concorrencia');
 /** Depois de quanto tempo sem webhook avisar (e de quanto em quanto repetir). */
 const AVISO_SEM_WEBHOOK_MS = 60 * 60_000;
 
-/** Sem roteador (testes, ou roteador desligado): ninguém é fixo na URA. */
-const SEM_FIXOS = Object.freeze({ ramais: () => new Set() });
-
 class RodizioService {
   /**
    * @param {object} deps
@@ -38,10 +35,13 @@ class RodizioService {
    * @param {import('./estado-rodizio.repository').EstadoRodizioRepository} deps.repositorio
    * @param {object} deps.cfg - Seção `rodizio` da configuração
    * @param {object} deps.logger
-   * @param {{ ramais(): Set<string> }} [deps.fixosRoteador] - quem o roteador fixou na URA hoje
+   * @param {import('../integrations/argus/diretorio-operadores.service').DiretorioOperadores} [deps.diretorio]
+   *        grupo do Ativo do supervisor, para devolver quem não foi movido pelo rodízio
    */
-  constructor({ client, transferencias, robos, repositorio, cfg, logger, fixosRoteador = SEM_FIXOS }) {
-    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, fixosRoteador });
+  constructor({ client, transferencias, robos, repositorio, cfg, logger, diretorio = null }) {
+    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio });
+    /** ramais sem grupo do Ativo identificável (aviso uma vez por ramal) */
+    this.semGrupoAvisados = new Set();
 
     /** ramal → { origemGrupoId, entrouEm, ausentes } — persistido: quem o rodízio colocou na URA */
     this.movidos = {};
@@ -185,7 +185,7 @@ class RodizioService {
 
     this.movidos[ramal] = { origemGrupoId: grupoOrigem, entrouEm: Date.now() };
     this.ramaisUra.add(ramal);
-    this.statusUra.set(ramal, { classe: Classe.LIVRE, ts: Date.now() });
+    this.statusUra.set(ramal, { classe: Classe.LIVRE, ts: Date.now(), livreDesde: Date.now() });
     this.atenderamNoAtivo.delete(ramal);
     this.salvar();
     this.log.info(`ATIVO→URA ramal=${ramal} origem=${grupoOrigem}`);
@@ -199,7 +199,6 @@ class RodizioService {
     await mapearComLimite(ramais, this.cfg.concorrencia, (ramal) => this.atualizarStatusUra(ramal));
     await this.avaliarRobos();
 
-    this.liberarFixosDoRoteador();
     this.avisarSeSemWebhook();
     const agora = Date.now();
     const devolver = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
@@ -215,43 +214,55 @@ class RodizioService {
     const dentroDaCarencia = anterior?.doWebhook && Date.now() - anterior.ts < this.cfg.carenciaWebhookMs;
     if (classe === Classe.LIVRE && dentroDaCarencia) return;
 
-    this.statusUra.set(ramal, { classe, ts: Date.now() });
-  }
-
-  /**
-   * Movido que o roteador fixou na URA hoje (vendeu) deixa de ser "emprestado":
-   * fica na URA e o rodízio não o devolve ao Ativo.
-   */
-  liberarFixosDoRoteador() {
-    const fixos = this.fixosRoteador.ramais();
-    const liberados = Object.keys(this.movidos).filter((ramal) => fixos.has(ramal));
-    if (!liberados.length) return;
-
-    for (const ramal of liberados) delete this.movidos[ramal];
-    this.salvar();
-    this.log.info(`Ficam na URA (fixados pelo roteador hoje): ${liberados.join(', ')}.`);
+    // Tempo ocioso: conta desde que ficou Livre; qualquer outro status zera.
+    const agora = Date.now();
+    const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? agora) : undefined;
+    this.statusUra.set(ramal, { classe, ts: agora, livreDesde });
   }
 
   deveDevolver(ramal, agora) {
-    const movido = this.movidos[ramal];
     const info = this.statusUra.get(ramal);
-    if (!movido || !info || this.emTransferencia.has(ramal)) return false;
-    return deveVoltarAoAtivo({ movido, classe: info.classe, agora, tempoNaUraMs: this.cfg.tempoNaUraMs });
+    if (!info || this.emTransferencia.has(ramal)) return false;
+    return deveVoltarAoAtivo({
+      classe: info.classe, livreDesde: info.livreDesde, agora, ociosoMs: this.cfg.tempoNaUraMs, movido: this.movidos[ramal],
+    });
+  }
+
+  /** Quem o rodízio moveu volta ao grupo de origem; os demais, ao grupo do Ativo do supervisor. */
+  async grupoDeVolta(ramal) {
+    const movido = this.movidos[ramal];
+    if (movido) return movido.origemGrupoId;
+    if (!this.diretorio) return null;
+    try {
+      await this.diretorio.atualizar();
+      return this.diretorio.grupoAtivoDoOperador(ramal);
+    } catch (e) {
+      this.log.debug(`Diretório indisponível para o ramal ${ramal}: ${e.message}`);
+      return null;
+    }
   }
 
   async devolverAoAtivo(ramal) {
-    const movido = this.movidos[ramal];
-    const classe = this.statusUra.get(ramal)?.classe;
-    if (!movido) return;
+    const info = this.statusUra.get(ramal) || {};
+    const destino = await this.grupoDeVolta(ramal);
+    if (destino == null) return this.avisarSemGrupo(ramal);
 
-    const ok = await this.comTrava(ramal, () => this.transferencias.transferir(ramal, movido.origemGrupoId));
-    if (!ok) return;
+    const ok = await this.comTrava(ramal, () => this.transferencias.transferir(ramal, destino));
+    if (!ok) return undefined;
 
     delete this.movidos[ramal];
     this.ramaisUra.delete(ramal);
     this.statusUra.delete(ramal);
     this.salvar();
-    this.log.info(`URA→ATIVO ramal=${ramal} destino=${movido.origemGrupoId} (motivo: ${motivoDaVolta(classe)})`);
+    this.log.info(`URA→ATIVO ramal=${ramal} destino=${destino} (motivo: ${motivoDaVolta({ ...info, agora: Date.now() })})`);
+    return undefined;
+  }
+
+  avisarSemGrupo(ramal) {
+    if (this.semGrupoAvisados.has(ramal)) return;
+    this.semGrupoAvisados.add(ramal);
+    this.log.aviso(`Ramal ${ramal} ocioso na URA, mas sem grupo do Ativo identificável (supervisor?). `
+      + 'Fica na URA. Defina o grupo do supervisor em SUPERVISORES_GRUPOS_FILE.');
   }
 
   // ───────────────────────────── Robôs ─────────────────────────────

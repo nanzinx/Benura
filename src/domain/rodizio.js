@@ -4,8 +4,10 @@
  *
  *  1. IDA PARA A URA: operador do Ativo que ATENDEU uma ligação e ficou LIVRE
  *     vai para a URA (rodízio). Se ficar offline, perde o histórico.
- *  2. VOLTA AO ATIVO: depois de TEMPO_MIN na URA (e fora de atendimento), ou
- *     imediatamente se ficar offline, volta ao grupo de origem.
+ *  2. VOLTA AO ATIVO: QUALQUER humano da URA ocioso (Livre) há TEMPO_MIN
+ *     minutos seguidos volta ao Ativo (atender zera a contagem). Quem o rodízio
+ *     moveu volta ao grupo de origem; os demais, ao grupo do supervisor. Movido
+ *     que fica offline volta na hora.
  *  3. ROBÔS: ligados em proporção aos humanos livres na URA (ROBOS_POR_LIVRE
  *     por livre); todos desligados quando ninguém na URA pode atender (todos
  *     ocupados, URA vazia/offline, ou a Argus sem visibilidade).
@@ -52,14 +54,19 @@ function classificarStatus(status, { livres, atendimento, offline = STATUS_OFFLI
 /** Regra 1: atendeu no Ativo e agora está livre. */
 const deveIrParaUra = (classe, atendeuNoAtivo) => classe === Classe.LIVRE && atendeuNoAtivo;
 
-/** Regra 2: tempo cumprido fora de atendimento, ou ficou offline. */
-function deveVoltarAoAtivo({ movido, classe, agora, tempoNaUraMs }) {
-  if (classe === Classe.OFFLINE) return true;
-  return agora - movido.entrouEm >= tempoNaUraMs && classe !== Classe.ATENDIMENTO;
+/**
+ * Regra 2: ocioso (Livre) há `ociosoMs` seguidos, ou movido pelo rodízio que ficou offline.
+ * @param {{ classe: string, livreDesde?: number, agora: number, ociosoMs: number, movido?: object }} entrada
+ */
+function deveVoltarAoAtivo({ classe, livreDesde, agora, ociosoMs, movido }) {
+  if (classe === Classe.OFFLINE) return Boolean(movido);
+  return classe === Classe.LIVRE && Number.isFinite(livreDesde) && agora - livreDesde >= ociosoMs;
 }
 
 /** Motivo da volta, para o log. */
-const motivoDaVolta = (classe) => (classe === Classe.OFFLINE ? 'offline' : 'tempo expirado');
+const motivoDaVolta = ({ classe, livreDesde, agora }) => (classe === Classe.OFFLINE
+  ? 'offline'
+  : `ocioso há ${Math.floor((agora - livreDesde) / 60_000)} min`);
 
 /**
  * Regra 3a: quantos robôs devem estar ligados agora.

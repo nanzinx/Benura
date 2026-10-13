@@ -20,7 +20,6 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const { criarArgusFake } = require('./argus-fake');
-const { dataLocal } = require('../../src/utils/datas');
 
 const RAIZ = path.join(__dirname, '..', '..');
 const ALVO = path.resolve(process.argv[2] || path.join(RAIZ, 'argus-automacao.js'));
@@ -62,8 +61,8 @@ function prepararAlvo(pasta) {
   return copia;
 }
 
-async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, env = {}, preparar } = {}) {
-  const argus = await criarArgusFake({ grupos, status });
+async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usuarios, env = {}, preparar } = {}) {
+  const argus = await criarArgusFake({ grupos, status, usuarios });
   const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'rodizio-'));
   preparar?.({ argus, pasta });
   const porta = await portaLivre();
@@ -161,7 +160,7 @@ const CENARIOS = {
     if (simulacoes !== 1) throw new Error(`simulou a ida de 101 ${simulacoes} vezes`);
   },
 
-  async 'URA: volta ao grupo de origem só depois de TEMPO_MIN'(r) {
+  async 'URA: volta ao grupo de origem só depois de TEMPO_MIN ocioso'(r) {
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
     r.argus.definirStatus('101', 'livre');
@@ -172,16 +171,25 @@ const CENARIOS = {
     if (segundos < 4.5) throw new Error(`voltou cedo demais (${segundos.toFixed(1)}s; TEMPO_MIN = 6s)`);
   },
 
-  async 'URA: quem o roteador fixou hoje (vendeu) não volta ao Ativo'(r) {
+  async 'URA: quem já estava na URA (não movido) e fica ocioso volta ao grupo do supervisor'(r) {
+    // 201 já estava no RECEPTIVO - URA quando o rodízio iniciou; o supervisor dele tem o grupo 1 no Ativo.
+    await aguardar(() => r.transferencias().includes('201→1'), { timeoutMs: 12_000, descricao: '201 ocioso → grupo 1' });
+    if (r.transferencias().some((t) => t.startsWith('200→'))) throw new Error('200 está em atendimento e não podia sair');
+  },
+
+  async 'URA: atender zera o tempo ocioso'(r) {
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
     r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
-    // O roteador detecta a venda de 101 e o fixa na URA até o fim do dia.
-    const estado = { versao: 2, data: dataLocal('America/Sao_Paulo'), vendedores: { 101: { fila: 'URA' } } };
-    fs.writeFileSync(path.join(r.pasta, 'state-vendas.json'), JSON.stringify(estado));
-    await esperar(8000); // além de TEMPO_MIN (6 s)
-    if (r.transferencias().includes('101→1')) throw new Error('devolveu ao Ativo quem o roteador fixou na URA');
+    await esperar(4000); // 4 s ocioso (TEMPO_MIN = 6 s)
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(2000);
+    r.argus.definirStatus('101', 'livre'); // recomeça a contar daqui
+    const recomecou = Date.now();
+    await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 12_000, descricao: '101→Ativo' });
+    const segundos = (Date.now() - recomecou) / 1000;
+    if (segundos < 4.5) throw new Error(`voltou ${segundos.toFixed(1)} s depois do atendimento; deveria contar 6 s de novo`);
   },
 
   async 'URA: movido que fica offline volta imediatamente'(r) {
@@ -359,7 +367,21 @@ function pidMorto() {
 
 const ROBOS_10 = Array.from({ length: 10 }, (_, i) => String(900 + i));
 
+/** Diretório da Argus: 100 (Ativo, grupo 1) e 201 (URA) têm o mesmo supervisor → grupo do supervisor = 1. */
+const USUARIOS_COM_SUPERVISOR = [
+  { idUsuario: 900, nome: 'SUPERVISORA TESTE', idTipoUsuario: 1, ativo: true, campanhas: [] },
+  ...[['100', 1], ['200', 2], ['201', 2]].map(([ramal, grupo], i) => ({
+    idUsuario: 10 + i, nome: `OPERADOR ${ramal}`, ramal, idTipoUsuario: 2, ativo: true,
+    campanhas: [{ idCampanha: 1, idGrupoUsuario: grupo, idUsuarioSupervisor: 900, nomeUsuarioSupervisor: 'SUPERVISORA TESTE' }],
+  })),
+];
+
 const VARIACOES = {
+  'URA: quem já estava na URA (não movido) e fica ocioso volta ao grupo do supervisor': {
+    grupos: GRUPOS_BASE.map((g) => (g.idGrupoUsuario === 2 ? { ...g, ramaisOperadores: ['200', '201'] } : g)),
+    status: { ...STATUS_BASE, 200: 'em atendimento', 201: 'livre' },
+    usuarios: USUARIOS_COM_SUPERVISOR,
+  },
   'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera': {
     grupos: [
       { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },

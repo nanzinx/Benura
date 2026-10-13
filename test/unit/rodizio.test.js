@@ -50,12 +50,14 @@ test('ida para a URA e volta ao Ativo', () => {
   assert.ok(!deveIrParaUra(Classe.LIVRE, false));
   assert.ok(!deveIrParaUra(Classe.ATENDIMENTO, true));
 
-  const movido = { entrouEm: 0 };
-  const base = { movido, tempoNaUraMs: 1000 };
-  assert.ok(!deveVoltarAoAtivo({ ...base, classe: Classe.LIVRE, agora: 999 }));
-  assert.ok(deveVoltarAoAtivo({ ...base, classe: Classe.LIVRE, agora: 1000 }));
-  assert.ok(!deveVoltarAoAtivo({ ...base, classe: Classe.ATENDIMENTO, agora: 5000 }), 'em atendimento não volta');
-  assert.ok(deveVoltarAoAtivo({ ...base, classe: Classe.OFFLINE, agora: 1 }), 'offline volta na hora');
+  const base = { livreDesde: 0, ociosoMs: 180_000 };
+  assert.ok(!deveVoltarAoAtivo({ ...base, classe: Classe.LIVRE, agora: 120_000 }), 'livre há 2 min fica');
+  assert.ok(deveVoltarAoAtivo({ ...base, classe: Classe.LIVRE, agora: 180_000 }), 'livre há 3 min volta, movido ou não');
+  assert.ok(!deveVoltarAoAtivo({ ...base, classe: Classe.ATENDIMENTO, agora: 900_000 }), 'em atendimento fica');
+  assert.ok(!deveVoltarAoAtivo({ ...base, classe: Classe.OUTRO, agora: 900_000 }), 'em pausa fica');
+  assert.ok(!deveVoltarAoAtivo({ ...base, livreDesde: undefined, classe: Classe.LIVRE, agora: 900_000 }), 'sem marca de ocioso não volta');
+  assert.ok(deveVoltarAoAtivo({ ...base, classe: Classe.OFFLINE, agora: 1, movido: { origemGrupoId: 1 } }), 'movido offline volta na hora');
+  assert.ok(!deveVoltarAoAtivo({ ...base, classe: Classe.OFFLINE, agora: 1 }), 'quem não foi movido e está offline é ignorado');
 });
 
 test('decidirRobos: robôs proporcionais aos livres; reduzir é imediato, aumentar espera', () => {
@@ -320,20 +322,6 @@ test('Transferencias: recusa da Argus esfria o ramal; falha de rede não', async
   assert.equal(await t.transferir('2', 2), true);
 });
 
-test('FixosDoRoteador: só a fila URA do estado de hoje; relê quando o arquivo muda', () => {
-  const { FixosDoRoteador, ramaisFixosNaUra } = require('../../src/rodizio/fixos-do-roteador');
-  const estado = { data: '2026-10-13', vendedores: { 101: { fila: 'URA' }, 102: { fila: 'ATIVO' } } };
-  assert.deepEqual([...ramaisFixosNaUra(estado, '2026-10-13')], ['101']);
-  assert.equal(ramaisFixosNaUra(estado, '2026-10-14').size, 0, 'estado de outro dia não vale');
-  assert.equal(ramaisFixosNaUra(null, '2026-10-13').size, 0);
-
-  const arquivo = path.join(tmp('fixos-'), 'state-vendas.json');
-  const fixos = new FixosDoRoteador({ arquivo, relogio: { hoje: () => '2026-10-13' } });
-  assert.equal(fixos.ramais().size, 0, 'sem o arquivo do roteador ninguém é fixo');
-  fs.writeFileSync(arquivo, JSON.stringify(estado));
-  assert.deepEqual([...fixos.ramais()], ['101']);
-});
-
 test('ControleRobos: avisa robôs mexidos por fora, mas não os que acabamos de comandar', async () => {
   const avisos = [];
   const logger = { ...loggerNulo, aviso: (m) => avisos.push(m) };
@@ -421,4 +409,31 @@ test('config: avisa valores antigos do .env que anulam correções', () => {
 
   const deslogarSemPlantao = { ...base, rotinas: { ...base.rotinas, fimExpediente: { ...base.rotinas.fimExpediente, ativo: true, acao: 'deslogar', ignorarRamais: [] } } };
   assert.match(validarConfig(deslogarSemPlantao, { escopo: 'rotinas' }).avisos.join(), /plantão/);
+});
+
+test('URA → Ativo: não movido volta ao grupo do supervisor; sem grupo, fica e avisa uma vez', async () => {
+  const { RodizioService } = require('../../src/rodizio/rodizio.service');
+  const avisos = [];
+  const transferidos = [];
+  const grupos = { 201: 1 };
+  const svc = new RodizioService({
+    client: {},
+    transferencias: { async transferir(ramal, destino) { transferidos.push(`${ramal}→${destino}`); return true; } },
+    robos: {},
+    repositorio: { salvar: async () => {} },
+    logger: { ...loggerNulo, aviso: (m) => avisos.push(m) },
+    cfg: { tempoNaUraMs: 180_000 },
+    diretorio: { atualizar: async () => {}, grupoAtivoDoOperador: (r) => grupos[r] ?? null },
+  });
+  const ocioso = { classe: Classe.LIVRE, ts: Date.now(), livreDesde: Date.now() - 200_000 };
+  svc.statusUra.set('201', ocioso).set('202', ocioso);
+  svc.ramaisUra = new Set(['201', '202']);
+  svc.movidos = { 203: { origemGrupoId: 3, entrouEm: 0 } };
+  svc.statusUra.set('203', ocioso);
+
+  for (const r of ['201', '202', '203']) assert.ok(svc.deveDevolver(r, Date.now()), `${r} ocioso há mais de 3 min`);
+  for (const r of ['201', '202', '202', '203']) await svc.devolverAoAtivo(r);
+  assert.deepEqual(transferidos, ['201→1', '203→3'], 'supervisor para o 201, origem para o movido 203');
+  assert.equal(avisos.length, 1, '202 sem grupo: um aviso só');
+  assert.ok(svc.ramaisUra.has('202'));
 });
