@@ -123,14 +123,17 @@ function decidirRobos({ ramaisUra, status, agora, robos, cfg }) {
 }
 
 /**
- * Quais robôs desligar para chegar ao alvo: primeiro os que NÃO estão em
- * ligação (derrubar um robô falando corta o cliente).
+ * Quais robôs desligar numa redução PARCIAL (ainda há humano livre): só os que
+ * NÃO estão em ligação. Derrubar um robô falando corta o cliente e vira
+ * callback, e ainda há quem receba a derivação dele. Robô cujo status não pôde
+ * ser lido também fica. Os poupados saem nos ciclos seguintes, ao terminar a
+ * ligação. (Com ninguém livre, o alvo 0 desliga todos: não segue por aqui.)
  * @param {Array<{ ramal: string, classe: string }>} ligados
  * @returns {string[]}
  */
 function escolherParaDesligar(ligados, quantidade) {
-  const peso = (classe) => (classe === Classe.ATENDIMENTO ? 1 : 0);
-  return [...ligados].sort((a, b) => peso(a.classe) - peso(b.classe)).slice(0, quantidade).map((r) => r.ramal);
+  const podeDesligar = (classe) => classe !== Classe.ATENDIMENTO && classe !== Classe.ERRO;
+  return ligados.filter((r) => podeDesligar(r.classe)).slice(0, quantidade).map((r) => r.ramal);
 }
 
 /**

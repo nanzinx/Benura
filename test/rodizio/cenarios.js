@@ -252,6 +252,21 @@ const CENARIOS = {
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'desligar ao voltar ao automático' });
   },
 
+  async 'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina'(r) {
+    const deslogados = () => r.chamadas('deslogaroperador').map((c) => String(c.dados.ramal));
+    await esperar(1500); // 2 livres × 2 = 4: nada a reduzir
+    if (deslogados().length) throw new Error(`desligou com o alvo atendido: ${deslogados()}`);
+
+    r.argus.definirStatus('201', 'em atendimento'); // 1 livre → alvo 2; excesso 2, mas só o 903 está ocioso
+    await aguardar(() => deslogados().includes('903'), { descricao: 'desligar o ocioso 903' });
+    await esperar(1500);
+    if (deslogados().some((x) => ['900', '901', '902'].includes(x))) throw new Error(`derrubou robô em ligação: ${deslogados()}`);
+
+    r.argus.definirStatus('900', 'livre'); // a ligação do 900 terminou
+    await aguardar(() => deslogados().includes('900'), { descricao: 'desligar o 900 ao terminar a ligação' });
+    if (deslogados().some((x) => ['901', '902'].includes(x))) throw new Error('derrubou robô que continua em ligação');
+  },
+
   async 'Robôs: humano da URA em pausa conta como ocupado'(r) {
     r.argus.definirStatus('200', 'pausa');
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'deslogar robôs' });
@@ -394,6 +409,17 @@ const VARIACOES = {
       ...Object.fromEntries(ROBOS_10.map((x) => [x, x === '900' ? 'em atendimento' : 'livre'])),
     },
     env: { ROBOS_POR_LIVRE: '3' },
+  },
+  'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ['900', '901', '902', '903'] },
+    ],
+    status: {
+      100: 'livre', 200: 'livre', 201: 'livre', 900: 'em atendimento', 901: 'em atendimento', 902: 'em atendimento', 903: 'livre',
+    },
+    env: { ROBOS_POR_LIVRE: '2' },
   },
   'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)': {
     env: { DRY_RUN: '1', ROBOS_POR_LIVRE: '1' },

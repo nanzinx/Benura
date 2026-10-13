@@ -94,10 +94,36 @@ test('decidirRobos: robôs proporcionais aos livres; reduzir é imediato, aument
   assert.equal(d(['1'], st({ 1: 'livre' }), robos(5, 0, 0)).acao, AcaoRobos.NENHUMA, 'nenhum robô conhecido');
 });
 
-test('escolherParaDesligar: primeiro quem não está em ligação', () => {
-  const ligados = [{ ramal: 'a', classe: 'atendimento' }, { ramal: 'b', classe: 'livre' }, { ramal: 'c', classe: 'outro' }];
+test('escolherParaDesligar: nunca quem está em ligação (nem quem não foi lido) numa redução parcial', () => {
+  const ligados = [
+    { ramal: 'a', classe: 'atendimento' }, { ramal: 'b', classe: 'livre' }, { ramal: 'c', classe: 'outro' }, { ramal: 'd', classe: 'erro' },
+  ];
   assert.deepEqual(escolherParaDesligar(ligados, 2), ['b', 'c']);
-  assert.deepEqual(escolherParaDesligar(ligados, 3), ['b', 'c', 'a']);
+  assert.deepEqual(escolherParaDesligar(ligados, 4), ['b', 'c'], 'o robô em ligação e o não lido ficam até o próximo ciclo');
+});
+
+test('ControleRobos: redução parcial poupa robô em ligação até terminar; alvo 0 desliga todos', async () => {
+  const status = { 900: 'em atendimento', 901: 'em atendimento', 902: 'livre' };
+  const deslogados = [];
+  const client = {
+    async statusOperador(r) { return { descricaoStatus: status[r] || 'Deslogado' }; },
+    async deslogarOperador(r) { deslogados.push(r); status[r] = null; },
+  };
+  const ramais = ['900', '901', '902'];
+  const robos = new ControleRobos({ client, cfg: { dryRun: false, concorrencia: 5, descricoesStatus: DESC_ROBOS }, logger: loggerNulo });
+  await robos.sincronizar(ramais);
+
+  await robos.reduzir(ramais, 1, 'teste'); // excesso 2, mas só o 902 está ocioso
+  assert.deepEqual(deslogados, ['902']);
+  assert.equal(robos.situacao(3).ligados, 2, 'os dois em ligação continuam contados');
+
+  status['900'] = 'livre'; // a ligação do 900 terminou
+  await robos.reduzir(ramais, 1, 'teste');
+  assert.deepEqual(deslogados, ['902', '900']);
+  assert.equal(robos.situacao(3).ligados, 1);
+
+  await robos.reduzir(ramais, 0, 'ninguém livre');
+  assert.ok(deslogados.includes('901'), 'com alvo 0, o robô em ligação também sai');
 });
 
 test('reconciliarMovidos: carência, ausências e retorno à URA', () => {

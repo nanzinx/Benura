@@ -44,6 +44,8 @@ class ControleRobos {
     /** robôs ligados/desligados por fora do BenURA (outra cópia, script antigo, painel) */
     this.mudancasPorFora = 0;
     this.ultimoAvisoForaEm = 0;
+    /** último "mantidos em ligação" logado (evita repetir a cada ciclo) */
+    this.ultimoMantidos = null;
   }
 
   /** Para a regra de decisão. */
@@ -96,8 +98,11 @@ class ControleRobos {
   }
 
   /**
-   * Reduz até `alvo`. Com alvo 0, desliga TODOS os robôs conhecidos (emergência,
-   * sem consultar nada antes).
+   * Reduz até `alvo`.
+   * - Alvo 0 (ninguém livre na URA): desliga TODOS os robôs conhecidos na hora,
+   *   inclusive os em ligação. É a emergência: não há quem receba a derivação.
+   * - Alvo > 0: desliga só os que não estão em ligação. Os que estão falando
+   *   continuam contados como ligados e saem num próximo ciclo, ao terminar.
    */
   async reduzir(ramais, alvo, motivo) {
     this.alvo = alvo;
@@ -105,14 +110,27 @@ class ControleRobos {
     const ligados = await Promise.all([...(this.ligados || [])].map((r) => this.lerClasse(r)));
     const excesso = ligados.length - alvo;
     if (excesso <= 0) return undefined;
-    return this.desligar(escolherParaDesligar(ligados, excesso), motivo, alvo);
+
+    const escolhidos = escolherParaDesligar(ligados, excesso);
+    const mantidos = excesso - escolhidos.length;
+    if (!escolhidos.length) return this.logarMantidos(alvo, motivo, mantidos);
+    return this.desligar(escolhidos, motivo, alvo, mantidos);
+  }
+
+  /** Nada a desligar agora: todo o excesso está em ligação. Avisa uma vez por alvo. */
+  logarMantidos(alvo, motivo, mantidos) {
+    const chave = `${alvo}:${mantidos}`;
+    if (this.ultimoMantidos === chave) return;
+    this.ultimoMantidos = chave;
+    this.log.info(`ROBÔS: alvo ${alvo} (${motivo}), mas ${mantidos} em ligação mantidos até terminar.`);
   }
 
   /**
    * Desloga os robôs indicados, re-tentando os que falharem.
    * Algum que resista continua contado como ligado e será tentado no próximo ciclo.
    */
-  async desligar(ramais, motivo, alvo = 0) {
+  async desligar(ramais, motivo, alvo = 0, mantidos = 0) {
+    this.ultimoMantidos = null;
     if (!ramais.length) {
       this.log.erro('Nenhum robô conhecido para desligar (grupo de robôs vazio ou ainda não lido).');
       return;
@@ -128,7 +146,8 @@ class ControleRobos {
 
     const ms = Number(process.hrtime.bigint() - inicio) / 1e6;
     this.log.info(`ROBÔS ${alvo === 0 ? 'DESLIGADOS' : `REDUZIDOS para ${alvo}`} (${motivo}): `
-      + `${desligados.length}/${ramais.length} em ${ms.toFixed(0)} ms | ligados agora: ${this.ligados.size}`);
+      + `${desligados.length}/${ramais.length} em ${ms.toFixed(0)} ms | ligados agora: ${this.ligados.size}`
+      + `${mantidos ? ` | ${mantidos} em ligação mantidos até terminar` : ''}`);
     if (pendentes.length) this.log.aviso(`Robôs ainda logados: ${pendentes.join(', ')}. Nova tentativa no próximo ciclo.`);
   }
 
