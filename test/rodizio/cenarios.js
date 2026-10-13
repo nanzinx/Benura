@@ -20,6 +20,7 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const { criarArgusFake } = require('./argus-fake');
+const { dataLocal } = require('../../src/utils/datas');
 
 const RAIZ = path.join(__dirname, '..', '..');
 const ALVO = path.resolve(process.argv[2] || path.join(RAIZ, 'argus-automacao.js'));
@@ -87,7 +88,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, env 
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
       RODIZIO_PORT: String(porta),
-      STATE_FILE: path.join(pasta, 'state.json'),
+      STATE_FILE: path.join(pasta, 'state-vendas.json'),
       RODIZIO_STATE_FILE: path.join(pasta, 'state.json'),
       RODIZIO_LOCK_FILE: path.join(pasta, 'argus.lock'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
@@ -124,6 +125,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, env 
   return {
     argus,
     base,
+    pasta,
     saida,
     chamadas,
     transferencias,
@@ -167,6 +169,18 @@ const CENARIOS = {
     await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 12_000, descricao: '101→Ativo' });
     const segundos = (Date.now() - entrou) / 1000;
     if (segundos < 4.5) throw new Error(`voltou cedo demais (${segundos.toFixed(1)}s; TEMPO_MIN = 6s)`);
+  },
+
+  async 'URA: quem o roteador fixou hoje (vendeu) não volta ao Ativo'(r) {
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
+    // O roteador detecta a venda de 101 e o fixa na URA até o fim do dia.
+    const estado = { versao: 2, data: dataLocal('America/Sao_Paulo'), vendedores: { 101: { fila: 'URA' } } };
+    fs.writeFileSync(path.join(r.pasta, 'state-vendas.json'), JSON.stringify(estado));
+    await esperar(8000); // além de TEMPO_MIN (6 s)
+    if (r.transferencias().includes('101→1')) throw new Error('devolveu ao Ativo quem o roteador fixou na URA');
   },
 
   async 'URA: movido que fica offline volta imediatamente'(r) {

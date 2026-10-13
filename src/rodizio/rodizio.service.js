@@ -22,6 +22,9 @@ const {
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { mapearComLimite } = require('../utils/concorrencia');
 
+/** Sem roteador (testes, ou roteador desligado): ninguém é fixo na URA. */
+const SEM_FIXOS = Object.freeze({ ramais: () => new Set() });
+
 class RodizioService {
   /**
    * @param {object} deps
@@ -31,9 +34,10 @@ class RodizioService {
    * @param {import('./estado-rodizio.repository').EstadoRodizioRepository} deps.repositorio
    * @param {object} deps.cfg - Seção `rodizio` da configuração
    * @param {object} deps.logger
+   * @param {{ ramais(): Set<string> }} [deps.fixosRoteador] - quem o roteador fixou na URA hoje
    */
-  constructor({ client, transferencias, robos, repositorio, cfg, logger }) {
-    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger });
+  constructor({ client, transferencias, robos, repositorio, cfg, logger, fixosRoteador = SEM_FIXOS }) {
+    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, fixosRoteador });
 
     /** ramal → { origemGrupoId, entrouEm, ausentes } — persistido: quem o rodízio colocou na URA */
     this.movidos = {};
@@ -159,6 +163,7 @@ class RodizioService {
     await mapearComLimite(ramais, this.cfg.concorrencia, (ramal) => this.atualizarStatusUra(ramal));
     await this.avaliarRobos();
 
+    this.liberarFixosDoRoteador();
     const agora = Date.now();
     const devolver = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
     await mapearComLimite(devolver, this.cfg.concorrencia, (ramal) => this.devolverAoAtivo(ramal));
@@ -174,6 +179,20 @@ class RodizioService {
     if (classe === Classe.LIVRE && dentroDaCarencia) return;
 
     this.statusUra.set(ramal, { classe, ts: Date.now() });
+  }
+
+  /**
+   * Movido que o roteador fixou na URA hoje (vendeu) deixa de ser "emprestado":
+   * fica na URA e o rodízio não o devolve ao Ativo.
+   */
+  liberarFixosDoRoteador() {
+    const fixos = this.fixosRoteador.ramais();
+    const liberados = Object.keys(this.movidos).filter((ramal) => fixos.has(ramal));
+    if (!liberados.length) return;
+
+    for (const ramal of liberados) delete this.movidos[ramal];
+    this.salvar();
+    this.log.info(`Ficam na URA (fixados pelo roteador hoje): ${liberados.join(', ')}.`);
   }
 
   deveDevolver(ramal, agora) {

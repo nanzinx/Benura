@@ -319,3 +319,17 @@ test('Transferencias: recusa da Argus esfria o ramal; falha de rede não', async
   modo = 'ok';
   assert.equal(await t.transferir('2', 2), true);
 });
+
+test('FixosDoRoteador: só a fila URA do estado de hoje; relê quando o arquivo muda', () => {
+  const { FixosDoRoteador, ramaisFixosNaUra } = require('../../src/rodizio/fixos-do-roteador');
+  const estado = { data: '2026-10-13', vendedores: { 101: { fila: 'URA' }, 102: { fila: 'ATIVO' } } };
+  assert.deepEqual([...ramaisFixosNaUra(estado, '2026-10-13')], ['101']);
+  assert.equal(ramaisFixosNaUra(estado, '2026-10-14').size, 0, 'estado de outro dia não vale');
+  assert.equal(ramaisFixosNaUra(null, '2026-10-13').size, 0);
+
+  const arquivo = path.join(tmp('fixos-'), 'state-vendas.json');
+  const fixos = new FixosDoRoteador({ arquivo, relogio: { hoje: () => '2026-10-13' } });
+  assert.equal(fixos.ramais().size, 0, 'sem o arquivo do roteador ninguém é fixo');
+  fs.writeFileSync(arquivo, JSON.stringify(estado));
+  assert.deepEqual([...fixos.ramais()], ['101']);
+});

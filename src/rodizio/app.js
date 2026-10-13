@@ -16,6 +16,8 @@ const { EstadoRodizioRepository } = require('./estado-rodizio.repository');
 const { Transferencias } = require('./transferencias');
 const { ControleRobos } = require('./controle-robos');
 const { RodizioService } = require('./rodizio.service');
+const { FixosDoRoteador } = require('./fixos-do-roteador');
+const { dataLocal } = require('../utils/datas');
 const { criarRotasDoRodizio } = require('./controllers');
 const { RetornoFilaService } = require('../retorno-fila/retorno-fila.service');
 const { ArquivoDeEstado } = require('../utils/persistencia-json');
@@ -43,6 +45,10 @@ function montarRodizio(overrides) {
     repositorio: new EstadoRodizioRepository({ arquivo: cfgRodizio.arquivoEstado, logger: log.filho('estado') }),
     cfg: cfgRodizio,
     logger: log.filho('rodizio'),
+    fixosRoteador: new FixosDoRoteador({
+      arquivo: cfgRodizio.arquivoEstadoRoteador,
+      relogio: { hoje: () => dataLocal(cfg.agenda.fusoHorario) },
+    }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
   return { cfg, cfgRodizio, log, rodizio, retornoFila };

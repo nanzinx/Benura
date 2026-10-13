@@ -127,6 +127,8 @@ function carregarConfig(overrides = {}) {
       porta: envNum('RODIZIO_PORT', 3000),
       arquivoEstado: env('RODIZIO_STATE_FILE', path.join(RAIZ, 'state.json')),
       arquivoTrava: env('RODIZIO_LOCK_FILE', path.join(RAIZ, 'argus.lock')),
+      // Estado do roteador (só leitura): quem ele fixou na URA hoje não volta ao Ativo pelo rodízio.
+      arquivoEstadoRoteador: env('STATE_FILE', path.join(RAIZ, 'state-vendas.json')),
     },
 
     // --- Regras de negócio ---
