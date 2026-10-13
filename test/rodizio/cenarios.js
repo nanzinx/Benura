@@ -145,6 +145,19 @@ const CENARIOS = {
     if (r.transferencias().some((t) => t.startsWith('100→'))) throw new Error('100 não atendeu e foi movido');
   },
 
+  async 'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)'(r) {
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => r.saida.join('').includes('[DRY_RUN] Transferiria ramal 101'), { descricao: 'simular 101→URA' });
+    await esperar(1500);
+    const { robos, ramaisUra } = await (await fetch(`${r.base}/health`)).json();
+    if (ramaisUra.includes('101')) throw new Error('101 entrou na URA sem ter sido movido');
+    if (robos.alvo !== 1) throw new Error(`alvo ${robos.alvo}; com 1 livre real na URA deveria ser 1`);
+    const simulacoes = r.saida.join('').split('[DRY_RUN] Transferiria ramal 101').length - 1;
+    if (simulacoes !== 1) throw new Error(`simulou a ida de 101 ${simulacoes} vezes`);
+  },
+
   async 'URA: volta ao grupo de origem só depois de TEMPO_MIN'(r) {
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
@@ -331,6 +344,9 @@ const VARIACOES = {
       ...Object.fromEntries(ROBOS_10.map((x) => [x, x === '900' ? 'em atendimento' : 'livre'])),
     },
     env: { ROBOS_POR_LIVRE: '3' },
+  },
+  'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)': {
+    env: { DRY_RUN: '1', ROBOS_POR_LIVRE: '1' },
   },
   'Robôs: URA sem humanos → desliga': {
     grupos: GRUPOS_BASE.map((g) => (g.idGrupoUsuario === 2 ? { ...g, ramaisOperadores: [] } : g)),

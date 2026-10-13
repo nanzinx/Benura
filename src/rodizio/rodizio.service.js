@@ -137,6 +137,11 @@ class RodizioService {
   async moverParaUra(ramal, grupoOrigem) {
     const ok = await this.comTrava(ramal, () => this.transferencias.transferir(ramal, this.cfg.grupoUraId));
     if (!ok) return;
+    // Em DRY_RUN ninguém foi movido de verdade: contá-lo como livre na URA inflaria o alvo de robôs.
+    if (this.cfg.dryRun) {
+      this.atenderamNoAtivo.delete(ramal);
+      return;
+    }
 
     this.movidos[ramal] = { origemGrupoId: grupoOrigem, entrouEm: Date.now() };
     this.ramaisUra.add(ramal);
