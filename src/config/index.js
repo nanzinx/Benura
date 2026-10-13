@@ -112,6 +112,11 @@ function carregarConfig(overrides = {}) {
       // de robôs a cada oscilação de status; o webhook de atendimento continua imediato.
       pollAtivoMs: envNum('POLL_ATIVO_MS', 5000),
       pollUraMs: envNum('POLL_URA_MS', 5000),
+      // URA em alerta: com 1 a LIVRES_ALERTA livres, o próximo atendimento pode deixar a URA
+      // sem ninguém livre e os robôs ligados. Lê mais rápido até a situação passar
+      // (dispensável quando o webhook tipo 1 está configurado, que desliga na hora).
+      pollUraAlertaMs: envNum('POLL_URA_ALERTA_MS', 1000),
+      livresAlerta: envNum('LIVRES_ALERTA', 2),
       refreshGruposMs: envNum('REFRESH_GRUPOS_MS', 30_000),
       reativarRobos: env('REATIVAR_ROBOS', 'true') !== 'false',
       minRobosDesligadosMs: envNum('MIN_ROBOS_OFF_MS', 3000),

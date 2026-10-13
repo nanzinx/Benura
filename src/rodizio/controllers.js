@@ -43,6 +43,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
 
   async function webhook({ corpo }) {
     logger.debug(`Webhook recebido (tipo ${corpo?.idTipoWebhook ?? '?'}).`);
+    rodizio.registrarWebhookRecebido();
     encaminharAoRodizio(corpo);
     encaminharAoRetorno(corpo);
     return { status: 200, corpo: { ok: true } };

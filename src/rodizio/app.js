@@ -79,12 +79,12 @@ function exigirConfigValida(cfg, log) {
 /** Os três ciclos do rodízio, cada um sem sobreposição. */
 function iniciarCiclos({ rodizio, cfgRodizio, log }) {
   const ciclo = (nome, intervaloMs, tarefa) => executarPeriodicamente({
-    nome, intervaloMs, tarefa, logger: log, alertaLentoMs: Math.max(5000, intervaloMs * 2),
+    nome, intervaloMs, tarefa, logger: log, alertaLentoMs: Math.max(5000, cfgRodizio.pollUraMs * 2, cfgRodizio.pollAtivoMs * 2),
   });
   return {
     grupos: ciclo('atualizarGrupos', cfgRodizio.refreshGruposMs, () => rodizio.atualizarGrupos()),
     ativo: ciclo('cicloAtivo', cfgRodizio.pollAtivoMs, () => rodizio.cicloAtivo()),
-    ura: ciclo('cicloUra', cfgRodizio.pollUraMs, () => rodizio.cicloUra()),
+    ura: ciclo('cicloUra', () => rodizio.intervaloUraMs(), () => rodizio.cicloUra()),
   };
 }
 

@@ -355,3 +355,28 @@ test('ControleRobos: avisa robôs mexidos por fora, mas não os que acabamos de 
   assert.equal(robos.resumo().mudancasPorFora, 1);
   assert.match(avisos.join(), /mexidos por fora/);
 });
+
+test('URA em alerta: com 1 a LIVRES_ALERTA livres a URA é lida mais rápido', () => {
+  const { RodizioService } = require('../../src/rodizio/rodizio.service');
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, robos: {}, repositorio: {}, logger: loggerNulo,
+    cfg: { pollUraMs: 5000, pollUraAlertaMs: 1000, livresAlerta: 2 },
+  });
+  const intervalo = (livres) => { svc.ultimosLivres = livres; return svc.intervaloUraMs(); };
+  assert.equal(intervalo(null), 5000, 'antes da primeira decisão');
+  assert.equal(intervalo(0), 5000, 'ninguém livre: robôs já desligados, sem risco');
+  assert.equal(intervalo(1), 1000);
+  assert.equal(intervalo(2), 1000);
+  assert.equal(intervalo(3), 5000);
+});
+
+test('executarPeriodicamente aceita intervalo recalculado a cada rodada', async () => {
+  const { executarPeriodicamente } = require('../../src/utils/periodico');
+  let rodadas = 0;
+  const ciclo = executarPeriodicamente({
+    nome: 't', intervaloMs: () => (rodadas < 3 ? 5 : 60_000), tarefa: async () => { rodadas++; }, logger: loggerNulo,
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  await ciclo.parar();
+  assert.equal(rodadas, 3, 'três rodadas rápidas e depois espera o intervalo longo');
+});
