@@ -231,6 +231,35 @@ class ArgusClient {
     return Array.isArray(r.retornoGetSkillsItens) ? r.retornoGetSkillsItens : [];
   }
 
+  // ───────────────────────────── Relatórios ─────────────────────────────
+
+  /** Relatório em {base}/apiargus/report/{nome} (doc 5). @returns {Promise<object>} resposta com codStatus 1 */
+  async relatorio(nome, corpo) {
+    const resposta = await this.enviar(nome, corpo, {
+      url: `${this.cfg.baseMailing}/report/${nome}`, timeoutMs: this.cfg.timeoutRelatorioMs ?? 60_000,
+    });
+    if (resposta?.codStatus === 1) return resposta;
+    throw recusa(nome, resposta);
+  }
+
+  /**
+   * Ligações detalhadas (doc 5.1), seguindo a paginação até o fim.
+   * @param {{ idCampanha: number, idGrupoUsuario?: number, ultimosMinutos?: number }} filtro
+   * @returns {Promise<object[]>}
+   */
+  async ligacoesDetalhadas(filtro, { maxPaginas = 20 } = {}) {
+    const ligacoes = [];
+    let ultimoId = null;
+    for (let pagina = 0; pagina < maxPaginas; pagina++) {
+      const r = await this.relatorio('ligacoesdetalhadas', ultimoId ? { ...filtro, ultimoId } : filtro);
+      ligacoes.push(...(Array.isArray(r.ligacoesDetalhadas) ? r.ligacoesDetalhadas : []));
+      if (r.endOfTable || !r.idProxPagina) return ligacoes;
+      ultimoId = r.idProxPagina;
+    }
+    this.log.aviso(`ligacoesdetalhadas: parou em ${maxPaginas} páginas (${ligacoes.length} ligações).`);
+    return ligacoes;
+  }
+
   // ───────────────────────────── Operadores ─────────────────────────────
 
   /**
