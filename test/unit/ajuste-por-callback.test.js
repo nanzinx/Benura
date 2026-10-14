@@ -64,3 +64,21 @@ test('ajuste: com os robôs no modo manual, o callback é registrado mas não aj
   assert.equal(a.atual(0), 7);
   assert.match(avisos.at(-1), /modo manual: não ajusta/);
 });
+
+test('ajuste: reiniciar no mesmo dia retoma o degrau; em outro dia começa do .env', () => {
+  let gravado = null;
+  const repositorio = { carregar: () => gravado, salvar: async (e) => { gravado = e; } };
+  const cfg = { base: 7, piso: 4, recuperarAposMs: 15 * MIN, intervaloMinMs: 60_000 };
+  const primeiro = new AjustePorCallback({ cfg, logger: loggerNulo, repositorio, hoje: () => '2026-10-15' }).carregar();
+  primeiro.registrarCallback(cb('a'), { agora: 1000 });
+  primeiro.registrarCallback(cb('b'), { agora: 2 * MIN });
+  assert.equal(gravado.porLivre, 5);
+
+  const reiniciado = new AjustePorCallback({ cfg, logger: loggerNulo, repositorio, hoje: () => '2026-10-15' }).carregar();
+  assert.equal(reiniciado.atual(3 * MIN), 5, 'retoma o degrau');
+  assert.equal(reiniciado.callbacks, 2);
+  assert.equal(reiniciado.atual(18 * MIN), 6, 'a recuperação conta do último callback gravado');
+
+  const outroDia = new AjustePorCallback({ cfg, logger: loggerNulo, repositorio, hoje: () => '2026-10-16' }).carregar();
+  assert.equal(outroDia.atual(0), 7);
+});

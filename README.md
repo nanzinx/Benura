@@ -223,7 +223,7 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - **Ajuste pelos callbacks** (`ROBOS_AJUSTE_CALLBACK=1`, padrão): o 7 é a média; num dia de URA mais agressiva, cada callback baixa um degrau de robôs por livre (7→6→5…, até `ROBOS_POR_LIVRE_MINIMO`, padrão **4**). Sem callback por `ROBOS_RECUPERAR_APOS_MIN` (**15 min**), sobe um degrau de volta, até o `ROBOS_POR_LIVRE`.
      - O sinal é o webhook **encerramento de URA (tipo 5)** com "abandonou a fila" ou "time-out na fila": é o "Gerou Callback" do painel. Precisa estar configurado na Argus apontando para `POST /webhook?token=…` (o mesmo do retorno da fila).
      - Cada callback aparece no log com a situação da URA naquele instante: `Callback (abandonou a fila) com 1 livre(s) na URA e 7 robô(s) ligado(s): robôs por livre 7→6.` Isso ajuda a explicar callbacks que não deveriam acontecer.
-     - Só baixa: a redução segue as regras acima (não derruba robô em ligação). No máximo um degrau a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**), o mesmo evento reenviado conta uma vez, e no modo manual o callback é registrado mas não ajusta. Ao reiniciar, volta ao `ROBOS_POR_LIVRE`.
+     - Só baixa: a redução segue as regras acima (não derruba robô em ligação). No máximo um degrau a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**), o mesmo evento reenviado conta uma vez, e no modo manual o callback é registrado mas não ajusta. Fica gravado em `RODIZIO_AJUSTE_FILE`: reiniciar no mesmo dia retoma o degrau; no dia seguinte começa do `ROBOS_POR_LIVRE`.
      - O `/health` mostra `ajusteRobos: { porLivre, base, piso, callbacks, ultimoCallback }`.
    - **Ninguém livre** (todos ocupados ou em pausa, URA vazia ou offline, ou a Argus sem responder) → **todos desligados** na hora.
    - Os grupos dos robôs ficam em `GRUPOS_ROBOS_URA_IDS` (hoje URA PORT 3). A cada atualização de grupos, o rodízio confere na Argus quais robôs estão de fato ligados.
@@ -358,6 +358,7 @@ O roteador, o rodízio, as rotinas e a supervisão (pelo painel) mexem nos mesmo
 | C13 | Ajuste pelos callbacks reagindo a callback que não foi excesso de robôs (telefonia, modo manual) | Só baixa, com piso e um degrau por minuto; volta sozinho em 15 min; no modo manual não ajusta |
 | C14 | Exceções à regra do ocioso (último livre segurado, URA cheia) | A regra vale sempre; o último livre sai no horário e os robôs param antes (`PREPARAR_SAIDA_ULTIMO_LIVRE_MS`) |
 | C15 | URA cheia ligada antes da carga das 08:00: a carga manda ao Ativo quem não bateu a meta | Na URA cheia só quem voltou por ocioso espera atender no Ativo; quem foi mandado ao Ativo pela carga ou à mão sobe de novo |
+| C17 | Reiniciar o rodízio no meio do dia voltava o ajuste dos robôs a 7 por livre de uma vez | O ajuste fica gravado e é retomado no mesmo dia; o atualizador só faz deploy fora do expediente |
 
 **Regra de ouro:** um PC só, um jeito só de iniciar (PM2 **ou** janelas). Para conferir: `npx pm2 list` e `Get-Process node`.
 

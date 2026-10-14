@@ -128,6 +128,7 @@ class RodizioService {
   inicializar() {
     this.movidos = this.repositorio.carregar();
     this.uraCheia?.carregar();
+    this.ajuste?.carregar();
     return this;
   }
 

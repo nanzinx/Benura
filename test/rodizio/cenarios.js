@@ -98,6 +98,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_STATE_FILE: path.join(pasta, 'state.json'),
       RODIZIO_LOCK_FILE: path.join(pasta, 'argus.lock'),
       RODIZIO_URA_CHEIA_FILE: path.join(pasta, 'state-ura-cheia.json'),
+      RODIZIO_AJUSTE_FILE: path.join(pasta, 'state-ajuste-robos.json'),
       ARGUS_PAUSA_FILE: path.join(pasta, 'argus-pausa.json'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
       RETORNO_LOG_FILE: path.join(pasta, 'logs', 'retorno-fila.jsonl'),

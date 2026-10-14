@@ -10,6 +10,9 @@
  *
  * Só baixa: reduzir robôs nunca derruba quem está em ligação (os poupados saem
  * ao terminar) e nunca gera callback. Pior caso: deriva menos até recuperar.
+ *
+ * Fica gravado em arquivo: reiniciar no mesmo dia retoma o degrau em que estava
+ * (senão voltaria a 7 de uma vez no meio de um dia agressivo).
  */
 
 /** O mesmo callback repetido pela Argus (reenvio) não conta duas vezes. */
@@ -20,9 +23,11 @@ class AjustePorCallback {
    * @param {object} deps
    * @param {{ base: number, piso: number, recuperarAposMs: number, intervaloMinMs: number }} deps.cfg
    * @param {object} deps.logger
+   * @param {{ carregar(): object, salvar(estado: object): Promise<void> }} [deps.repositorio]
+   * @param {() => string} [deps.hoje] - AAAA-MM-DD no fuso da operação
    */
-  constructor({ cfg, logger }) {
-    Object.assign(this, { cfg, log: logger });
+  constructor({ cfg, logger, repositorio = null, hoje = () => '' }) {
+    Object.assign(this, { cfg, log: logger, repositorio, hoje });
     this.porLivre = cfg.base;
     this.ultimaMudanca = 0; // última queda, subida ou callback (a recuperação conta daqui)
     this.ultimaQueda = -Infinity;
@@ -30,6 +35,26 @@ class AjustePorCallback {
     this.ultimoCallbackEm = 0;
     /** chave do callback → quando chegou */
     this.vistos = new Map();
+  }
+
+  /** Retoma o ajuste gravado hoje (reinício no meio do dia). */
+  carregar() {
+    const salvo = this.repositorio?.carregar() || {};
+    if (!salvo.data || salvo.data !== this.hoje()) return this;
+    this.porLivre = Math.min(this.cfg.base, Math.max(this.cfg.piso, Number(salvo.porLivre) || this.cfg.base));
+    this.ultimaMudanca = Number(salvo.ultimaMudanca) || 0;
+    this.ultimaQueda = Number(salvo.ultimaQueda) || -Infinity;
+    this.callbacks = Number(salvo.callbacks) || 0;
+    this.ultimoCallbackEm = Number(salvo.ultimoCallbackEm) || 0;
+    if (this.porLivre < this.cfg.base) this.log.info(`Ajuste dos robôs retomado: ${this.porLivre} por livre (${this.callbacks} callback(s) hoje).`);
+    return this;
+  }
+
+  salvar() {
+    if (!this.repositorio) return;
+    const { porLivre, ultimaMudanca, callbacks, ultimoCallbackEm } = this;
+    const ultimaQueda = Number.isFinite(this.ultimaQueda) ? this.ultimaQueda : null;
+    this.repositorio.salvar({ data: this.hoje(), porLivre, ultimaMudanca, ultimaQueda, callbacks, ultimoCallbackEm });
   }
 
   /** Robôs por livre agora; sobe um degrau a cada `recuperarAposMs` sem callback. */
@@ -72,8 +97,10 @@ class AjustePorCallback {
     return false;
   }
 
+  /** Callback que não baixou o degrau: registra (e grava a contagem). */
   anotar(mensagem) {
     this.log.aviso(mensagem);
+    this.salvar();
     return false;
   }
 
@@ -81,6 +108,7 @@ class AjustePorCallback {
     this.log.aviso(`${motivo}: robôs por livre ${this.porLivre}→${novo}.`);
     this.porLivre = novo;
     this.ultimaMudanca = agora;
+    this.salvar();
   }
 
   resumo(agora = Date.now()) {

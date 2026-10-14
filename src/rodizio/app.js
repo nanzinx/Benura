@@ -20,6 +20,7 @@ const { ElegiveisUra } = require('./elegiveis-ura');
 const { resolverFixos } = require('../integrations/argus/fixos');
 const { UraCheia } = require('./ura-cheia');
 const { AjustePorCallback } = require('./ajuste-por-callback');
+const { dataLocal } = require('../utils/datas');
 const { DiretorioOperadores } = require('../integrations/argus/diretorio-operadores.service');
 const { criarRotasDoRodizio } = require('./controllers');
 const { RetornoFilaService } = require('../retorno-fila/retorno-fila.service');
@@ -57,7 +58,7 @@ function montarRodizio(overrides) {
     // Grupo do supervisor, para devolver ao Ativo quem não foi movido pelo rodízio.
     diretorio,
     elegiveis: cfgRodizio.soElegiveis ? montarElegiveis(cfg, diretorio, log.filho('rodizio')) : null,
-    ajuste: montarAjuste(cfgRodizio, log.filho('robos')),
+    ajuste: montarAjuste(cfgRodizio, cfg.agenda.fusoHorario, log.filho('robos')),
     uraCheia: new UraCheia({ arquivo: cfgRodizio.arquivoUraCheia, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
@@ -74,7 +75,7 @@ function montarElegiveis(cfg, diretorio, logger) {
 }
 
 /** Robôs por livre ajustados pelos callbacks (ROBOS_AJUSTE_CALLBACK). */
-function montarAjuste(c, logger) {
+function montarAjuste(c, fusoHorario, logger) {
   if (!c.ajusteCallback) return null;
   const cfg = {
     base: c.robosPorLivre,
@@ -82,7 +83,8 @@ function montarAjuste(c, logger) {
     recuperarAposMs: c.recuperarAposMs,
     intervaloMinMs: c.intervaloAjusteMs,
   };
-  return new AjustePorCallback({ cfg, logger });
+  const repositorio = new ArquivoDeEstado({ arquivo: c.arquivoAjuste, logger });
+  return new AjustePorCallback({ cfg, logger, repositorio, hoje: () => dataLocal(fusoHorario) });
 }
 
 /** Retorno de quem desistiu da fila: recebe os mesmos webhooks do rodízio. */
