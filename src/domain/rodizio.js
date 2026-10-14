@@ -99,38 +99,57 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
 /**
  * Regra 3b: o que fazer com os robôs agora.
  *
- * Reduzir é imediato (é o que evita callback); aumentar espera `minDesligadoMs`
- * desde a última redução, para não ficar liga-desliga a cada ciclo.
+ * Imita a operação manual:
+ *  - ninguém livre (alvo 0): desliga todos NA HORA;
+ *  - redução parcial: só quando o excesso já dura `reduzirAposMs` (uma piscada
+ *    de status não derruba robôs);
+ *  - aumentar: espera `minDesligadoMs` desde a última redução e
+ *    `intervaloSubidaMs` desde o último aumento (sobe em degraus, sem rajada).
  *
  * @param {object} entrada
  * @param {string[]} entrada.ramaisUra - Humanos que estão na URA
  * @param {Map<string, { classe: string, ts: number }>} entrada.status
  * @param {number} entrada.agora
- * @param {{ ligados: number|null, total: number, ultimaReducao: number }} entrada.robos - ligados null = ainda não lido
- * @param {{ reativar: boolean, minDesligadoMs: number, porLivre: number, maximo?: number, validadeStatusMs?: number }} entrada.cfg
- * @returns {{ acao: string, alvo: number, livres: number, motivo: string }}
+ * @param {{ ligados: number|null, total: number, ultimaReducao: number, ultimoAumento?: number, excessoDesde?: number|null }} entrada.robos
+ *        ligados null = ainda não lido; excessoDesde = desde quando há mais robôs que o alvo
+ * @param {{ reativar: boolean, minDesligadoMs: number, porLivre: number, maximo?: number, validadeStatusMs?: number,
+ *           reduzirAposMs?: number, intervaloSubidaMs?: number }} entrada.cfg
+ * @returns {{ acao: string, alvo: number, livres: number, motivo: string, excesso: boolean }}
  */
 function decidirRobos({ ramaisUra, status, agora, robos, cfg }) {
   const decisao = alvoDeRobos({ ramaisUra, status, agora, total: robos.total, cfg });
-  const com = (acao, motivo = decisao.motivo) => ({ ...decisao, acao, motivo });
+  const excesso = decisao.alvo > 0 && robos.ligados !== null && robos.ligados > decisao.alvo;
+  const com = (acao, motivo = decisao.motivo) => ({ ...decisao, acao, motivo, excesso });
   if (!robos.total) return com(AcaoRobos.NENHUMA, 'nenhum robô conhecido');
   if (decisao.alvo === 0) return com(robos.ligados === 0 ? AcaoRobos.NENHUMA : AcaoRobos.DESLIGAR);
   if (robos.ligados === null) return com(AcaoRobos.NENHUMA, 'aguardando a leitura dos robôs');
-  if (robos.ligados > decisao.alvo) return com(AcaoRobos.DESLIGAR);
+  if (excesso) return decidirReducao(robos, agora, cfg, com);
 
-  const podeAumentar = robos.ligados < decisao.alvo && cfg.reativar && agora - robos.ultimaReducao >= cfg.minDesligadoMs;
+  const podeAumentar = robos.ligados < decisao.alvo && cfg.reativar
+    && agora - robos.ultimaReducao >= cfg.minDesligadoMs
+    && agora - (robos.ultimoAumento || 0) >= (cfg.intervaloSubidaMs || 0);
   return com(podeAumentar ? AcaoRobos.RELIGAR : AcaoRobos.NENHUMA);
 }
 
+/** Redução parcial só quando a queda de livres se confirma por `reduzirAposMs`. */
+function decidirReducao(robos, agora, cfg, com) {
+  const desde = robos.excessoDesde ?? agora;
+  if (agora - desde >= (cfg.reduzirAposMs || 0)) return com(AcaoRobos.DESLIGAR);
+  return com(AcaoRobos.NENHUMA, 'aguardando a queda de livres se confirmar');
+}
+
 /**
- * Quais robôs desligar para chegar ao alvo: primeiro os que NÃO estão em
- * ligação (derrubar um robô falando corta o cliente).
+ * Quais robôs desligar numa redução PARCIAL (ainda há humano livre): só os que
+ * NÃO estão em ligação. Derrubar um robô falando corta o cliente e vira
+ * callback, e ainda há quem receba a derivação dele. Robô cujo status não pôde
+ * ser lido também fica. Os poupados saem nos ciclos seguintes, ao terminar a
+ * ligação. (Com ninguém livre, o alvo 0 desliga todos: não segue por aqui.)
  * @param {Array<{ ramal: string, classe: string }>} ligados
  * @returns {string[]}
  */
 function escolherParaDesligar(ligados, quantidade) {
-  const peso = (classe) => (classe === Classe.ATENDIMENTO ? 1 : 0);
-  return [...ligados].sort((a, b) => peso(a.classe) - peso(b.classe)).slice(0, quantidade).map((r) => r.ramal);
+  const podeDesligar = (classe) => classe !== Classe.ATENDIMENTO && classe !== Classe.ERRO;
+  return ligados.filter((r) => podeDesligar(r.classe)).slice(0, quantidade).map((r) => r.ramal);
 }
 
 /**

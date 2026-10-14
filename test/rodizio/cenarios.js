@@ -83,6 +83,8 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       POLL_URA_MS: '300',
       REFRESH_GRUPOS_MS: '1000',
       MIN_ROBOS_OFF_MS: '500',
+      ROBOS_REDUZIR_APOS_MS: '500',
+      ROBOS_SUBIDA_INTERVALO_MS: '500',
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -252,6 +254,42 @@ const CENARIOS = {
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'desligar ao voltar ao automático' });
   },
 
+  async 'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina'(r) {
+    const deslogados = () => r.chamadas('deslogaroperador').map((c) => String(c.dados.ramal));
+    await esperar(1500); // 2 livres × 2 = 4: nada a reduzir
+    if (deslogados().length) throw new Error(`desligou com o alvo atendido: ${deslogados()}`);
+
+    r.argus.definirStatus('201', 'em atendimento'); // 1 livre → alvo 2; excesso 2, mas só o 903 está ocioso
+    await aguardar(() => deslogados().includes('903'), { descricao: 'desligar o ocioso 903' });
+    await esperar(1500);
+    if (deslogados().some((x) => ['900', '901', '902'].includes(x))) throw new Error(`derrubou robô em ligação: ${deslogados()}`);
+
+    r.argus.definirStatus('900', 'livre'); // a ligação do 900 terminou
+    await aguardar(() => deslogados().includes('900'), { descricao: 'desligar o 900 ao terminar a ligação' });
+    if (deslogados().some((x) => ['901', '902'].includes(x))) throw new Error('derrubou robô que continua em ligação');
+  },
+
+  async 'Robôs: queda breve de livres não reduz; queda que se mantém reduz'(r) {
+    const deslogados = () => r.chamadas('deslogaroperador').length;
+    await esperar(1000); // 2 livres × 2 = 4 robôs: alvo atendido
+    r.argus.definirStatus('201', 'em atendimento');
+    await esperar(1000); // várias leituras (300 ms) vendo 1 livre só
+    r.argus.definirStatus('201', 'livre'); // voltou antes de ROBOS_REDUZIR_APOS_MS (2 s)
+    await esperar(3000);
+    if (deslogados()) throw new Error('reduziu por uma queda breve de livres');
+
+    r.argus.definirStatus('201', 'em atendimento'); // agora a queda se mantém
+    await aguardar(() => deslogados() >= 2, { descricao: 'reduzir depois de confirmar' });
+  },
+
+  async 'Robôs: religar sobe em degraus'(r) {
+    const religados = () => r.chamadas('logaroperadorvirtual').length;
+    await aguardar(() => religados() >= 6, { timeoutMs: 10_000, descricao: 'chegar a 6 robôs' });
+    const momentos = r.chamadas('logaroperadorvirtual').map((c) => c.em).sort((a, b) => a - b);
+    const espalhado = momentos.at(-1) - momentos[0];
+    if (espalhado < 900) throw new Error(`ligou 6 robôs em ${espalhado} ms: devia subir 2 por vez, a cada 500 ms`);
+  },
+
   async 'Robôs: humano da URA em pausa conta como ocupado'(r) {
     r.argus.definirStatus('200', 'pausa');
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'deslogar robôs' });
@@ -394,6 +432,35 @@ const VARIACOES = {
       ...Object.fromEntries(ROBOS_10.map((x) => [x, x === '900' ? 'em atendimento' : 'livre'])),
     },
     env: { ROBOS_POR_LIVRE: '3' },
+  },
+  'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ['900', '901', '902', '903'] },
+    ],
+    status: {
+      100: 'livre', 200: 'livre', 201: 'livre', 900: 'em atendimento', 901: 'em atendimento', 902: 'em atendimento', 903: 'livre',
+    },
+    env: { ROBOS_POR_LIVRE: '2' },
+  },
+  'Robôs: queda breve de livres não reduz; queda que se mantém reduz': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ['900', '901', '902', '903'] },
+    ],
+    status: { 100: 'livre', 200: 'livre', 201: 'livre', 900: 'livre', 901: 'livre', 902: 'livre', 903: 'livre' },
+    env: { ROBOS_POR_LIVRE: '2', ROBOS_REDUZIR_APOS_MS: '2000' },
+  },
+  'Robôs: religar sobe em degraus': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201', '202'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ['900', '901', '902', '903', '904', '905'] },
+    ],
+    status: { 100: 'livre', 200: 'livre', 201: 'livre', 202: 'livre' }, // robôs começam desligados
+    env: { ROBOS_POR_LIVRE: '2', ROBOS_DEGRAU: '2' },
   },
   'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)': {
     env: { DRY_RUN: '1', ROBOS_POR_LIVRE: '1' },

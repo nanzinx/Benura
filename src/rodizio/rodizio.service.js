@@ -62,6 +62,8 @@ class RodizioService {
     this.manualAte = 0;
     /** Humanos livres na URA na última decisão dos robôs (null = ainda não decidiu). */
     this.ultimosLivres = null;
+    /** Desde quando há mais robôs ligados que o alvo, com gente livre (null = não há). */
+    this.excessoDesde = null;
     this.iniciadoEm = Date.now();
     this.ultimoWebhookEm = 0;
     this.ultimoAvisoSemWebhookEm = 0;
@@ -289,14 +291,17 @@ class RodizioService {
   }
 
   async aplicarDecisaoDosRobos() {
-    const { acao, alvo, motivo, livres } = decidirRobos({
+    const agora = Date.now();
+    const { acao, alvo, motivo, livres, excesso } = decidirRobos({
       ramaisUra: [...this.ramaisUra],
       status: this.statusUra,
-      agora: Date.now(),
-      robos: this.robos.situacao(this.ramaisRobos.length),
+      agora,
+      robos: { ...this.robos.situacao(this.ramaisRobos.length), excessoDesde: this.excessoDesde },
       cfg: {
         reativar: this.cfg.reativarRobos,
         minDesligadoMs: this.cfg.minRobosDesligadosMs,
+        reduzirAposMs: this.cfg.reduzirAposMs,
+        intervaloSubidaMs: this.cfg.intervaloSubidaMs,
         porLivre: this.cfg.robosPorLivre,
         maximo: this.cfg.robosMaximo,
         // Com poll lento, o status "envelhece" entre ciclos: não pode virar "sem visibilidade".
@@ -304,6 +309,8 @@ class RodizioService {
       },
     });
     this.ultimosLivres = livres;
+    // Desde quando há robôs demais com gente livre (a redução parcial espera isso se confirmar).
+    this.excessoDesde = excesso && acao !== AcaoRobos.DESLIGAR ? (this.excessoDesde ?? agora) : null;
     if (acao === AcaoRobos.DESLIGAR) await this.robos.reduzir(this.ramaisRobos, alvo, motivo);
     if (acao === AcaoRobos.RELIGAR) await this.robos.aumentar(this.ramaisRobos, alvo, motivo);
   }

@@ -94,10 +94,36 @@ test('decidirRobos: robôs proporcionais aos livres; reduzir é imediato, aument
   assert.equal(d(['1'], st({ 1: 'livre' }), robos(5, 0, 0)).acao, AcaoRobos.NENHUMA, 'nenhum robô conhecido');
 });
 
-test('escolherParaDesligar: primeiro quem não está em ligação', () => {
-  const ligados = [{ ramal: 'a', classe: 'atendimento' }, { ramal: 'b', classe: 'livre' }, { ramal: 'c', classe: 'outro' }];
+test('escolherParaDesligar: nunca quem está em ligação (nem quem não foi lido) numa redução parcial', () => {
+  const ligados = [
+    { ramal: 'a', classe: 'atendimento' }, { ramal: 'b', classe: 'livre' }, { ramal: 'c', classe: 'outro' }, { ramal: 'd', classe: 'erro' },
+  ];
   assert.deepEqual(escolherParaDesligar(ligados, 2), ['b', 'c']);
-  assert.deepEqual(escolherParaDesligar(ligados, 3), ['b', 'c', 'a']);
+  assert.deepEqual(escolherParaDesligar(ligados, 4), ['b', 'c'], 'o robô em ligação e o não lido ficam até o próximo ciclo');
+});
+
+test('ControleRobos: redução parcial poupa robô em ligação até terminar; alvo 0 desliga todos', async () => {
+  const status = { 900: 'em atendimento', 901: 'em atendimento', 902: 'livre' };
+  const deslogados = [];
+  const client = {
+    async statusOperador(r) { return { descricaoStatus: status[r] || 'Deslogado' }; },
+    async deslogarOperador(r) { deslogados.push(r); status[r] = null; },
+  };
+  const ramais = ['900', '901', '902'];
+  const robos = new ControleRobos({ client, cfg: { dryRun: false, concorrencia: 5, descricoesStatus: DESC_ROBOS }, logger: loggerNulo });
+  await robos.sincronizar(ramais);
+
+  await robos.reduzir(ramais, 1, 'teste'); // excesso 2, mas só o 902 está ocioso
+  assert.deepEqual(deslogados, ['902']);
+  assert.equal(robos.situacao(3).ligados, 2, 'os dois em ligação continuam contados');
+
+  status['900'] = 'livre'; // a ligação do 900 terminou
+  await robos.reduzir(ramais, 1, 'teste');
+  assert.deepEqual(deslogados, ['902', '900']);
+  assert.equal(robos.situacao(3).ligados, 1);
+
+  await robos.reduzir(ramais, 0, 'ninguém livre');
+  assert.ok(deslogados.includes('901'), 'com alvo 0, o robô em ligação também sai');
 });
 
 test('reconciliarMovidos: carência, ausências e retorno à URA', () => {
@@ -436,4 +462,39 @@ test('URA → Ativo: não movido volta ao grupo do supervisor; sem grupo, fica e
   assert.deepEqual(transferidos, ['201→1', '203→3'], 'supervisor para o 201, origem para o movido 203');
   assert.equal(avisos.length, 1, '202 sem grupo: um aviso só');
   assert.ok(svc.ramaisUra.has('202'));
+});
+
+test('decidirRobos: como na operação manual — redução parcial só confirmada, alvo 0 na hora, subida em degraus', () => {
+  const agora = 100_000;
+  const st = (pares) => new Map(Object.entries(pares).map(([r, classe]) => [r, { classe, ts: agora }]));
+  const cfg = { reativar: true, minDesligadoMs: 0, porLivre: 7, reduzirAposMs: 10_000, intervaloSubidaMs: 10_000 };
+  const d = (status, robos) => decidirRobos({ ramaisUra: Object.keys(status), status: st(status), agora, robos: { total: 58, ultimaReducao: 0, ...robos }, cfg });
+
+  // 1 livre (alvo 7) com 20 ligados: excesso recém-surgido espera; confirmado há 10 s reduz.
+  assert.equal(d({ 1: 'livre' }, { ligados: 20, excessoDesde: null }).acao, AcaoRobos.NENHUMA);
+  assert.equal(d({ 1: 'livre' }, { ligados: 20, excessoDesde: agora - 5_000 }).acao, AcaoRobos.NENHUMA);
+  assert.equal(d({ 1: 'livre' }, { ligados: 20, excessoDesde: agora - 10_000 }).acao, AcaoRobos.DESLIGAR);
+  assert.ok(d({ 1: 'livre' }, { ligados: 20, excessoDesde: null }).excesso);
+
+  // Ninguém livre: desliga na hora, sem esperar.
+  assert.equal(d({ 1: 'atendimento' }, { ligados: 20, excessoDesde: null }).acao, AcaoRobos.DESLIGAR);
+
+  // Subida: só depois do intervalo desde o último aumento.
+  assert.equal(d({ 1: 'livre', 2: 'livre' }, { ligados: 7, ultimoAumento: agora - 5_000 }).acao, AcaoRobos.NENHUMA);
+  assert.equal(d({ 1: 'livre', 2: 'livre' }, { ligados: 7, ultimoAumento: agora - 10_000 }).acao, AcaoRobos.RELIGAR);
+});
+
+test('ControleRobos.aumentar: sobe no máximo um degrau por vez', async () => {
+  const logados = [];
+  const client = { async logarOperadorVirtual(r) { logados.push(r); } };
+  const ramais = Array.from({ length: 20 }, (_, i) => String(900 + i));
+  const robos = new ControleRobos({ client, cfg: { dryRun: false, concorrencia: 5, descricoesStatus: DESC_ROBOS, degrauSubida: 7 }, logger: loggerNulo });
+  robos.ligados = new Set();
+
+  await robos.aumentar(ramais, 20, 'teste');
+  assert.equal(logados.length, 7);
+  await robos.aumentar(ramais, 20, 'teste');
+  await robos.aumentar(ramais, 20, 'teste');
+  assert.equal(logados.length, 20, '7 + 7 + 6');
+  assert.ok(robos.situacao(20).ultimoAumento > 0);
 });

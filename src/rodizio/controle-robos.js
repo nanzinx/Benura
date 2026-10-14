@@ -38,17 +38,20 @@ class ControleRobos {
     /** @type {Set<string>|null} ramais ligados; null = ainda não lido */
     this.ligados = null;
     this.ultimaReducao = 0;
+    this.ultimoAumento = 0;
     this.alvo = null;
     /** ramal → quando o BenURA mandou ligar/desligar */
     this.ultimoComando = new Map();
     /** robôs ligados/desligados por fora do BenURA (outra cópia, script antigo, painel) */
     this.mudancasPorFora = 0;
     this.ultimoAvisoForaEm = 0;
+    /** último "mantidos em ligação" logado (evita repetir a cada ciclo) */
+    this.ultimoMantidos = null;
   }
 
   /** Para a regra de decisão. */
   situacao(total) {
-    return { ligados: this.ligados ? this.ligados.size : null, total, ultimaReducao: this.ultimaReducao };
+    return { ligados: this.ligados ? this.ligados.size : null, total, ultimaReducao: this.ultimaReducao, ultimoAumento: this.ultimoAumento };
   }
 
   /** Para o /health. */
@@ -96,8 +99,11 @@ class ControleRobos {
   }
 
   /**
-   * Reduz até `alvo`. Com alvo 0, desliga TODOS os robôs conhecidos (emergência,
-   * sem consultar nada antes).
+   * Reduz até `alvo`.
+   * - Alvo 0 (ninguém livre na URA): desliga TODOS os robôs conhecidos na hora,
+   *   inclusive os em ligação. É a emergência: não há quem receba a derivação.
+   * - Alvo > 0: desliga só os que não estão em ligação. Os que estão falando
+   *   continuam contados como ligados e saem num próximo ciclo, ao terminar.
    */
   async reduzir(ramais, alvo, motivo) {
     this.alvo = alvo;
@@ -105,14 +111,27 @@ class ControleRobos {
     const ligados = await Promise.all([...(this.ligados || [])].map((r) => this.lerClasse(r)));
     const excesso = ligados.length - alvo;
     if (excesso <= 0) return undefined;
-    return this.desligar(escolherParaDesligar(ligados, excesso), motivo, alvo);
+
+    const escolhidos = escolherParaDesligar(ligados, excesso);
+    const mantidos = excesso - escolhidos.length;
+    if (!escolhidos.length) return this.logarMantidos(alvo, motivo, mantidos);
+    return this.desligar(escolhidos, motivo, alvo, mantidos);
+  }
+
+  /** Nada a desligar agora: todo o excesso está em ligação. Avisa uma vez por alvo. */
+  logarMantidos(alvo, motivo, mantidos) {
+    const chave = `${alvo}:${mantidos}`;
+    if (this.ultimoMantidos === chave) return;
+    this.ultimoMantidos = chave;
+    this.log.info(`ROBÔS: alvo ${alvo} (${motivo}), mas ${mantidos} em ligação mantidos até terminar.`);
   }
 
   /**
    * Desloga os robôs indicados, re-tentando os que falharem.
    * Algum que resista continua contado como ligado e será tentado no próximo ciclo.
    */
-  async desligar(ramais, motivo, alvo = 0) {
+  async desligar(ramais, motivo, alvo = 0, mantidos = 0) {
+    this.ultimoMantidos = null;
     if (!ramais.length) {
       this.log.erro('Nenhum robô conhecido para desligar (grupo de robôs vazio ou ainda não lido).');
       return;
@@ -128,7 +147,8 @@ class ControleRobos {
 
     const ms = Number(process.hrtime.bigint() - inicio) / 1e6;
     this.log.info(`ROBÔS ${alvo === 0 ? 'DESLIGADOS' : `REDUZIDOS para ${alvo}`} (${motivo}): `
-      + `${desligados.length}/${ramais.length} em ${ms.toFixed(0)} ms | ligados agora: ${this.ligados.size}`);
+      + `${desligados.length}/${ramais.length} em ${ms.toFixed(0)} ms | ligados agora: ${this.ligados.size}`
+      + `${mantidos ? ` | ${mantidos} em ligação mantidos até terminar` : ''}`);
     if (pendentes.length) this.log.aviso(`Robôs ainda logados: ${pendentes.join(', ')}. Nova tentativa no próximo ciclo.`);
   }
 
@@ -165,17 +185,25 @@ class ControleRobos {
     return false;
   }
 
-  /** Liga, um a um, os robôs desligados que faltam para chegar ao alvo. */
+  /**
+   * Liga os robôs que faltam para o alvo, no máximo `degrauSubida` por vez: todos
+   * discando no mesmo segundo trazem derivações juntas e o excedente vira callback.
+   */
   async aumentar(ramais, alvo, motivo) {
     this.alvo = alvo;
     const ligados = this.ligados || new Set();
-    const candidatos = ramais.map(String).filter((r) => !ligados.has(r)).slice(0, alvo - ligados.size);
+    const faltam = alvo - ligados.size;
+    const degrau = this.cfg.degrauSubida > 0 ? Math.min(faltam, this.cfg.degrauSubida) : faltam;
+    const candidatos = ramais.map(String).filter((r) => !ligados.has(r)).slice(0, degrau);
     if (!candidatos.length) return;
+    this.ultimoAumento = Date.now();
 
     const resultados = await mapearComLimite(candidatos, LIGAR_EM_PARALELO, (r) => this.logar(r));
     const ok = candidatos.filter((_, i) => resultados[i]);
     this.ligados = new Set([...ligados, ...ok]);
-    this.log.info(`ROBÔS AUMENTADOS para ${alvo} (${motivo}): +${ok.length}/${candidatos.length} | ligados agora: ${this.ligados.size}`);
+    const resto = alvo - this.ligados.size;
+    this.log.info(`ROBÔS AUMENTADOS para ${alvo} (${motivo}): +${ok.length}/${candidatos.length} | ligados agora: ${this.ligados.size}`
+      + `${resto > 0 ? ` | faltam ${resto} (próximo degrau)` : ''}`);
   }
 
   /** @returns {Promise<boolean>} true se o robô ficou logado */
