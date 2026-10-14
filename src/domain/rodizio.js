@@ -237,6 +237,23 @@ function interpretarWebhook(evento) {
   return inicioAtendimento || derivouDaUra ? { ramal: String(ramal) } : null;
 }
 
+/** Encerramento de URA (webhook tipo 5): conclusões em que o cliente pediu humano e desistiu na fila. */
+const CONCLUSOES_CALLBACK = Object.freeze({ 2: 'abandonou a fila', 4: 'time-out na fila' });
+
+/**
+ * Callback em tempo real: o cliente pediu um humano e ninguém atendeu a tempo
+ * (é o "Gerou Callback" do painel). Sem dados do cliente: a chave só serve
+ * para não contar duas vezes o mesmo evento reenviado.
+ * @returns {{ motivo: string, chave: string|null }|null}
+ */
+function interpretarCallback(evento) {
+  if (evento?.idTipoWebhook !== 5) return null;
+  const motivo = CONCLUSOES_CALLBACK[evento.idConclusaoDerivacao ?? evento.FidConclusaoDerivacao];
+  if (!motivo) return null;
+  const partes = [evento.idLigacao, evento.telefone, evento.dataInicioUra].filter((p) => p != null && p !== '');
+  return { motivo, chave: partes.length ? partes.join('|') : null };
+}
+
 /** Robô respondeu que já estava deslogado: para nós, é sucesso. */
 function jaEstavaDeslogado(descricao) {
   const d = String(descricao || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -259,5 +276,6 @@ module.exports = {
   escolherParaDesligar,
   reconciliarMovidos,
   interpretarWebhook,
+  interpretarCallback,
   jaEstavaDeslogado,
 };

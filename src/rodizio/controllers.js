@@ -3,10 +3,11 @@
  * Rotas HTTP do rodízio: saúde, webhooks da Argus, modo manual dos robôs e URA cheia.
  *
  * Um único endereço recebe todos os webhooks configurados na Argus e os
- * distribui: início de atendimento → rodízio; encerramento de URA → retorno da fila.
+ * distribui: início de atendimento → rodízio; encerramento de URA → retorno da fila e,
+ * se o cliente desistiu na fila (callback), ajuste dos robôs por livre.
  */
 
-const { interpretarWebhook } = require('../domain/rodizio');
+const { interpretarWebhook, interpretarCallback } = require('../domain/rodizio');
 const { PAGINA_URA } = require('./pagina-ura');
 
 /**
@@ -36,6 +37,12 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
     if (evento) rodizio.registrarAtendimento(evento.ramal);
   }
 
+  /** Cliente desistiu da fila (callback) → ajuste dos robôs por livre. */
+  function encaminharCallback(corpo) {
+    const callback = interpretarCallback(corpo);
+    if (callback) rodizio.registrarCallback(callback);
+  }
+
   /** Encerramento de URA → retorno da fila. Não bloqueia a resposta à Argus. */
   function encaminharAoRetorno(corpo) {
     if (!retornoFila) return;
@@ -46,6 +53,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
     logger.debug(`Webhook recebido (tipo ${corpo?.idTipoWebhook ?? '?'}).`);
     rodizio.registrarWebhookRecebido();
     encaminharAoRodizio(corpo);
+    encaminharCallback(corpo);
     encaminharAoRetorno(corpo);
     return { status: 200, corpo: { ok: true } };
   }

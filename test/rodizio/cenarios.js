@@ -372,6 +372,25 @@ const CENARIOS = {
     await aguardar(() => ligados().length === 0, { descricao: 'desligar todos' });
   },
 
+  async 'Robôs: callback baixa um degrau de robôs por livre (sem derrubar ligação) e volta sozinho'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
+    const ajuste = async () => (await (await fetch(`${r.base}/health`)).json()).ajusteRobos;
+    await aguardar(() => ligados().length === 6, { descricao: '2 livres × 3 = 6 robôs' });
+
+    const callback = { idTipoWebhook: 5, idConclusaoDerivacao: 2, telefone: '11999990000', dataInicioUra: '2026-10-15T09:03:00' };
+    await r.webhook(callback);
+    await aguardar(() => ligados().length === 4, { descricao: '2 livres × 2 = 4 robôs' });
+    if (!ligados().includes('900')) throw new Error('desligou o robô que estava em ligação');
+    if (!r.saida.join('').includes('robôs por livre 3→2')) throw new Error('não registrou a queda no log');
+    await r.webhook(callback); // reenvio da Argus
+    const depois = await ajuste();
+    if (depois.porLivre !== 2 || depois.callbacks !== 1) throw new Error(`ajuste ${JSON.stringify(depois)}`);
+
+    // Sem callback por ROBOS_RECUPERAR_APOS_MIN (~5 s), volta ao valor do .env.
+    await aguardar(() => ligados().length === 6, { timeoutMs: 12_000, descricao: 'voltar a 6 robôs' });
+    if ((await ajuste()).porLivre !== 3) throw new Error('não voltou a 3 por livre');
+  },
+
   async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {
     const post = (rota, corpo = {}) => fetch(`${r.base}${rota}?token=${TOKEN}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
@@ -619,6 +638,20 @@ const VARIACOES = {
       ...Object.fromEntries(ROBOS_10.map((x) => [x, x === '900' ? 'em atendimento' : 'livre'])),
     },
     env: { ROBOS_POR_LIVRE: '3' },
+  },
+  'Robôs: callback baixa um degrau de robôs por livre (sem derrubar ligação) e volta sozinho': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: {
+      100: 'livre', 200: 'livre', 201: 'livre',
+      ...Object.fromEntries(ROBOS_10.map((x) => [x, x === '900' ? 'em atendimento' : 'livre'])),
+    },
+    env: {
+      ROBOS_POR_LIVRE: '3', ROBOS_DEGRAU: '10', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_RECUPERAR_APOS_MIN: '0.08', TEMPO_MIN: '5',
+    },
   },
   'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina': {
     grupos: [
