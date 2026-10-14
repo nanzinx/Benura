@@ -8,7 +8,8 @@
  *
  * Na Argus, o "Gerou Callback" do painel aparece no relatório como resultado
  * "OPER. VIRTUAL - ABANDONO EM FILA" (o cliente pediu um humano, esperou na
- * fila e desistiu) ou "SEM AGENTE"; "Derivou" é o resultado "ATENDIMENTO".
+ * fila e desistiu); "Derivou" é o resultado "ATENDIMENTO". "SEM AGENTE" vem do
+ * discador (0 s), não dos robôs: conta à parte.
  *
  * Nenhum dado de cliente sai daqui: CPF, telefone, nome, lead, campos do CRM,
  * histórico e afins são descartados antes de qualquer resumo, assim como
@@ -26,7 +27,8 @@ const CAMPO_DO_CALLBACK = /^idLigacao$|data|hora|usuario|operador|result|tempo|d
 
 /** Como cada resultado entra na linha do tempo. */
 const TIPOS = Object.freeze([
-  ['callback', /abandono em fila|sem agente|call\s*-?\s*back/i],
+  ['callback', /abandono em fila|call\s*-?\s*back/i],
+  ['semAgente', /sem agente/i],
   ['derivou', /^atendimento$/i],
   ['abandonoNaUra', /oper\.?\s*virtual\s*-\s*abandono$/i],
 ]);
@@ -38,7 +40,7 @@ const ehPrimitivo = (v) => v === null || ['string', 'number', 'boolean'].include
 const semDadosDeCliente = (ligacao) => Object.fromEntries(Object.entries(ligacao || {})
   .filter(([campo, valor]) => !ehDeCliente(campo) && ehPrimitivo(valor)));
 
-/** Tipo da ligação pelos campos de resultado: 'callback', 'derivou', 'abandonoNaUra' ou null. */
+/** Tipo da ligação pelos campos de resultado: 'callback', 'semAgente', 'derivou', 'abandonoNaUra' ou null. */
 function tipoDaLigacao(ligacao) {
   const resultados = Object.entries(ligacao)
     .filter(([campo, v]) => CAMPO_DE_RESULTADO.test(campo) && typeof v === 'string')
@@ -75,8 +77,8 @@ const horaDaLigacao = (ligacao) => {
 };
 
 /**
- * Contagem por janela de `janelaMin` minutos: total, callback, derivou e abandono na URA.
- * @returns {Array<{ janela: string, total: number, callback: number, derivou: number, abandonoNaUra: number }>}
+ * Contagem por janela de `janelaMin` minutos: total, callback, sem agente, derivou e abandono na URA.
+ * @returns {Array<{ janela: string, total: number, callback: number, semAgente: number, derivou: number, abandonoNaUra: number }>}
  */
 function linhaDoTempo(ligacoes, janelaMin = 15) {
   const janelas = new Map();
@@ -84,7 +86,7 @@ function linhaDoTempo(ligacoes, janelaMin = 15) {
     const minuto = horaDaLigacao(ligacao);
     if (minuto === null) continue;
     const inicio = Math.floor(minuto / janelaMin) * janelaMin;
-    const j = janelas.get(inicio) || { janela: formatarMinuto(inicio), total: 0, callback: 0, derivou: 0, abandonoNaUra: 0 };
+    const j = janelas.get(inicio) || { janela: formatarMinuto(inicio), total: 0, callback: 0, semAgente: 0, derivou: 0, abandonoNaUra: 0 };
     j.total++;
     const tipo = tipoDaLigacao(ligacao);
     if (tipo) j[tipo]++;
@@ -110,6 +112,33 @@ function resumirLigacoes(ligacoes) {
   };
 }
 
+/**
+ * Quem está na URA e em que grupo está LOGADO na telefonia (statusoperador.idGrupo,
+ * "código do grupo logado" na doc 4.14). Estar no grupo da URA na lista de grupos
+ * e logado em outro significa que a derivação dos robôs não chega na pessoa.
+ * Só campos do operador: o último lead (dados do cliente) nunca é usado.
+ * @param {string[]} ramais - ramais do grupo da URA (listargrupos)
+ * @param {Map<string, object|null|Error>} statusPorRamal - statusOperador de cada um (null = deslogado)
+ * @returns {Array<{ ramal, operador, grupoLogado, grupo, status, origemDerivacao, situacao: 'ok'|'outro grupo'|'deslogado'|'erro' }>}
+ */
+function conferirUra(ramais, statusPorRamal, grupoUraId) {
+  return ramais.map((ramal) => {
+    const s = statusPorRamal.get(String(ramal));
+    if (s instanceof Error) return { ramal, situacao: 'erro' };
+    if (!s) return { ramal, situacao: 'deslogado' };
+    const naUra = Number(s.idGrupo) === Number(grupoUraId);
+    return {
+      ramal,
+      operador: s.nome ?? null,
+      grupoLogado: s.idGrupo ?? null,
+      grupo: s.grupo ?? null,
+      status: s.descricaoStatus ?? null,
+      origemDerivacao: s.origemDerivacao ?? null,
+      situacao: naUra ? 'ok' : 'outro grupo',
+    };
+  });
+}
+
 /** Minutos desde a meia-noite de `hora` (HH:MM), para "ultimosMinutos" pegar o dia todo. */
 const minutosDesdeMeiaNoite = (hora) => {
   const [h, m] = String(hora).split(':').map(Number);
@@ -117,5 +146,5 @@ const minutosDesdeMeiaNoite = (hora) => {
 };
 
 module.exports = {
-  semDadosDeCliente, resumirLigacoes, minutosDesdeMeiaNoite, ehDeCliente, tipoDaLigacao, linhaDoTempo, minutoDoDia,
+  semDadosDeCliente, resumirLigacoes, minutosDesdeMeiaNoite, ehDeCliente, tipoDaLigacao, linhaDoTempo, minutoDoDia, conferirUra,
 };

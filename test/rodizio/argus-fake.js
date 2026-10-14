@@ -22,6 +22,8 @@ function criarArgusFake({ grupos, status, usuarios = [] }) {
     chamadas: [],
     leads: [],
     responderComStatusHttp: null, // ex.: 403 para simular token inválido
+    /** ramal → idGrupo em que a telefonia diz que ele está logado (padrão: o grupo da lista) */
+    grupoLogado: {},
   };
 
   const grupoDe = (ramal) => estado.grupos.find((g) => g.ramaisOperadores.map(String).includes(String(ramal)));
@@ -39,7 +41,9 @@ function criarArgusFake({ grupos, status, usuarios = [] }) {
       if (desc == null) return { httpStatus: 500, codStatus: -1, descStatus: 'Erro interno' };
       return {
         codStatus: 1,
-        statusOperador: { ramal: String(ramal), descricaoStatus: desc, descricaoPausa: '', idGrupo: grupo?.idGrupoUsuario },
+        statusOperador: {
+          ramal: String(ramal), descricaoStatus: desc, descricaoPausa: '', idGrupo: estado.grupoLogado[ramal] ?? grupo?.idGrupoUsuario,
+        },
       };
     },
 

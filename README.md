@@ -220,8 +220,14 @@ Para descobrir **quando** e **por que** os robôs geram callback:
    npm run diagnostico:callbacks                    # hoje, desde a meia-noite
    npm run diagnostico:callbacks -- --minutos 120   # só os últimos 120 min
    ```
-   Ele busca na Argus o relatório de ligações detalhadas dos grupos de robôs (`GRUPOS_ROBOS_URA_IDS`) e mostra três coisas: os campos do relatório, a contagem por status/resultado e cada callback com hora e robô.
+   Ele busca na Argus o relatório de ligações detalhadas dos grupos de robôs (`GRUPOS_ROBOS_URA_IDS`) e mostra:
+   - os campos do relatório e a contagem por status/resultado;
+   - a linha do tempo de 15 em 15 min: derivou (`ATENDIMENTO`), callback (`OPER. VIRTUAL - ABANDONO EM FILA`, que é o "Gerou Callback" do painel) e sem agente (do discador);
+   - cada callback com hora e robô;
+   - **"Quem está na URA agora":** em que grupo cada pessoa da URA está **logada na telefonia** (status do operador, só leitura). `⚠ LOGADO EM OUTRO GRUPO` quer dizer que a pessoa aparece na URA, mas a derivação dos robôs não chega nela.
    Também grava o resultado em `logs/diagnostico-callbacks-AAAA-MM-DD.json`. CPF, telefone, nome do cliente e lead são descartados antes de imprimir ou gravar.
+
+3. **Aviso no rodízio:** quem está no grupo da URA mas logado na telefonia em outro grupo gera um aviso no log (uma vez por ramal) e aparece em `uraLogadosEmOutroGrupo` no `/health`. Funciona também com `DRY_RUN=1`, porque só lê.
 
 Compare a hora de cada callback com a linha do tempo daquele minuto.
 

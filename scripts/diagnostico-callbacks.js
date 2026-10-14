@@ -10,7 +10,8 @@
  * Busca as ligações dos grupos de robôs (GRUPOS_ROBOS_URA_IDS) no relatório de
  * ligações detalhadas da Argus e mostra: os campos do relatório, a contagem por
  * status/resultado, a linha do tempo de 15 em 15 min (derivou × callback) e
- * cada callback com hora e robô. Grava o mesmo em
+ * cada callback com hora e robô. Mostra também quem está na URA agora e em que
+ * grupo cada um está LOGADO na telefonia (só lê o status). Grava o mesmo em
  * logs/diagnostico-callbacks-AAAA-MM-DD.json. Sem dados de cliente.
  */
 
@@ -19,7 +20,8 @@ const path = require('path');
 const { carregarConfig } = require('../src/config');
 const { criarLogger } = require('../src/utils/logger');
 const { ArgusClient } = require('../src/integrations/argus/argus.client');
-const { resumirLigacoes, minutosDesdeMeiaNoite } = require('../src/domain/diagnostico-callbacks');
+const { resumirLigacoes, minutosDesdeMeiaNoite, conferirUra } = require('../src/domain/diagnostico-callbacks');
+const { mapearComLimite } = require('../src/utils/concorrencia');
 const { dataLocal, horaLocal } = require('../src/utils/datas');
 
 /** --nome valor → { nome: valor } */
@@ -46,19 +48,29 @@ async function escolherCampanha(client, pedida) {
  * @param {number[]} deps.gruposRobos
  * @param {number} deps.minutos
  * @param {number|string} [deps.campanha]
- * @returns {Promise<{ idCampanha: number, minutos: number, porGrupo: object }>}
+ * @param {number} [deps.grupoUraId] - para conferir em que grupo quem está na URA está logado
+ * @returns {Promise<{ idCampanha: number, minutos: number, porGrupo: object, ura: object[] }>}
  */
-async function diagnosticar({ client, gruposRobos, minutos, campanha }) {
+async function diagnosticar({ client, gruposRobos, minutos, campanha, grupoUraId }) {
   const idCampanha = await escolherCampanha(client, campanha);
   const porGrupo = {};
   for (const idGrupoUsuario of gruposRobos) {
     const ligacoes = await client.ligacoesDetalhadas({ idCampanha, idGrupoUsuario, ultimosMinutos: minutos });
     porGrupo[idGrupoUsuario] = resumirLigacoes(ligacoes);
   }
-  return { idCampanha, minutos, porGrupo };
+  const ura = grupoUraId ? await quemEstaNaUra(client, grupoUraId) : [];
+  return { idCampanha, minutos, porGrupo, ura };
 }
 
-function imprimir({ idCampanha, minutos, porGrupo }) {
+/** Só leitura: os ramais do grupo da URA e o statusoperador de cada um. */
+async function quemEstaNaUra(client, grupoUraId) {
+  const grupo = (await client.listarGrupos()).find((g) => g.idGrupoUsuario === grupoUraId);
+  const ramais = (grupo?.ramaisOperadores || []).map(String);
+  const lidos = await mapearComLimite(ramais, 5, async (ramal) => [ramal, await client.statusOperador(ramal).catch((e) => e)]);
+  return conferirUra(ramais, new Map(lidos), grupoUraId);
+}
+
+function imprimir({ idCampanha, minutos, porGrupo, ura }) {
   console.log(`\nCampanha ${idCampanha} · últimos ${minutos} min\n`);
   for (const [grupo, r] of Object.entries(porGrupo)) {
     console.log(`Grupo de robôs ${grupo}: ${r.total} ligação(ões)`);
@@ -68,19 +80,38 @@ function imprimir({ idCampanha, minutos, porGrupo }) {
       console.log(`  ${campo} → ${contagem}`);
     }
     imprimirLinhaDoTempo(r.linhaDoTempo);
-    console.log(`  Callbacks (abandono em fila / sem agente): ${r.callbacks.length}`);
+    console.log(`  Callbacks (abandono em fila): ${r.callbacks.length}`);
     for (const c of r.callbacks) console.log(`    ${Object.values(c).join(' | ')}`);
     console.log('');
   }
+  imprimirUra(ura);
 }
 
-/** Só as janelas com derivação ou callback: é onde está a resposta. */
+const SIMBOLO = { ok: '✓', 'outro grupo': '⚠ LOGADO EM OUTRO GRUPO', deslogado: '· deslogado', erro: '? sem resposta' };
+
+/** Quem está na URA e em que grupo está logado: ⚠ = a derivação dos robôs não chega nele. */
+function imprimirUra(ura) {
+  if (!ura.length) return;
+  const logados = ura.filter((u) => u.situacao !== 'deslogado');
+  console.log(`Quem está na URA agora: ${logados.length} logado(s) de ${ura.length}`);
+  for (const u of logados) {
+    const grupo = u.grupoLogado != null ? `logado em ${u.grupo ?? '?'} (${u.grupoLogado})` : '';
+    console.log(`  ${u.ramal} | ${u.operador ?? ''} | ${grupo} | ${u.status ?? ''} | ${u.origemDerivacao ?? ''} | ${SIMBOLO[u.situacao]}`);
+  }
+  const fora = ura.filter((u) => u.situacao === 'outro grupo').length;
+  console.log(fora
+    ? `  ⚠ ${fora} pessoa(s) na URA logada(s) em outro grupo: a derivação dos robôs não chega nelas.\n`
+    : '  Todos os logados estão logados no grupo da URA.\n');
+}
+
+/** Só as janelas com derivação, callback ou sem agente: é onde está a resposta. */
 function imprimirLinhaDoTempo(linhas) {
-  const relevantes = linhas.filter((j) => j.callback || j.derivou);
+  const relevantes = linhas.filter((j) => j.callback || j.derivou || j.semAgente);
   if (!relevantes.length) return;
-  console.log('  Hora   ligações  derivou  callback  abandono na URA');
+  console.log('  Hora   ligações  derivou  callback  sem agente  abandono na URA');
+  const col = (v, n) => String(v).padStart(n);
   for (const j of relevantes) {
-    console.log(`  ${j.janela}  ${String(j.total).padStart(8)}  ${String(j.derivou).padStart(7)}  ${String(j.callback).padStart(8)}  ${String(j.abandonoNaUra).padStart(15)}`);
+    console.log(`  ${j.janela}  ${col(j.total, 8)}  ${col(j.derivou, 7)}  ${col(j.callback, 8)}  ${col(j.semAgente, 10)}  ${col(j.abandonoNaUra, 15)}`);
   }
 }
 
@@ -90,7 +121,9 @@ async function main() {
   const client = new ArgusClient(cfg.argus, criarLogger({ debug: cfg.debug, escopo: 'diagnostico' }));
   const minutos = Number(args.minutos) || minutosDesdeMeiaNoite(horaLocal(cfg.agenda.fusoHorario));
 
-  const resultado = await diagnosticar({ client, gruposRobos: cfg.rodizio.gruposRobosIds, minutos, campanha: args.campanha });
+  const resultado = await diagnosticar({
+    client, gruposRobos: cfg.rodizio.gruposRobosIds, minutos, campanha: args.campanha, grupoUraId: cfg.argus.grupoUraId,
+  });
   imprimir(resultado);
 
   const arquivo = path.join(process.cwd(), 'logs', `diagnostico-callbacks-${dataLocal(cfg.agenda.fusoHorario)}.json`);
