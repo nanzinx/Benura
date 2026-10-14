@@ -219,6 +219,11 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - A URA é lida a cada `POLL_URA_MS` (**5 s**). Com **1 a `LIVRES_ALERTA` (2) livres** ela entra **em alerta** e passa a ser lida a cada `POLL_URA_ALERTA_MS` (**1 s**): o próximo atendimento pode zerar os livres com robôs ligados.
    - Robô que liga ou desliga **sem comando do BenURA** (outra cópia, script antigo, painel) gera um aviso no log e conta em `/health` (`robos.mudancasPorFora`).
    - **Modo manual**: `POST /robos/manual` `{ "minutos": 30 }` (com token) faz o BenURA parar de mexer nos robôs para a supervisão assumir pelo painel; `POST /robos/automatico` devolve.
+   - **Ajuste pelos callbacks** (`ROBOS_AJUSTE_CALLBACK=1`, padrão): o 7 é a média; num dia de URA mais agressiva, cada callback baixa um degrau de robôs por livre (7→6→5…, até `ROBOS_POR_LIVRE_MINIMO`, padrão **4**). Sem callback por `ROBOS_RECUPERAR_APOS_MIN` (**15 min**), sobe um degrau de volta, até o `ROBOS_POR_LIVRE`.
+     - O sinal é o webhook **encerramento de URA (tipo 5)** com "abandonou a fila" ou "time-out na fila": é o "Gerou Callback" do painel. Precisa estar configurado na Argus apontando para `POST /webhook?token=…` (o mesmo do retorno da fila).
+     - Cada callback aparece no log com a situação da URA naquele instante: `Callback (abandonou a fila) com 1 livre(s) na URA e 7 robô(s) ligado(s): robôs por livre 7→6.` Isso ajuda a explicar callbacks que não deveriam acontecer.
+     - Só baixa: a redução segue as regras acima (não derruba robô em ligação). No máximo um degrau a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**), o mesmo evento reenviado conta uma vez, e no modo manual o callback é registrado mas não ajusta. Ao reiniciar, volta ao `ROBOS_POR_LIVRE`.
+     - O `/health` mostra `ajusteRobos: { porLivre, base, piso, callbacks, ultimoCallback }`.
    - **Ninguém livre** (todos ocupados ou em pausa, URA vazia ou offline, ou a Argus sem responder) → **todos desligados** na hora.
    - Os grupos dos robôs ficam em `GRUPOS_ROBOS_URA_IDS` (hoje URA PORT 3). A cada atualização de grupos, o rodízio confere na Argus quais robôs estão de fato ligados.
    - O `/health` mostra `robos: { ligados, alvo, total, porLivre, mudancasPorFora, manualAte }`, `intervaloUraMs` e `ultimoWebhook`.
@@ -347,6 +352,9 @@ O roteador, o rodízio, as rotinas e a supervisão (pelo painel) mexem nos mesmo
 | C8 | Carrossel e esteira colada usam critérios diferentes | `/status` mostra a fonte da carga e de cada promoção; aviso quando o Carrossel volta |
 | C9 | Supervisor move alguém à mão | Esperado: o roteador respeita grupos externos e o rodízio esquece o emprestado em ~1 min |
 | C10 | Fim de expediente com `deslogar` desconectaria o plantão | Aviso quando `deslogar` está sem `FIM_EXPEDIENTE_IGNORAR_RAMAIS` |
+| C11 | Lista mudou, mas a telefonia só troca quando a pessoa fica livre | Só conta como livre na URA quem já está logado nela; quem fica preso é relogado após 30 s livre |
+| C12 | Rodízio sem a lista do dia do roteador | Gira todos, como antes, e avisa (`elegiveisUra.disponivel: false`) |
+| C13 | Ajuste pelos callbacks reagindo a callback que não foi excesso de robôs (telefonia, modo manual) | Só baixa, com piso e um degrau por minuto; volta sozinho em 15 min; no modo manual não ajusta |
 
 **Regra de ouro:** um PC só, um jeito só de iniciar (PM2 **ou** janelas). Para conferir: `npx pm2 list` e `Get-Process node`.
 

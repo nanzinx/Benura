@@ -48,9 +48,13 @@ class RodizioService {
    *        quem pode subir do Ativo para a URA (sem: todos)
    * @param {import('./ura-cheia').UraCheia} [deps.uraCheia]
    *        modo "todos na URA" pedido pela supervisão
+   * @param {import('./ajuste-por-callback').AjustePorCallback} [deps.ajuste]
+   *        robôs por livre que baixam a cada callback (sem: sempre ROBOS_POR_LIVRE)
    */
-  constructor({ client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null }) {
-    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia });
+  constructor({
+    client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
+  }) {
+    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste });
     /** ramais sem grupo do Ativo identificável (aviso uma vez por ramal) */
     this.semGrupoAvisados = new Set();
 
@@ -461,7 +465,7 @@ class RodizioService {
         minDesligadoMs: this.cfg.minRobosDesligadosMs,
         reduzirAposMs: this.cfg.reduzirAposMs,
         intervaloSubidaMs: this.cfg.intervaloSubidaMs,
-        porLivre: this.cfg.robosPorLivre,
+        porLivre: this.porLivreAgora(agora),
         maximo: this.cfg.robosMaximo,
         // Com poll lento, o status "envelhece" entre ciclos: não pode virar "sem visibilidade".
         validadeStatusMs: Math.max(VALIDADE_STATUS_MS, this.cfg.pollUraMs * 2 + 1000),
@@ -501,6 +505,27 @@ class RodizioService {
     this.statusUra.set(ramal, { classe: Classe.ATENDIMENTO, ts: Date.now(), doWebhook: true });
     this.log.debug(`webhook: ${ramal} em atendimento na URA`);
     this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após webhook: ${e.message}`));
+  }
+
+  /**
+   * O cliente pediu um humano e desistiu na fila (webhook de encerramento de URA).
+   * Registra com a situação da URA naquele instante e, com o ajuste ligado,
+   * baixa um degrau de robôs por livre e reavalia os robôs na hora.
+   */
+  registrarCallback(callback) {
+    const { ligados } = this.robos.situacao(this.ramaisRobos.length);
+    const situacao = `${this.ultimosLivres ?? '?'} livre(s) na URA e ${ligados ?? '?'} robô(s) ligado(s)`;
+    if (!this.ajuste) {
+      this.log.aviso(`Callback (${callback.motivo}) com ${situacao}.`);
+      return;
+    }
+    const baixou = this.ajuste.registrarCallback(callback, { manual: Date.now() < this.manualAte, situacao });
+    if (baixou) this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após callback: ${e.message}`));
+  }
+
+  /** Robôs por livre agora (ajustado pelos callbacks, se ligado). */
+  porLivreAgora(agora = Date.now()) {
+    return this.ajuste ? this.ajuste.atual(agora) : this.cfg.robosPorLivre;
   }
 
   // ───────────────────────────── Auxiliares ─────────────────────────────
@@ -592,7 +617,7 @@ class RodizioService {
       robos: {
         ...this.robos.resumo(),
         total: this.ramaisRobos.length,
-        porLivre: this.cfg.robosPorLivre,
+        porLivre: this.porLivreAgora(),
         manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,
       },
       intervaloUraMs: this.intervaloUraMs(),
@@ -601,6 +626,7 @@ class RodizioService {
       uraLogadosEmOutroGrupo: [...this.logadosEmOutroGrupo.values()],
       elegiveisUra: this.elegiveis ? this.elegiveis.resumo() : { disponivel: false, total: null, desligado: true },
       uraCheia: this.uraCheia ? this.uraCheia.resumo() : { ligada: false, desde: null },
+      ajusteRobos: this.ajuste ? this.ajuste.resumo() : null,
       dryRun: Boolean(this.cfg.dryRun),
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,

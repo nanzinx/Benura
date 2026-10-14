@@ -117,6 +117,12 @@ function carregarConfig(overrides = {}) {
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
+      // Cada callback (cliente desistiu da fila: webhook tipo 5) baixa um degrau de robôs
+      // por livre, até o mínimo; sem callback por ROBOS_RECUPERAR_APOS_MIN, sobe um de volta.
+      ajusteCallback: envBool('ROBOS_AJUSTE_CALLBACK', true),
+      porLivreMinimo: envNum('ROBOS_POR_LIVRE_MINIMO', 4),
+      recuperarAposMs: envNum('ROBOS_RECUPERAR_APOS_MIN', 15) * 60_000,
+      intervaloAjusteMs: envNum('ROBOS_AJUSTE_INTERVALO_S', 60) * 1000,
       // Minutos ocioso (Livre) seguidos na URA antes de voltar ao Ativo. Atender zera a contagem.
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
       // O último livre da URA, ocioso, só volta ao Ativo depois que os robôs em ligação
