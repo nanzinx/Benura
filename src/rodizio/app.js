@@ -30,6 +30,7 @@ const configDoRodizio = (cfg) => ({
   dryRun: cfg.argus.dryRun,
   alinharLogin: cfg.argus.alinharLogin,
   esperaLoginMs: cfg.argus.esperaLoginMs,
+  alinharAposMs: cfg.argus.alinharAposMs,
 });
 
 /** Monta as dependências (sem efeitos colaterais: nada é iniciado aqui). */

@@ -5,9 +5,11 @@
  * Mantém grupos e status de operadores em memória, registra cada comando
  * recebido e permite que o teste altere status no meio da execução.
  *
- * Como a Argus real: transferir de grupo quem já está logado muda só a lista;
- * a telefonia (statusoperador.idGrupo) continua no grupo antigo até ele logar
- * de novo (logaroperador loga no grupo vinculado).
+ * Como a Argus real: transferir de grupo quem já está logado muda a lista na
+ * hora, mas a telefonia (statusoperador.idGrupo) só troca quando a pessoa fica
+ * LIVRE, com um atraso da discadora. Em ligação ou pausa, a troca espera.
+ * `travados` simula quem nunca troca sozinho (até logar de novo), como o
+ * operador visto em 14/10/2026. logaroperador loga no grupo vinculado.
  */
 
 const http = require('http');
@@ -17,8 +19,9 @@ const http = require('http');
  * @param {Array<{ idGrupoUsuario, idTipoGrupo, ramaisOperadores }>} opcoes.grupos
  * @param {Record<string, string|null>} opcoes.status - ramal → descricaoStatus (null = offline)
  * @param {object[]} [opcoes.usuarios] - resposta de /listarusuarios (supervisores e vínculos)
+ * @param {number} [opcoes.atrasoTrocaMs] - quanto a discadora demora para trocar o grupo de quem está livre
  */
-function criarArgusFake({ grupos, status, usuarios = [] }) {
+function criarArgusFake({ grupos, status, usuarios = [], atrasoTrocaMs = 300 }) {
   const estado = {
     grupos: structuredClone(grupos),
     status: { ...status },
@@ -28,6 +31,19 @@ function criarArgusFake({ grupos, status, usuarios = [] }) {
     responderComStatusHttp: null, // ex.: 403 para simular token inválido
     /** ramal → idGrupo em que a telefonia diz que ele está logado (padrão: o grupo da lista) */
     grupoLogado: {},
+    /** ramal → desde quando a troca de grupo espera a discadora */
+    trocaPendente: {},
+    /** ramais que nunca trocam sozinhos (só logando de novo) */
+    travados: new Set(),
+  };
+
+  /** A discadora troca o grupo de quem está livre, depois do atraso. */
+  const aplicarTrocaPendente = (ramal) => {
+    const desde = estado.trocaPendente[ramal];
+    const livre = /livre/i.test(String(estado.status[ramal] || ''));
+    if (desde == null || estado.travados.has(String(ramal)) || !livre || Date.now() - desde < atrasoTrocaMs) return;
+    delete estado.grupoLogado[ramal];
+    delete estado.trocaPendente[ramal];
   };
 
   const grupoDe = (ramal) => estado.grupos.find((g) => g.ramaisOperadores.map(String).includes(String(ramal)));
@@ -37,6 +53,7 @@ function criarArgusFake({ grupos, status, usuarios = [] }) {
     listarusuarios: () => ({ codStatus: 1, usuarios: estado.usuarios }),
 
     statusoperador: ({ ramal }) => {
+      aplicarTrocaPendente(ramal);
       const grupo = grupoDe(ramal);
       // Como a Argus real: humano não logado recebe HTTP 500; robô desligado
       // (grupo virtual) responde sucesso com o status "Deslogado".
@@ -54,7 +71,10 @@ function criarArgusFake({ grupos, status, usuarios = [] }) {
     transferiroperadorgrupo: ({ idGrupoUsuarioDestino, ramaisOperadores }) => {
       for (const r of ramaisOperadores) {
         const logadoEm = estado.grupoLogado[r] ?? grupoDe(r)?.idGrupoUsuario;
-        if (estado.status[r] != null && logadoEm != null) estado.grupoLogado[r] = logadoEm; // a sessão fica onde está
+        if (estado.status[r] != null && logadoEm != null) {
+          estado.grupoLogado[r] = logadoEm; // a sessão fica onde está até a discadora trocar
+          estado.trocaPendente[r] = Date.now();
+        }
         for (const g of estado.grupos) g.ramaisOperadores = g.ramaisOperadores.filter((x) => String(x) !== String(r));
         estado.grupos.find((g) => g.idGrupoUsuario === idGrupoUsuarioDestino).ramaisOperadores.push(String(r));
       }
@@ -67,12 +87,14 @@ function criarArgusFake({ grupos, status, usuarios = [] }) {
     deslogaroperador: ({ ramal }) => {
       estado.status[ramal] = null;
       delete estado.grupoLogado[ramal]; // ao logar de novo, cai no grupo vinculado
+      delete estado.trocaPendente[ramal];
       return { codStatus: 1, descStatus: 'Deslogado' };
     },
 
     // Humano: loga (ou reloga) no grupo vinculado, como o "deslogar e logar" do operador.
     logaroperador: ({ ramal }) => {
       delete estado.grupoLogado[ramal];
+      delete estado.trocaPendente[ramal];
       if (estado.status[ramal] == null) estado.status[ramal] = 'livre';
       return { codStatus: 1, descStatus: 'Operador logado' };
     },

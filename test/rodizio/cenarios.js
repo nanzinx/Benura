@@ -61,8 +61,8 @@ function prepararAlvo(pasta) {
   return copia;
 }
 
-async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usuarios, env = {}, preparar } = {}) {
-  const argus = await criarArgusFake({ grupos, status, usuarios });
+async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usuarios, env = {}, preparar, atrasoTrocaMs } = {}) {
+  const argus = await criarArgusFake({ grupos, status, usuarios, atrasoTrocaMs });
   const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'rodizio-'));
   preparar?.({ argus, pasta });
   const porta = await portaLivre();
@@ -86,6 +86,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ROBOS_REDUZIR_APOS_MS: '500',
       ROBOS_SUBIDA_INTERVALO_MS: '500',
       ALINHAR_LOGIN_ESPERA_MS: '100',
+      ALINHAR_LOGIN_APOS_MS: '1000',
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -182,6 +183,7 @@ const CENARIOS = {
 
   async 'URA: fixo (posto na URA pelo roteador) ocioso vai ao Ativo e volta à URA ao atender lá'(r) {
     await aguardar(() => r.transferencias().includes('201→1'), { timeoutMs: 12_000, descricao: '201 ocioso → grupo 1' });
+    await aguardar(() => r.argus.estado.grupoLogado['201'] === undefined, { descricao: 'a discadora trocar o 201 para o Ativo' });
     r.argus.definirStatus('201', 'em atendimento');
     await esperar(1000); // ligação curta: o rodízio o vigia no Ativo desde a volta, sem esperar reler os grupos
     r.argus.definirStatus('201', 'livre');
@@ -208,7 +210,7 @@ const CENARIOS = {
 
   async 'URA: logado em outro grupo → avisa; em ligação não mexe; ao ficar livre, reloga na URA'(r) {
     // 200 foi posto na URA "à mão" já logado: a telefonia diz grupo 1. Está em ligação.
-    await aguardar(() => r.saida.join('').includes('Ramal 200 está no grupo da URA, mas a telefonia diz que está logado'),
+    await aguardar(() => r.saida.join('').includes('Ramal 200 está no grupo da URA, mas a telefonia continua logada'),
       { descricao: 'aviso do grupo logado' });
     const { uraLogadosEmOutroGrupo } = await (await fetch(`${r.base}/health`)).json();
     if (uraLogadosEmOutroGrupo?.[0]?.ramal !== '200' || uraLogadosEmOutroGrupo[0].grupoLogado !== 1) {
@@ -223,16 +225,30 @@ const CENARIOS = {
     if (r.chamadas('deslogaroperador').some((c) => String(c.dados.ramal) === '200')) throw new Error('deslogou o 200 sem precisar');
   },
 
-  async 'Rodízio: quem o BenURA move é relogado no grupo novo (ida à URA e volta ao Ativo)'(r) {
+  async 'Rodízio: quem vai para a URA só conta como livre (e liga robô) depois que a discadora troca a telefonia'(r) {
+    const robosLigados = () => r.chamadas('logaroperadorvirtual').length;
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
     r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
-    await aguardar(() => r.argus.estado.grupoLogado['101'] === undefined && r.chamadas('logaroperador').length === 1,
-      { descricao: '101 relogado na URA' });
-    await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 12_000, descricao: '101 ocioso → Ativo' });
-    await aguardar(() => r.chamadas('logaroperador').length === 2, { descricao: '101 relogado no Ativo' });
-    if (r.argus.estado.grupoLogado['101'] !== undefined) throw new Error('a telefonia do 101 não acompanhou a volta');
+    await esperar(800); // a discadora ainda não trocou (atraso de 1,5 s): a derivação não chegaria nele
+    if (robosLigados()) throw new Error('ligou robô para quem ainda não está logado na URA');
+    await aguardar(() => robosLigados() > 0, { descricao: 'ligar robô depois da troca' });
+    if (r.chamadas('logaroperador').length) throw new Error('relogou sem precisar: a discadora trocou sozinha');
+  },
+
+  async 'Rodízio: quem fica preso no grupo antigo (não troca sozinho) é relogado e só então liga robô'(r) {
+    const robosLigados = () => r.chamadas('logaroperadorvirtual').length;
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
+    await aguardar(() => r.chamadas('logaroperador').some((c) => String(c.dados.ramal) === '101'),
+      { descricao: 'relogar o 101 depois de ALINHAR_LOGIN_APOS_MS' });
+    await aguardar(() => robosLigados() > 0, { descricao: 'ligar robô depois de relogar' });
+    if (!r.saida.join('').includes('Ramal 101 está no grupo da URA, mas a telefonia continua logada')) {
+      throw new Error('não avisou do 101 preso');
+    }
   },
 
   async 'URA: atender zera o tempo ocioso'(r) {
@@ -255,7 +271,7 @@ const CENARIOS = {
     await esperar(1000);
     r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
-    await aguardar(() => r.chamadas('logaroperador').length, { descricao: '101 relogado na URA' });
+    await aguardar(() => r.argus.estado.grupoLogado['101'] === undefined, { descricao: 'a discadora trocar o 101 para a URA' });
     await esperar(500);
     r.argus.definirStatus('101', null);
     await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 3000, descricao: '101 offline → Ativo' });
@@ -491,7 +507,23 @@ const ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO = {
   env: { ROBOS_POR_LIVRE: '3' },
 };
 
+/** URA vazia e robôs desligados: dá para ver quando o 101 passa a contar como livre. */
+const URA_VAZIA_ROBOS_DESLIGADOS = {
+  grupos: [
+    { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100', '101'] },
+    { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: [] },
+    { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ['900', '901'] },
+  ],
+  status: { 100: 'livre', 101: 'livre' },
+};
+
 const VARIACOES = {
+  'Rodízio: quem vai para a URA só conta como livre (e liga robô) depois que a discadora troca a telefonia': {
+    ...URA_VAZIA_ROBOS_DESLIGADOS, atrasoTrocaMs: 1500, env: { ALINHAR_LOGIN_APOS_MS: '5000' },
+  },
+  'Rodízio: quem fica preso no grupo antigo (não troca sozinho) é relogado e só então liga robô': {
+    ...URA_VAZIA_ROBOS_DESLIGADOS, preparar: ({ argus }) => argus.estado.travados.add('101'),
+  },
   'URA: logado em outro grupo → avisa; em ligação não mexe; ao ficar livre, reloga na URA': {
     status: { ...STATUS_BASE, 200: 'em atendimento' },
     preparar: ({ argus }) => { argus.estado.grupoLogado = { 200: 1 }; },
