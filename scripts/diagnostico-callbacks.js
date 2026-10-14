@@ -9,7 +9,8 @@
  *
  * Busca as ligações dos grupos de robôs (GRUPOS_ROBOS_URA_IDS) no relatório de
  * ligações detalhadas da Argus e mostra: os campos do relatório, a contagem por
- * status/resultado e cada callback com hora e robô. Grava o mesmo em
+ * status/resultado, a linha do tempo de 15 em 15 min (derivou × callback) e
+ * cada callback com hora e robô. Grava o mesmo em
  * logs/diagnostico-callbacks-AAAA-MM-DD.json. Sem dados de cliente.
  */
 
@@ -66,9 +67,20 @@ function imprimir({ idCampanha, minutos, porGrupo }) {
       const contagem = Object.entries(valores).sort((a, b) => b[1] - a[1]).map(([v, n]) => `${v}: ${n}`).join(' | ');
       console.log(`  ${campo} → ${contagem}`);
     }
-    console.log(`  Callbacks: ${r.callbacks.length}`);
-    for (const c of r.callbacks) console.log(`    ${JSON.stringify(c)}`);
+    imprimirLinhaDoTempo(r.linhaDoTempo);
+    console.log(`  Callbacks (abandono em fila / sem agente): ${r.callbacks.length}`);
+    for (const c of r.callbacks) console.log(`    ${Object.values(c).join(' | ')}`);
     console.log('');
+  }
+}
+
+/** Só as janelas com derivação ou callback: é onde está a resposta. */
+function imprimirLinhaDoTempo(linhas) {
+  const relevantes = linhas.filter((j) => j.callback || j.derivou);
+  if (!relevantes.length) return;
+  console.log('  Hora   ligações  derivou  callback  abandono na URA');
+  for (const j of relevantes) {
+    console.log(`  ${j.janela}  ${String(j.total).padStart(8)}  ${String(j.derivou).padStart(7)}  ${String(j.callback).padStart(8)}  ${String(j.abandonoNaUra).padStart(15)}`);
   }
 }
 
