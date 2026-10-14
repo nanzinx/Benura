@@ -95,6 +95,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       STATE_FILE: path.join(pasta, 'state-vendas.json'),
       RODIZIO_STATE_FILE: path.join(pasta, 'state.json'),
       RODIZIO_LOCK_FILE: path.join(pasta, 'argus.lock'),
+      RODIZIO_URA_CHEIA_FILE: path.join(pasta, 'state-ura-cheia.json'),
       ARGUS_PAUSA_FILE: path.join(pasta, 'argus-pausa.json'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
       RETORNO_LOG_FILE: path.join(pasta, 'logs', 'retorno-fila.jsonl'),
@@ -178,6 +179,33 @@ const CENARIOS = {
     r.argus.definirStatus('100', 'livre');
     await aguardar(() => r.transferencias().includes('100→2'), { descricao: '100 → URA' });
     if (!r.saida.join('').includes('Sem a lista de elegíveis do dia')) throw new Error('não avisou que está sem a lista');
+  },
+
+  async 'URA cheia: todos do Ativo vão para a URA e ninguém volta por ocioso; ao desligar, volta ao normal'(r) {
+    const uraCheia = (method) => fetch(`${r.base}/ura/cheia`, { method, headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Colocar todos na URA')) throw new Error('GET /ura sem a página');
+    if ((await fetch(`${r.base}/ura/cheia`, { method: 'POST' })).status !== 401) throw new Error('ligou sem token');
+    if (!(await uraCheia('POST')).ok) throw new Error('não ligou');
+    // 100 e 101 não atenderam nada: sobem mesmo assim.
+    await aguardar(() => r.transferencias().includes('100→2') && r.transferencias().includes('101→2'), { descricao: 'todos → URA' });
+    await esperar(8000); // passa do TEMPO_MIN (6 s) livre
+    if (r.transferencias().some((t) => t.endsWith('→1'))) throw new Error('alguém voltou ao Ativo com a URA cheia');
+    const { uraCheia: estado } = await (await fetch(`${r.base}/health`)).json();
+    if (!estado.ligada) throw new Error('/health não mostra a URA cheia ligada');
+
+    if (!(await uraCheia('DELETE')).ok) throw new Error('não desligou');
+    await esperar(3000);
+    if (r.transferencias().some((t) => t.endsWith('→1'))) throw new Error('saiu antes do TEMPO_MIN contado a partir do desligamento');
+    await aguardar(() => r.transferencias().includes('100→1'), { timeoutMs: 12_000, descricao: '100 ocioso → Ativo depois de desligar' });
+  },
+
+  async 'URA cheia em DRY_RUN: simula a ida de cada um uma vez só'(r) {
+    await fetch(`${r.base}/ura/cheia`, { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` } });
+    await aguardar(() => r.saida.join('').includes('[DRY_RUN] Transferiria ramal 101'), { descricao: 'simular 101 → URA' });
+    await esperar(2000);
+    const simulacoes = r.saida.join('').split('[DRY_RUN] Transferiria ramal 101').length - 1;
+    if (simulacoes !== 1) throw new Error(`simulou a ida de 101 ${simulacoes} vezes`);
+    if (r.transferencias().length) throw new Error('transferiu de verdade em DRY_RUN');
   },
 
   async 'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)'(r) {
@@ -621,6 +649,7 @@ const VARIACOES = {
     status: { 100: 'livre', 200: 'livre', 201: 'livre', 202: 'livre' }, // robôs começam desligados
     env: { ROBOS_POR_LIVRE: '2', ROBOS_DEGRAU: '2' },
   },
+  'URA cheia em DRY_RUN: simula a ida de cada um uma vez só': { env: { DRY_RUN: '1' } },
   'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)': {
     env: { DRY_RUN: '1', ROBOS_POR_LIVRE: '1' },
   },

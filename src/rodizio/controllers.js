@@ -1,12 +1,13 @@
 'use strict';
 /**
- * Rotas HTTP do rodízio: saúde, webhooks da Argus e modo manual dos robôs.
+ * Rotas HTTP do rodízio: saúde, webhooks da Argus, modo manual dos robôs e URA cheia.
  *
  * Um único endereço recebe todos os webhooks configurados na Argus e os
  * distribui: início de atendimento → rodízio; encerramento de URA → retorno da fila.
  */
 
 const { interpretarWebhook } = require('../domain/rodizio');
+const { PAGINA_URA } = require('./pagina-ura');
 
 /**
  * @param {object} deps
@@ -63,8 +64,26 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
     return { status: 200, corpo: { manualAte: null } };
   }
 
+  /** GET /ura — página para ligar/desligar a URA cheia. */
+  async function paginaUra() {
+    return { status: 200, html: PAGINA_URA };
+  }
+
+  /** POST /ura/cheia — todos do Ativo para a URA; ninguém volta por ocioso. */
+  async function ligarUraCheia() {
+    return { status: 200, corpo: rodizio.ligarUraCheia() };
+  }
+
+  /** DELETE /ura/cheia — o rodízio volta ao normal. */
+  async function desligarUraCheia() {
+    return { status: 200, corpo: rodizio.desligarUraCheia() };
+  }
+
   return [
     { metodo: 'GET', caminho: '/health', handler: health },
+    { metodo: 'GET', caminho: '/ura', handler: paginaUra },
+    { metodo: 'POST', caminho: '/ura/cheia', handler: ligarUraCheia, protegida: true },
+    { metodo: 'DELETE', caminho: '/ura/cheia', handler: desligarUraCheia, protegida: true },
     { metodo: 'POST', caminho: '/webhook', handler: webhook, protegida: true, prefixo: true },
     { metodo: 'POST', caminho: '/robos/manual', handler: robosManual, protegida: true },
     { metodo: 'POST', caminho: '/robos/automatico', handler: robosAutomatico, protegida: true },
