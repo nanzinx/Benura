@@ -198,6 +198,15 @@ src/utils/                         HTTP com retry, persistência atômica, trava
    - Quem o rodízio moveu volta ao **grupo de origem**; os demais (colocados à mão, pelo roteador ou antes de o programa iniciar) voltam ao **grupo do supervisor** (diretório da Argus ou `SUPERVISORES_GRUPOS_FILE`). O grupo do supervisor é o grupo do Ativo com a maioria da equipe dele; se não houver ninguém da equipe no Ativo, o grupo cujo nome começa pelo primeiro nome do supervisor ("ROBSON - COMERCIAL"). Sem grupo identificável, fica na URA com um aviso.
    - **O último livre espera os robôs em ligação.** Se a volta deixaria a URA sem nenhum livre, o ocioso fica: os robôs param de discar (os parados desligam) e os que estão em ligação terminam, ainda com alguém para receber a derivação. Ele volta ao Ativo quando os robôs desligam, ou depois de `SEGURAR_ULTIMO_LIVRE_MS` (**90 s**). Antes, tirá-lo zerava o alvo e derrubava os robôs em ligação, e o cliente que pedia atendimento virava callback.
    - Quem o rodízio moveu e ficou offline volta na hora.
+
+### URA cheia (todos na URA)
+Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique em **Colocar todos na URA** (pede o `WEBHOOK_TOKEN`, se configurado).
+- Em até 5 s, todos os operadores dos grupos do Ativo (`GRUPOS_ATIVOS_IDS`) vão para a URA, atendendo ou não, sem olhar elegíveis. Quem entrar depois no Ativo também sobe.
+- Ninguém volta ao Ativo por ocioso. Os robôs continuam proporcionais aos livres (`ROBOS_POR_LIVRE`), até o total de robôs, e a telefonia continua sendo conferida.
+- **Voltar ao normal** devolve as regras de sempre. A contagem de ocioso recomeça na hora: ninguém sai da URA de uma vez.
+- Vale até desligar ou até virar o dia; sobrevive a reinício (`RODIZIO_URA_CHEIA_FILE`). O `/health` mostra `uraCheia: { ligada, desde }`.
+- Pela API: `POST /ura/cheia` liga e `DELETE /ura/cheia` desliga (com token).
+- Com a URA cheia ligada, quem a carga das 08:00 do roteador mandar para o Ativo volta para a URA no ciclo seguinte.
    - Quem voltou retorna à URA pela regra 1, assim que atender no Ativo.
 3. **A telefonia demora a acompanhar a troca de grupo** (visto na operação em 14/10/2026).
    - Mover alguém de grupo (pelo painel ou pela API) muda a **Lista de Operadores** na hora. A **telefonia** (o painel "Operadores Online" do grupo, `statusoperador.idGrupo`) só troca quando a pessoa fica **livre**, com um atraso da discadora. Em ligação ou pausa, espera.

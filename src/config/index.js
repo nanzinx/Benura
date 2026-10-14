@@ -157,6 +157,8 @@ function carregarConfig(overrides = {}) {
       porta: envNum('RODIZIO_PORT', 3000),
       arquivoEstado: env('RODIZIO_STATE_FILE', path.join(RAIZ, 'state.json')),
       arquivoTrava: env('RODIZIO_LOCK_FILE', path.join(RAIZ, 'argus.lock')),
+      // URA cheia (GET /ura): ligada pela supervisão, vale até desligar ou virar o dia.
+      arquivoUraCheia: env('RODIZIO_URA_CHEIA_FILE', path.join(RAIZ, 'state-ura-cheia.json')),
     },
 
     // --- Regras de negócio ---

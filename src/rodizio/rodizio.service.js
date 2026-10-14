@@ -6,7 +6,8 @@
  *
  *   atualizarGrupos()  ~30 s  lê os grupos da Argus: quem está na URA, no Ativo e quais são os robôs
  *   cicloAtivo()       ~5 s   quem é elegível (meta de ontem, venda hoje ou fixo), atendeu
- *                             no Ativo e ficou livre → URA
+ *                             no Ativo e ficou livre → URA. Na URA cheia (pedido da
+ *                             supervisão), todos do Ativo → URA e ninguém volta por ocioso.
  *   cicloUra()         ~5 s   lê o status de quem está na URA, decide os robôs e devolve
  *                             ao Ativo quem está ocioso há TEMPO_MIN (ou o movido que ficou
  *                             offline); ~1 s com poucos livres (URA em alerta). O último
@@ -45,9 +46,11 @@ class RodizioService {
    *        grupo do Ativo do supervisor, para devolver quem não foi movido pelo rodízio
    * @param {import('./elegiveis-ura').ElegiveisUra} [deps.elegiveis]
    *        quem pode subir do Ativo para a URA (sem: todos)
+   * @param {import('./ura-cheia').UraCheia} [deps.uraCheia]
+   *        modo "todos na URA" pedido pela supervisão
    */
-  constructor({ client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null }) {
-    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis });
+  constructor({ client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null }) {
+    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia });
     /** ramais sem grupo do Ativo identificável (aviso uma vez por ramal) */
     this.semGrupoAvisados = new Set();
 
@@ -72,6 +75,10 @@ class RodizioService {
     this.atenderamNoAtivo = new Set();
     /** ramais com transferência em andamento */
     this.emTransferencia = new Set();
+    /** DRY_RUN: ramais cuja ida à URA já foi simulada na URA cheia (para não repetir a cada ciclo) */
+    this.simuladosNaUra = new Set();
+    /** URA cheia no ciclo anterior (para perceber quando desliga) */
+    this.uraCheiaAntes = false;
     this.avaliandoRobos = false;
     this.reavaliarRobos = false;
     /** Até quando a supervisão comanda os robôs pelo painel (0 = o BenURA comanda). */
@@ -114,6 +121,7 @@ class RodizioService {
 
   inicializar() {
     this.movidos = this.repositorio.carregar();
+    this.uraCheia?.carregar();
     return this;
   }
 
@@ -170,13 +178,27 @@ class RodizioService {
   // ───────────────────────────── Ativo → URA ─────────────────────────────
 
   async cicloAtivo() {
+    if (this.emUraCheia()) return this.levarTodosParaUra();
     this.elegiveis?.atualizar();
-    const alvos = this.gruposAtivos.flatMap((g) => (g.ramaisOperadores || [])
+    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => this.podeIrParaUra(ramal));
+    await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
+    return undefined;
+  }
+
+  /** Quem está no Ativo e não está sendo mexido agora. */
+  operadoresDoAtivo() {
+    return this.gruposAtivos.flatMap((g) => (g.ramaisOperadores || [])
       .map((ramal) => ({ ramal: String(ramal), grupo: g.idGrupoUsuario })))
       .filter(({ ramal }) => !this.movidos[ramal] && !this.ramaisUra.has(ramal) && !this.emTransferencia.has(ramal)
-        && !this.alinhandoLogin.has(ramal) && this.podeIrParaUra(ramal));
+        && !this.alinhandoLogin.has(ramal));
+  }
 
-    await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
+  /** URA cheia: todos do Ativo vão para a URA, atendendo ou não (a telefonia troca quando ficam livres). */
+  async levarTodosParaUra() {
+    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => !this.simuladosNaUra.has(ramal));
+    if (!alvos.length) return;
+    this.log.info(`URA cheia: levando ${alvos.length} operador(es) do Ativo para a URA.`);
+    await mapearComLimite(alvos, this.cfg.concorrencia, ({ ramal, grupo }) => this.moverParaUra(ramal, grupo));
   }
 
   /** Só quem é elegível (meta de ontem, venda hoje ou fixo) sobe; os demais nem são lidos. */
@@ -207,6 +229,7 @@ class RodizioService {
     // Em DRY_RUN ninguém foi movido de verdade: contá-lo como livre na URA inflaria o alvo de robôs.
     if (this.cfg.dryRun) {
       this.atenderamNoAtivo.delete(ramal);
+      this.simuladosNaUra.add(ramal);
       return;
     }
 
@@ -227,7 +250,8 @@ class RodizioService {
     // 1. Status de todos  2. Quem volta (e quem segura a URA)  3. Robôs (é o que evita fila)  4. Devoluções
     await mapearComLimite(ramais, this.cfg.concorrencia, (ramal) => this.atualizarStatusUra(ramal));
     const agora = Date.now();
-    const ociosos = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
+    // URA cheia: ninguém volta ao Ativo por ocioso.
+    const ociosos = this.emUraCheia(agora) ? [] : ramais.filter((ramal) => this.deveDevolver(ramal, agora));
     const segurado = this.atualizarSegurado(ociosos, ramais, agora);
     await this.avaliarRobos();
 
@@ -520,6 +544,37 @@ class RodizioService {
     return false;
   }
 
+  // ───────────────────────────── URA cheia ─────────────────────────────
+
+  /** Ligada hoje? Ao perceber que desligou, o ocioso de quem está na URA passa a contar dali. */
+  emUraCheia(agora = Date.now()) {
+    const ligada = Boolean(this.uraCheia?.ativa(new Date(agora)));
+    if (this.uraCheiaAntes && !ligada) this.recomecarContagemDeOcioso(agora);
+    this.uraCheiaAntes = ligada;
+    return ligada;
+  }
+
+  /** Sem isso, todo mundo livre há mais de TEMPO_MIN sairia da URA de uma vez no ciclo seguinte. */
+  recomecarContagemDeOcioso(agora) {
+    for (const info of this.statusUra.values()) {
+      if (info.livreDesde) info.livreDesde = agora;
+    }
+    this.simuladosNaUra.clear();
+  }
+
+  /** POST /ura/cheia. @returns {{ ligada: boolean, desde: string|null, mudou: boolean }} */
+  ligarUraCheia() {
+    const mudou = this.uraCheia.ligar();
+    return { ...this.uraCheia.resumo(), mudou };
+  }
+
+  /** DELETE /ura/cheia. */
+  desligarUraCheia() {
+    const mudou = this.uraCheia.desligar();
+    this.emUraCheia();
+    return { ...this.uraCheia.resumo(), mudou };
+  }
+
   /** A supervisão assume os robôs pelo painel por `minutos`; o BenURA não liga nem desliga nenhum. */
   assumirRobosManualmente(minutos) {
     this.manualAte = Date.now() + minutos * 60_000;
@@ -545,6 +600,8 @@ class RodizioService {
       ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,
       uraLogadosEmOutroGrupo: [...this.logadosEmOutroGrupo.values()],
       elegiveisUra: this.elegiveis ? this.elegiveis.resumo() : { disponivel: false, total: null, desligado: true },
+      uraCheia: this.uraCheia ? this.uraCheia.resumo() : { ligada: false, desde: null },
+      dryRun: Boolean(this.cfg.dryRun),
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),
