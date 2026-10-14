@@ -2,8 +2,10 @@
 /**
  * Regras do rodízio Ativo ↔ URA e do controle de robôs — funções puras, sem I/O.
  *
- *  1. IDA PARA A URA: operador do Ativo que ATENDEU uma ligação e ficou LIVRE
- *     vai para a URA (rodízio). Se ficar offline, perde o histórico.
+ *  1. IDA PARA A URA: operador ELEGÍVEL do Ativo que ATENDEU uma ligação e
+ *     ficou LIVRE vai para a URA (rodízio). Elegível = quem o roteador pôs na
+ *     URA hoje (meta de ontem, venda hoje ou fixo); sem a lista do dia, todos.
+ *     Se ficar offline, perde o histórico.
  *  2. VOLTA AO ATIVO: QUALQUER humano da URA ocioso (Livre) há TEMPO_MIN
  *     minutos seguidos volta ao Ativo (atender zera a contagem). Quem o rodízio
  *     moveu volta ao grupo de origem; os demais, ao grupo do supervisor. Movido
@@ -13,6 +15,8 @@
  *     por livre); todos desligados quando ninguém na URA pode atender (todos
  *     ocupados, URA vazia/offline, ou a Argus sem visibilidade).
  */
+
+const { Fila } = require('./fila');
 
 /** Classes de status de operador. */
 const Classe = Object.freeze({
@@ -54,6 +58,19 @@ function classificarStatus(status, { livres, atendimento, offline = STATUS_OFFLI
 
 /** Regra 1: atendeu no Ativo e agora está livre. */
 const deveIrParaUra = (classe, atendeuNoAtivo) => classe === Classe.LIVRE && atendeuNoAtivo;
+
+/**
+ * Regra 1, quem pode subir: os ramais que o roteador decidiu para a URA hoje
+ * (fila "URA" no state-vendas.json: meta de ontem, venda hoje ou fixo).
+ * @param {object|null} estado - estado do roteador
+ * @param {string} hoje - AAAA-MM-DD no fuso da operação
+ * @returns {Set<string>|null} null = sem lista do dia (o rodízio gira todos)
+ */
+function elegiveisDoEstado(estado, hoje) {
+  if (!estado?.vendedores || estado.data !== hoje) return null;
+  const naUra = Object.entries(estado.vendedores).filter(([, r]) => r?.fila === Fila.URA);
+  return new Set(naUra.map(([ramal]) => String(ramal)));
+}
 
 /**
  * Regra 2: ocioso (Livre) há `ociosoMs` seguidos, ou movido pelo rodízio que ficou offline.
@@ -233,6 +250,7 @@ module.exports = {
   classificarStatus,
   STATUS_OFFLINE_PADRAO,
   deveIrParaUra,
+  elegiveisDoEstado,
   deveVoltarAoAtivo,
   motivoDaVolta,
   quemSegurarNaUra,

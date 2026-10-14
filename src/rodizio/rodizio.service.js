@@ -5,7 +5,8 @@
  * Três ciclos independentes, cada um agendado sem sobreposição (app.js):
  *
  *   atualizarGrupos()  ~30 s  lê os grupos da Argus: quem está na URA, no Ativo e quais são os robôs
- *   cicloAtivo()       ~5 s   quem atendeu no Ativo e ficou livre → URA
+ *   cicloAtivo()       ~5 s   quem é elegível (meta de ontem, venda hoje ou fixo), atendeu
+ *                             no Ativo e ficou livre → URA
  *   cicloUra()         ~5 s   lê o status de quem está na URA, decide os robôs e devolve
  *                             ao Ativo quem está ocioso há TEMPO_MIN (ou o movido que ficou
  *                             offline); ~1 s com poucos livres (URA em alerta). O último
@@ -42,9 +43,11 @@ class RodizioService {
    * @param {object} deps.logger
    * @param {import('../integrations/argus/diretorio-operadores.service').DiretorioOperadores} [deps.diretorio]
    *        grupo do Ativo do supervisor, para devolver quem não foi movido pelo rodízio
+   * @param {import('./elegiveis-ura').ElegiveisUra} [deps.elegiveis]
+   *        quem pode subir do Ativo para a URA (sem: todos)
    */
-  constructor({ client, transferencias, robos, repositorio, cfg, logger, diretorio = null }) {
-    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio });
+  constructor({ client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null }) {
+    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis });
     /** ramais sem grupo do Ativo identificável (aviso uma vez por ramal) */
     this.semGrupoAvisados = new Set();
 
@@ -167,12 +170,18 @@ class RodizioService {
   // ───────────────────────────── Ativo → URA ─────────────────────────────
 
   async cicloAtivo() {
+    this.elegiveis?.atualizar();
     const alvos = this.gruposAtivos.flatMap((g) => (g.ramaisOperadores || [])
       .map((ramal) => ({ ramal: String(ramal), grupo: g.idGrupoUsuario })))
       .filter(({ ramal }) => !this.movidos[ramal] && !this.ramaisUra.has(ramal) && !this.emTransferencia.has(ramal)
-        && !this.alinhandoLogin.has(ramal));
+        && !this.alinhandoLogin.has(ramal) && this.podeIrParaUra(ramal));
 
     await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
+  }
+
+  /** Só quem é elegível (meta de ontem, venda hoje ou fixo) sobe; os demais nem são lidos. */
+  podeIrParaUra(ramal) {
+    return !this.elegiveis || this.elegiveis.permite(ramal);
   }
 
   async verificarOperadorDoAtivo({ ramal, grupo }) {
@@ -535,6 +544,7 @@ class RodizioService {
       seguradoNaUra: this.segurado ? { ramal: this.segurado.ramal, desde: new Date(this.segurado.desde).toISOString() } : null,
       ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,
       uraLogadosEmOutroGrupo: [...this.logadosEmOutroGrupo.values()],
+      elegiveisUra: this.elegiveis ? this.elegiveis.resumo() : { disponivel: false, total: null, desligado: true },
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),

@@ -122,6 +122,10 @@ function carregarConfig(overrides = {}) {
       // O último livre da URA, ocioso, só volta ao Ativo depois que os robôs em ligação
       // terminarem (eles param de discar), ou depois deste tempo. 0 = sai na hora.
       segurarUltimoLivreMs: envNum('SEGURAR_ULTIMO_LIVRE_MS', 90_000),
+      // Só sobe do Ativo para a URA quem o roteador pôs na URA hoje (meta de ontem, venda
+      // hoje ou fixo), lido do STATE_FILE do roteador. Sem a lista do dia, gira todos.
+      soElegiveis: envBool('RODIZIO_SO_ELEGIVEIS', true),
+      arquivoVendas: env('STATE_FILE', path.join(process.cwd(), 'state-vendas.json')),
       // Intervalo entre as consultas à Argus (Ativo e URA). 5 s evita o liga-desliga
       // de robôs a cada oscilação de status; o webhook de atendimento continua imediato.
       pollAtivoMs: envNum('POLL_ATIVO_MS', 5000),

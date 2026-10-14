@@ -20,6 +20,7 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const { criarArgusFake } = require('./argus-fake');
+const { dataLocal } = require('../../src/utils/datas');
 
 const RAIZ = path.join(__dirname, '..', '..');
 const ALVO = path.resolve(process.argv[2] || path.join(RAIZ, 'argus-automacao.js'));
@@ -149,6 +150,34 @@ const CENARIOS = {
     r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
     if (r.transferencias().some((t) => t.startsWith('100→'))) throw new Error('100 não atendeu e foi movido');
+  },
+
+  async 'Ativo: só elegível sobe; quem vende hoje passa a subir'(r) {
+    // 101 bateu a meta ontem (fila URA no roteador); 100 não.
+    for (const ramal of ['100', '101']) r.argus.definirStatus(ramal, 'em atendimento');
+    await esperar(1000);
+    for (const ramal of ['100', '101']) r.argus.definirStatus(ramal, 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101 (elegível) → URA' });
+    await esperar(1500);
+    if (r.transferencias().some((t) => t.startsWith('100→'))) throw new Error('100 não é elegível e foi para a URA');
+    const { elegiveisUra } = await (await fetch(`${r.base}/health`)).json();
+    if (!elegiveisUra.disponivel || elegiveisUra.total !== 1) throw new Error(`/health elegiveisUra: ${JSON.stringify(elegiveisUra)}`);
+
+    // O roteador promove o 100 (vendeu hoje): no próximo atendimento no Ativo, ele sobe.
+    escreverVendas(r.pasta, { 100: 'URA', 101: 'URA' });
+    await aguardar(() => r.saida.join('').includes('novos: 100'), { descricao: 'rodízio ver o 100 elegível' });
+    r.argus.definirStatus('100', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('100', 'livre');
+    await aguardar(() => r.transferencias().includes('100→2'), { descricao: '100 (vendeu hoje) → URA' });
+  },
+
+  async 'Ativo: sem a lista do dia do roteador, todos sobem (e avisa)'(r) {
+    r.argus.definirStatus('100', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('100', 'livre');
+    await aguardar(() => r.transferencias().includes('100→2'), { descricao: '100 → URA' });
+    if (!r.saida.join('').includes('Sem a lista de elegíveis do dia')) throw new Error('não avisou que está sem a lista');
   },
 
   async 'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)'(r) {
@@ -471,6 +500,15 @@ const encerramentoUra = ({ conclusao }) => ({
   dataInicioUra: '2026-10-08T10:00:00',
 });
 
+/** Grava o state-vendas.json do roteador com a data de hoje: { ramal: 'URA' | 'ATIVO' }. */
+function escreverVendas(pasta, filas) {
+  const vendedores = Object.fromEntries(Object.entries(filas).map(([ramal, fila]) => [ramal, { nome: `OPERADOR ${ramal}`, fila }]));
+  const arquivo = path.join(pasta, 'state-vendas.json');
+  fs.writeFileSync(arquivo, JSON.stringify({ versao: 2, data: dataLocal('America/Sao_Paulo'), vendedores }));
+  const depois = new Date(Date.now() + 1000); // garante mtime novo mesmo em sistemas de arquivo com resolução de 1 s
+  fs.utimesSync(arquivo, depois, depois);
+}
+
 /** PID que certamente não existe (processo já encerrado). */
 function pidMorto() {
   const { pid } = require('child_process').spawnSync(process.execPath, ['-e', '0']);
@@ -536,6 +574,10 @@ const VARIACOES = {
   // Grupos relidos só a cada 60 s: a volta à URA não pode depender dessa releitura.
   'URA: fixo (posto na URA pelo roteador) ocioso vai ao Ativo e volta à URA ao atender lá': {
     ...URA_COM_201_NAO_MOVIDO, env: { REFRESH_GRUPOS_MS: '60000' },
+    preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 201: 'URA' }),
+  },
+  'Ativo: só elegível sobe; quem vende hoje passa a subir': {
+    preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
   },
   'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera': {
     grupos: [
