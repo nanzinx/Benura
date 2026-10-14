@@ -187,6 +187,24 @@ const CENARIOS = {
     await aguardar(() => r.transferencias().includes('201→2'), { descricao: '201 atendeu no Ativo → URA' });
   },
 
+  async 'URA: último livre ocioso espera os robôs em ligação terminarem (eles param de discar)'(r) {
+    const deslogados = () => r.chamadas('deslogaroperador').map((c) => String(c.dados.ramal));
+    // 201 é o único humano; ocioso aos 6 s: os robôs parados (901, 902) desligam e o 900, em ligação, fica.
+    await aguardar(() => deslogados().includes('901') && deslogados().includes('902'), { timeoutMs: 12_000, descricao: 'robôs parados desligam' });
+    await esperar(2000);
+    if (deslogados().includes('900')) throw new Error('derrubou o robô em ligação');
+    if (r.transferencias().some((t) => t.startsWith('201→'))) throw new Error('tirou o último livre com robô em ligação');
+
+    r.argus.definirStatus('900', 'livre'); // a ligação terminou
+    await aguardar(() => deslogados().includes('900'), { descricao: 'desligar o 900 ao terminar' });
+    await aguardar(() => r.transferencias().includes('201→1'), { descricao: '201 volta ao Ativo depois dos robôs' });
+  },
+
+  async 'URA: último livre segurado sai depois de SEGURAR_ULTIMO_LIVRE_MS mesmo com robô em ligação'(r) {
+    await aguardar(() => r.transferencias().includes('201→1'), { timeoutMs: 15_000, descricao: '201 volta ao Ativo pelo limite' });
+    await aguardar(() => r.chamadas('deslogaroperador').some((c) => String(c.dados.ramal) === '900'), { descricao: 'URA vazia desliga todos' });
+  },
+
   async 'URA: atender zera o tempo ocioso'(r) {
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
@@ -429,7 +447,23 @@ const URA_COM_201_NAO_MOVIDO = {
   usuarios: USUARIOS_COM_SUPERVISOR,
 };
 
+/** 201, único humano na URA, com robôs ligados (o 900 em ligação). */
+const ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO = {
+  grupos: [
+    { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+    { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['201'] },
+    { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ['900', '901', '902'] },
+  ],
+  status: { 100: 'em atendimento', 201: 'livre', 900: 'em atendimento', 901: 'livre', 902: 'livre' },
+  usuarios: USUARIOS_COM_SUPERVISOR,
+  env: { ROBOS_POR_LIVRE: '3' },
+};
+
 const VARIACOES = {
+  'URA: último livre ocioso espera os robôs em ligação terminarem (eles param de discar)': ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO,
+  'URA: último livre segurado sai depois de SEGURAR_ULTIMO_LIVRE_MS mesmo com robô em ligação': {
+    ...ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO, env: { ROBOS_POR_LIVRE: '3', SEGURAR_ULTIMO_LIVRE_MS: '3000' },
+  },
   'URA: quem já estava na URA (não movido) e fica ocioso volta ao grupo do supervisor': URA_COM_201_NAO_MOVIDO,
   // Grupos relidos só a cada 60 s: a volta à URA não pode depender dessa releitura.
   'URA: fixo (posto na URA pelo roteador) ocioso vai ao Ativo e volta à URA ao atender lá': {

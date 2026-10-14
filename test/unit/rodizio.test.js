@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 const {
-  Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, decidirRobos, alvoDeRobos, escolherParaDesligar,
+  Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, decidirRobos, alvoDeRobos, escolherParaDesligar, quemSegurarNaUra,
   reconciliarMovidos, interpretarWebhook, jaEstavaDeslogado,
 } = require('../../src/domain/rodizio');
 const { adquirirTrava, TravaOcupadaError } = require('../../src/utils/trava-processo');
@@ -497,4 +497,18 @@ test('ControleRobos.aumentar: sobe no máximo um degrau por vez', async () => {
   await robos.aumentar(ramais, 20, 'teste');
   assert.equal(logados.length, 20, '7 + 7 + 6');
   assert.ok(robos.situacao(20).ultimoAumento > 0);
+});
+
+test('quemSegurarNaUra: o último livre (o ocioso há menos tempo) fica; havendo outro livre, ninguém fica', () => {
+  const status = new Map([
+    ['1', { classe: Classe.LIVRE, livreDesde: 0 }],
+    ['2', { classe: Classe.LIVRE, livreDesde: 10_000 }],
+    ['3', { classe: Classe.ATENDIMENTO }],
+    ['4', { classe: Classe.OFFLINE }],
+  ]);
+  const ramaisUra = ['1', '2', '3', '4'];
+  assert.equal(quemSegurarNaUra({ devolver: ['1', '2', '4'], ramaisUra, status }), '2', 'todos os livres sairiam: fica o de menor ociosidade');
+  assert.equal(quemSegurarNaUra({ devolver: ['1'], ramaisUra, status }), null, 'o 2 continua livre na URA');
+  assert.equal(quemSegurarNaUra({ devolver: ['4'], ramaisUra: ['3', '4'], status }), null, 'offline não segura a URA');
+  assert.equal(quemSegurarNaUra({ devolver: [], ramaisUra, status }), null);
 });

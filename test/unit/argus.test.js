@@ -88,6 +88,18 @@ test('Diretório: grupo do supervisor é inferido pela maioria dos operadores', 
   assert.equal(diretorio.grupoAtivoDoOperador('1003'), 3);
 });
 
+test('Diretório: supervisor sem operadores no Ativo → grupo do Ativo com o primeiro nome dele', async () => {
+  const { diretorio, client } = montarArgusMock();
+  // Toda a equipe da Maysa na URA: não dá para inferir pela maioria.
+  for (const u of client.dados.usuarios) {
+    if (u.campanhas[0].idUsuarioSupervisor === 880) u.campanhas[0].idGrupoUsuario = 2;
+  }
+  await diretorio.atualizar();
+  const maysa = diretorio.supervisorPorNome('MAYSA DE FÁTIMA SIQUEIRA DOS SANTOS CARNEIRO').supervisor;
+  assert.deepEqual(diretorio.grupoDoSupervisor(maysa), { idGrupo: 3, origem: 'nome' });
+  assert.equal(diretorio.grupoAtivoDoOperador('1005'), 3);
+});
+
 test('Diretório: exceção supervisor → grupo vence a inferência', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sup-'));
   const arquivo = path.join(dir, 's.json');
