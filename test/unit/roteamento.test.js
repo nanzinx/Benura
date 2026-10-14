@@ -9,7 +9,7 @@ const { loggerNulo } = require('../../src/utils/logger');
 
 const relogio = { hoje: () => '2026-10-08' };
 
-function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [] } = {}) {
+function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {} } = {}) {
   const movimentos = [];
   const salvos = [];
   const vendas = { ontem, hoje };
@@ -26,6 +26,9 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fi
     vendedoresGerenciados: () => cadastrados.map((ramal) => ({ nome: `V${ramal}`, chave: `V${ramal}`, ramal })),
     listarExcecoesRamal: () => [],
     operadorPorRamal: (ramal) => ({ nome: `V${ramal}`, ramal }),
+    ramaisDaEquipe: (nome) => (equipes[nome]
+      ? { supervisor: { nome }, candidatos: [{ nome }], ramais: equipes[nome] }
+      : { supervisor: null, candidatos: [], ramais: [] }),
   };
   const discadora = {
     async moverPara(ramal, fila) {
@@ -41,7 +44,7 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fi
     aguardarEscritas: async () => {},
   };
   const svc = new RoteamentoService({
-    carrossel, discadora, repositorio, diretorio, relogio, regras: { metaDiaria: 50_000, fixosUra }, logger: loggerNulo,
+    carrossel, discadora, repositorio, diretorio, relogio, regras: { metaDiaria: 50_000, fixosUra, equipesFixasUra }, logger: loggerNulo,
   }).inicializar();
   return { svc, movimentos, salvos, vendas };
 }
@@ -85,6 +88,17 @@ test('carga inicial: fixos (por ramal ou nome) vão para a URA mesmo sem venda; 
   assert.deepEqual(movimentos.sort(), [['1', 'URA'], ['2', 'URA'], ['7', 'URA']]);
   assert.equal(svc.estado.vendedores['7'].fixo, true);
   assert.equal(svc.estado.vendedores['1'].fixo, false);
+});
+
+test('carga inicial: equipe fixa (EQUIPES_FIXAS_URA) vai inteira para a URA, com ou sem venda', async () => {
+  const { svc, movimentos } = montar({
+    ontem: [v('1', 72_500), v('2', 10)], cadastrados: ['1', '2', '3', '4'],
+    equipesFixasUra: ['ROBSON JUNIOR', 'SUPERVISOR INEXISTENTE'], equipes: { 'ROBSON JUNIOR': ['3', '4'] },
+  });
+  const r = await svc.executarCargaInicial();
+  assert.deepEqual(r, { ura: 3, ativo: 1, falhas: 0 });
+  assert.deepEqual(movimentos.filter(([, fila]) => fila === 'URA').map(([ramal]) => ramal).sort(), ['1', '3', '4']);
+  assert.equal(svc.estado.vendedores['3'].fixo, true, 'na lista de elegíveis do dia: volta à URA ao atender no Ativo');
 });
 
 test('carga inicial: fixo fora da URA/Ativo e do Carrossel entra pelo ramal', async () => {

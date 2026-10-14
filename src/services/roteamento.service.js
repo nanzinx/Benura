@@ -166,7 +166,7 @@ class RoteamentoService {
    */
   async posicionarFixosSemCarga() {
     const hoje = this.relogio.hoje();
-    if (!this.regras.fixosUra?.length || this.fixosPosicionadosEm === hoje) return;
+    if (!this.temFixos() || this.fixosPosicionadosEm === hoje) return;
     try {
       await this.diretorio.atualizar({ forcar: true });
       for (const ramal of this.ramaisFixos()) {
@@ -191,7 +191,28 @@ class RoteamentoService {
       if (ramal) ramais.add(String(ramal));
       else this.avisarSemRamal({ nome: item, chave: `fixo:${item}` }, 'em OPERADORES_FIXOS_URA');
     }
+    for (const supervisor of this.regras.equipesFixasUra || []) {
+      this.ramaisDaEquipeFixa(supervisor).forEach((ramal) => ramais.add(ramal));
+    }
     return ramais;
+  }
+
+  temFixos() {
+    return Boolean(this.regras.fixosUra?.length || this.regras.equipesFixasUra?.length);
+  }
+
+  /** Equipe de um supervisor de EQUIPES_FIXAS_URA (aviso uma vez se o nome não bater com a Argus). */
+  ramaisDaEquipeFixa(nomeSupervisor) {
+    const { supervisor, candidatos, ramais } = this.diretorio.ramaisDaEquipe(nomeSupervisor);
+    const chave = `equipe:${nomeSupervisor}`;
+    if (supervisor && ramais.length) return ramais;
+    if (this.semRamalAvisados.has(chave)) return [];
+    this.semRamalAvisados.add(chave);
+    const motivo = !supervisor && candidatos.length > 1
+      ? `corresponde a ${candidatos.length} supervisores (${candidatos.map((c) => c.nome).join(', ')}); use o nome completo`
+      : (supervisor ? 'não tem nenhum operador ativo na equipe' : 'não foi encontrado entre os supervisores da Argus');
+    this.log.aviso(`EQUIPES_FIXAS_URA: "${nomeSupervisor}" ${motivo}.`);
+    return [];
   }
 
   nomeDoRamal(ramal) {
