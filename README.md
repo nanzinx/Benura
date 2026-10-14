@@ -209,6 +209,22 @@ src/utils/                         HTTP com retry, persistência atômica, trava
 4. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
    Se nenhum webhook chegar em 1 h com robôs ligados, o log avisa que ele não está configurado.
 
+### Diagnóstico de callbacks
+Para descobrir **quando** e **por que** os robôs geram callback:
+
+1. **Linha do tempo no log do rodízio.** A cada mudança no número de livres, o log mostra uma linha:
+   `URA: livres 2→1 | humanos 3 | robôs ligados 14 (alvo 7)`.
+   Rodando pelo PM2, o log fica em `logs/rodizio.out.log`.
+2. **Relatório dos robôs, só leitura:**
+   ```bash
+   npm run diagnostico:callbacks                    # hoje, desde a meia-noite
+   npm run diagnostico:callbacks -- --minutos 120   # só os últimos 120 min
+   ```
+   Ele busca na Argus o relatório de ligações detalhadas dos grupos de robôs (`GRUPOS_ROBOS_URA_IDS`) e mostra três coisas: os campos do relatório, a contagem por status/resultado e cada callback com hora e robô.
+   Também grava o resultado em `logs/diagnostico-callbacks-AAAA-MM-DD.json`. CPF, telefone, nome do cliente e lead são descartados antes de imprimir ou gravar.
+
+Compare a hora de cada callback com a linha do tempo daquele minuto.
+
 ### Testes de comportamento
 `npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em **27 cenários**: ida, volta, robôs proporcionais, webhook, correções e retorno da fila.
 A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js`. Foi assim que a

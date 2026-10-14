@@ -363,11 +363,23 @@ class RodizioService {
         validadeStatusMs: Math.max(VALIDADE_STATUS_MS, this.cfg.pollUraMs * 2 + 1000),
       },
     });
+    this.registrarMudancaDeLivres(livres, alvo);
     this.ultimosLivres = livres;
     // Desde quando há robôs demais com gente livre (a redução parcial espera isso se confirmar).
     this.excessoDesde = excesso && acao !== AcaoRobos.DESLIGAR ? (this.excessoDesde ?? agora) : null;
     if (acao === AcaoRobos.DESLIGAR) await this.robos.reduzir(this.ramaisRobos, alvo, motivo);
     if (acao === AcaoRobos.RELIGAR) await this.robos.aumentar(this.ramaisRobos, alvo, motivo);
+  }
+
+  /**
+   * Linha do tempo da URA: uma linha a cada mudança no número de livres, para
+   * cruzar com a hora de cada callback (npm run diagnostico:callbacks).
+   */
+  registrarMudancaDeLivres(livres, alvo) {
+    if (livres === this.ultimosLivres) return;
+    const humanos = [...this.ramaisUra].filter((r) => this.statusUra.has(r) && this.statusUra.get(r).classe !== Classe.OFFLINE).length;
+    const { ligados } = this.robos.situacao(this.ramaisRobos.length);
+    this.log.info(`URA: livres ${this.ultimosLivres ?? '?'}→${livres} | humanos ${humanos} | robôs ligados ${ligados ?? '?'} (alvo ${alvo})`);
   }
 
   // ───────────────────────────── Webhook ─────────────────────────────
