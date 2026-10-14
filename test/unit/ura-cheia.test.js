@@ -36,15 +36,34 @@ test('UraCheia: liga, sobrevive a reinício no mesmo dia e desliga sozinha na vi
   }
 });
 
-test('rodízio: na URA cheia ninguém volta por ocioso; ao desligar, o ocioso recomeça a contar', () => {
-  let ligada = true;
+test('rodízio: na URA cheia cada um é levado uma vez; depois segue a regra do ocioso', async () => {
+  const transferidos = [];
   const svc = new RodizioService({
-    client: {}, transferencias: {}, repositorio: {}, robos: {}, logger: loggerNulo, cfg: {},
-    uraCheia: { ativa: () => ligada },
+    client: {}, repositorio: { salvar() {} }, robos: {}, logger: loggerNulo, cfg: { grupoUraId: 2, concorrencia: 5 },
+    transferencias: { transferir: async (ramal, grupo) => { transferidos.push(`${ramal}→${grupo}`); return true; } },
+    uraCheia: { ativa: () => true, ligar: () => true, resumo: () => ({}) },
   });
-  svc.statusUra.set('201', { classe: Classe.LIVRE, livreDesde: 1000 });
-  assert.equal(svc.emUraCheia(5000), true);
-  ligada = false;
-  assert.equal(svc.emUraCheia(9000), false);
-  assert.equal(svc.statusUra.get('201').livreDesde, 9000, 'senão sairia todo mundo de uma vez');
+  svc.gruposAtivos = [{ idGrupoUsuario: 1, ramaisOperadores: ['100', '101'] }];
+  await svc.levarTodosParaUra();
+  assert.deepEqual(transferidos.sort(), ['100→2', '101→2']);
+
+  // 100 ficou ocioso e voltou ao Ativo pela regra de sempre: não é levado de novo.
+  delete svc.movidos['100'];
+  svc.ramaisUra.delete('100');
+  await svc.levarTodosParaUra();
+  assert.equal(transferidos.length, 2);
+
+  // Religar a URA cheia leva todos de novo.
+  svc.ligarUraCheia();
+  await svc.levarTodosParaUra();
+  assert.deepEqual(transferidos.slice(2), ['100→2']);
+});
+
+test('rodízio: a regra do ocioso vale na URA cheia (quem passou do TEMPO_MIN sai)', () => {
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, repositorio: {}, robos: {}, logger: loggerNulo, cfg: { tempoNaUraMs: 180_000 },
+    uraCheia: { ativa: () => true },
+  });
+  svc.statusUra.set('201', { classe: Classe.LIVRE, ts: 0, livreDesde: 0 });
+  assert.equal(svc.deveDevolver('201', 180_000), true);
 });

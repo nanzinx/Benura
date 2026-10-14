@@ -88,6 +88,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ROBOS_SUBIDA_INTERVALO_MS: '500',
       ALINHAR_LOGIN_ESPERA_MS: '100',
       ALINHAR_LOGIN_APOS_MS: '1000',
+      PREPARAR_SAIDA_ULTIMO_LIVRE_MS: '0', // cada cenário de último livre liga o seu
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -181,22 +182,29 @@ const CENARIOS = {
     if (!r.saida.join('').includes('Sem a lista de elegíveis do dia')) throw new Error('não avisou que está sem a lista');
   },
 
-  async 'URA cheia: todos do Ativo vão para a URA e ninguém volta por ocioso; ao desligar, volta ao normal'(r) {
+  async 'URA cheia: todos sobem uma vez; a regra do ocioso vale; quem atender no Ativo volta mesmo sem ser elegível'(r) {
     const uraCheia = (method) => fetch(`${r.base}/ura/cheia`, { method, headers: { Authorization: `Bearer ${TOKEN}` } });
+    const vezes = (t) => r.transferencias().filter((x) => x === t).length;
     if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Colocar todos na URA')) throw new Error('GET /ura sem a página');
     if ((await fetch(`${r.base}/ura/cheia`, { method: 'POST' })).status !== 401) throw new Error('ligou sem token');
     if (!(await uraCheia('POST')).ok) throw new Error('não ligou');
-    // 100 e 101 não atenderam nada: sobem mesmo assim.
-    await aguardar(() => r.transferencias().includes('100→2') && r.transferencias().includes('101→2'), { descricao: 'todos → URA' });
-    await esperar(8000); // passa do TEMPO_MIN (6 s) livre
-    if (r.transferencias().some((t) => t.endsWith('→1'))) throw new Error('alguém voltou ao Ativo com a URA cheia');
+    // 100 e 101 não atenderam nada (e o 100 nem é elegível): sobem mesmo assim.
+    await aguardar(() => vezes('100→2') === 1 && vezes('101→2') === 1, { descricao: 'todos → URA' });
+
+    // Ociosos há TEMPO_MIN (6 s): voltam ao Ativo, com a URA cheia ligada.
+    await aguardar(() => vezes('100→1') === 1 && vezes('101→1') === 1, { timeoutMs: 15_000, descricao: 'ociosos → Ativo' });
+    await esperar(2000);
+    if (vezes('100→2') !== 1) throw new Error('levou de novo quem voltou por ocioso (vai e volta)');
     const { uraCheia: estado } = await (await fetch(`${r.base}/health`)).json();
     if (!estado.ligada) throw new Error('/health não mostra a URA cheia ligada');
 
+    // O 100 atende no Ativo: volta à URA mesmo sem ser elegível.
+    await aguardar(() => r.argus.estado.grupoLogado['100'] === undefined, { descricao: 'a discadora trocar o 100 para o Ativo' });
+    r.argus.definirStatus('100', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('100', 'livre');
+    await aguardar(() => vezes('100→2') === 2, { descricao: '100 atendeu no Ativo → URA' });
     if (!(await uraCheia('DELETE')).ok) throw new Error('não desligou');
-    await esperar(3000);
-    if (r.transferencias().some((t) => t.endsWith('→1'))) throw new Error('saiu antes do TEMPO_MIN contado a partir do desligamento');
-    await aguardar(() => r.transferencias().includes('100→1'), { timeoutMs: 12_000, descricao: '100 ocioso → Ativo depois de desligar' });
   },
 
   async 'URA cheia em DRY_RUN: simula a ida de cada um uma vez só'(r) {
@@ -247,22 +255,21 @@ const CENARIOS = {
     await aguardar(() => r.transferencias().includes('201→2'), { descricao: '201 atendeu no Ativo → URA' });
   },
 
-  async 'URA: último livre ocioso espera os robôs em ligação terminarem (eles param de discar)'(r) {
+  async 'URA: último livre sai no horário; antes disso os robôs param de discar e os em ligação terminam'(r) {
     const deslogados = () => r.chamadas('deslogaroperador').map((c) => String(c.dados.ramal));
-    // 201 é o único humano; ocioso aos 6 s: os robôs parados (901, 902) desligam e o 900, em ligação, fica.
-    await aguardar(() => deslogados().includes('901') && deslogados().includes('902'), { timeoutMs: 12_000, descricao: 'robôs parados desligam' });
-    await esperar(2000);
+    // 201 é o único humano. A 3 s de completar o ocioso (6 s), os robôs parados (901, 902) desligam; o 900, em ligação, fica.
+    await aguardar(() => deslogados().includes('901') && deslogados().includes('902'), { timeoutMs: 12_000, descricao: 'robôs parados desligam antes' });
     if (deslogados().includes('900')) throw new Error('derrubou o robô em ligação');
-    if (r.transferencias().some((t) => t.startsWith('201→'))) throw new Error('tirou o último livre com robô em ligação');
-
-    r.argus.definirStatus('900', 'livre'); // a ligação terminou
+    if (r.transferencias().some((t) => t.startsWith('201→'))) throw new Error('o 201 saiu antes do TEMPO_MIN');
+    r.argus.definirStatus('900', 'livre'); // a ligação terminou com o 201 ainda na URA
     await aguardar(() => deslogados().includes('900'), { descricao: 'desligar o 900 ao terminar' });
-    await aguardar(() => r.transferencias().includes('201→1'), { descricao: '201 volta ao Ativo depois dos robôs' });
+    // A regra do ocioso vale: sai no horário.
+    await aguardar(() => r.transferencias().includes('201→1'), { timeoutMs: 12_000, descricao: '201 volta ao Ativo no TEMPO_MIN' });
   },
 
-  async 'URA: último livre segurado sai depois de SEGURAR_ULTIMO_LIVRE_MS mesmo com robô em ligação'(r) {
-    await aguardar(() => r.transferencias().includes('201→1'), { timeoutMs: 15_000, descricao: '201 volta ao Ativo pelo limite' });
-    await aguardar(() => r.chamadas('deslogaroperador').some((c) => String(c.dados.ramal) === '900'), { descricao: 'URA vazia desliga todos' });
+  async 'URA: último livre sai no TEMPO_MIN mesmo com robô ainda em ligação'(r) {
+    await aguardar(() => r.transferencias().includes('201→1'), { timeoutMs: 12_000, descricao: '201 volta ao Ativo no horário' });
+    await aguardar(() => r.chamadas('deslogaroperador').some((c) => String(c.dados.ramal) === '900'), { descricao: 'URA sem livre desliga todos' });
   },
 
   async 'URA: logado em outro grupo → avisa; em ligação não mexe; ao ficar livre, reloga na URA'(r) {
@@ -613,9 +620,11 @@ const VARIACOES = {
     status: { ...STATUS_BASE, 200: 'em atendimento' },
     preparar: ({ argus }) => { argus.estado.grupoLogado = { 200: 1 }; },
   },
-  'URA: último livre ocioso espera os robôs em ligação terminarem (eles param de discar)': ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO,
-  'URA: último livre segurado sai depois de SEGURAR_ULTIMO_LIVRE_MS mesmo com robô em ligação': {
-    ...ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO, env: { ROBOS_POR_LIVRE: '3', SEGURAR_ULTIMO_LIVRE_MS: '3000' },
+  'URA: último livre sai no horário; antes disso os robôs param de discar e os em ligação terminam': {
+    ...ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO, env: { ROBOS_POR_LIVRE: '3', PREPARAR_SAIDA_ULTIMO_LIVRE_MS: '3000' },
+  },
+  'URA: último livre sai no TEMPO_MIN mesmo com robô ainda em ligação': {
+    ...ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO, env: { ROBOS_POR_LIVRE: '3', PREPARAR_SAIDA_ULTIMO_LIVRE_MS: '3000' },
   },
   'URA: quem já estava na URA (não movido) e fica ocioso volta ao grupo do supervisor': URA_COM_201_NAO_MOVIDO,
   // Grupos relidos só a cada 60 s: a volta à URA não pode depender dessa releitura.
@@ -681,6 +690,9 @@ const VARIACOES = {
     ],
     status: { 100: 'livre', 200: 'livre', 201: 'livre', 202: 'livre' }, // robôs começam desligados
     env: { ROBOS_POR_LIVRE: '2', ROBOS_DEGRAU: '2' },
+  },
+  'URA cheia: todos sobem uma vez; a regra do ocioso vale; quem atender no Ativo volta mesmo sem ser elegível': {
+    preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
   },
   'URA cheia em DRY_RUN: simula a ida de cada um uma vez só': { env: { DRY_RUN: '1' } },
   'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)': {

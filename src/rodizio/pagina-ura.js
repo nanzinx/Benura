@@ -37,7 +37,7 @@ const PAGINA_URA = `<!doctype html>
 <body>
 <main>
   <h1>URA cheia</h1>
-  <p class="sub">Quando pedirem todo mundo na URA. O BenURA continua cuidando dos robôs (proporcionais aos livres) e da telefonia.</p>
+  <p class="sub">Quando pedirem todo mundo na URA. O BenURA continua cuidando dos robôs (proporcionais aos livres), da telefonia e da regra do ocioso.</p>
 
   <div class="cartao">
     <div class="estado" id="estado">Carregando…</div>
@@ -51,9 +51,10 @@ const PAGINA_URA = `<!doctype html>
 
   <div class="cartao">
     <ul>
-      <li><b>Colocar todos na URA</b>: em até 5 s, todos os operadores dos grupos do Ativo vão para a URA, atendendo ou não. Ninguém volta ao Ativo por ocioso.</li>
+      <li><b>Colocar todos na URA</b>: em até 5 s, todos os operadores dos grupos do Ativo vão para a URA, atendendo ou não.</li>
+      <li>A regra do ocioso continua valendo: quem ficar livre 3 min seguidos na URA volta ao Ativo, e volta à URA quando atender lá (mesmo sem ter batido a meta).</li>
       <li>Quem está em ligação só passa a receber da URA quando ficar livre (a discadora troca a telefonia com atraso).</li>
-      <li><b>Voltar ao normal</b>: o rodízio volta às regras de sempre. A contagem de ocioso recomeça na hora, então ninguém sai de uma vez.</li>
+      <li><b>Voltar ao normal</b>: só sobe para a URA quem é elegível (meta de ontem, venda hoje ou fixo).</li>
       <li>Vale até desligar ou até virar o dia.</li>
     </ul>
     <div class="linha">
