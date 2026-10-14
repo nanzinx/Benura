@@ -147,6 +147,9 @@ function carregarConfig(overrides = {}) {
     // --- Regras de negócio ---
     regras: {
       metaDiaria: envNum('META_DIARIA', 50_000),
+      // Operadores fixos: começam o dia na URA com ou sem venda (ramais ou nomes, separados por vírgula).
+      // Depois seguem o rodízio: ociosos vão ao Ativo e voltam à URA ao atender lá.
+      fixosUra: envLista('OPERADORES_FIXOS_URA', ''),
       // Se true, vendedores que estão em um grupo diferente de URA/Ativo
       // (ex.: colocados manualmente em treinamento/supervisão) não são tocados.
       respeitarGruposExternos: envBool('RESPEITAR_GRUPOS_EXTERNOS', true),

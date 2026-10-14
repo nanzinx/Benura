@@ -112,6 +112,7 @@ function logarResumo(cfg, log) {
   log.info('Roteador de Vendas — Carrossel ↔ Argus');
   log.info(`Meta: ${formatarReais(cfg.regras.metaDiaria)} | Expediente: ${cfg.agenda.horarioCarga}–${cfg.agenda.horarioFim} | `
     + `Grupos Ativo: ${cfg.argus.gruposAtivosIds.join(',')} | URA: ${cfg.argus.grupoUraId} | `
+    + `Fixos na URA: ${cfg.regras.fixosUra.length ? cfg.regras.fixosUra.join(', ') : 'nenhum'} | `
     + `Carrossel: ${carrossel} (${cfg.carrossel.metrica}) | Argus: ${argus}`);
 }
 
@@ -139,7 +140,7 @@ async function iniciar() {
 
   await escutar(servidor, cfg.http.porta);
   log.info(`HTTP na porta ${cfg.http.porta}: GET /health, GET /status, POST /recarregar, POST /webhook/venda, `
-    + `GET /manual (esteira colada se o Carrossel cair)`);
+    + `GET /manual (esteira colada se o Carrossel cair), DELETE /manual`);
 
   agendador.iniciar();
   registrarDesligamento({

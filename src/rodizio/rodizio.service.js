@@ -255,9 +255,19 @@ class RodizioService {
     delete this.movidos[ramal];
     this.ramaisUra.delete(ramal);
     this.statusUra.delete(ramal);
+    this.vigiarNoAtivo(ramal, destino);
     this.salvar();
     this.log.info(`URA→ATIVO ramal=${ramal} destino=${destino} (motivo: ${motivoDaVolta({ ...info, agora: Date.now() })})`);
     return undefined;
+  }
+
+  /**
+   * Passa a vigiar no Ativo quem acabou de voltar, sem esperar a próxima
+   * leitura dos grupos: uma ligação curta logo após a volta já o traz à URA.
+   */
+  vigiarNoAtivo(ramal, idGrupo) {
+    const incluir = (g) => ({ ...g, ramaisOperadores: [...new Set([...(g.ramaisOperadores || []).map(String), ramal])] });
+    this.gruposAtivos = this.gruposAtivos.map((g) => (g.idGrupoUsuario === idGrupo ? incluir(g) : g));
   }
 
   avisarSemGrupo(ramal) {
