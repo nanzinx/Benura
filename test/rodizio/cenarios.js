@@ -85,6 +85,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       MIN_ROBOS_OFF_MS: '500',
       ROBOS_REDUZIR_APOS_MS: '500',
       ROBOS_SUBIDA_INTERVALO_MS: '500',
+      ALINHAR_LOGIN_ESPERA_MS: '100',
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -205,18 +206,33 @@ const CENARIOS = {
     await aguardar(() => r.chamadas('deslogaroperador').some((c) => String(c.dados.ramal) === '900'), { descricao: 'URA vazia desliga todos' });
   },
 
-  async 'URA: quem está na URA mas logado em outro grupo gera aviso e aparece no /health (sem mover nada)'(r) {
+  async 'URA: logado em outro grupo → avisa; em ligação não mexe; ao ficar livre, reloga na URA'(r) {
+    // 200 foi posto na URA "à mão" já logado: a telefonia diz grupo 1. Está em ligação.
     await aguardar(() => r.saida.join('').includes('Ramal 200 está no grupo da URA, mas a telefonia diz que está logado'),
       { descricao: 'aviso do grupo logado' });
     const { uraLogadosEmOutroGrupo } = await (await fetch(`${r.base}/health`)).json();
     if (uraLogadosEmOutroGrupo?.[0]?.ramal !== '200' || uraLogadosEmOutroGrupo[0].grupoLogado !== 1) {
       throw new Error(`health sem o 200: ${JSON.stringify(uraLogadosEmOutroGrupo)}`);
     }
-    const avisos = r.saida.join('').split('Ramal 200 está no grupo da URA').length - 1;
-    if (avisos !== 1) throw new Error(`avisou ${avisos} vezes; devia avisar uma`);
+    await esperar(1000);
+    if (r.chamadas('logaroperador').length) throw new Error('relogou quem estava em ligação');
 
-    r.argus.estado.grupoLogado = {}; // relogou na URA
+    r.argus.definirStatus('200', 'livre'); // terminou a ligação
+    await aguardar(() => r.chamadas('logaroperador').some((c) => String(c.dados.ramal) === '200'), { descricao: 'relogar o 200' });
     await aguardar(() => r.saida.join('').includes('Ramal 200 agora está logado no grupo da URA'), { descricao: 'aviso de correção' });
+    if (r.chamadas('deslogaroperador').some((c) => String(c.dados.ramal) === '200')) throw new Error('deslogou o 200 sem precisar');
+  },
+
+  async 'Rodízio: quem o BenURA move é relogado no grupo novo (ida à URA e volta ao Ativo)'(r) {
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
+    await aguardar(() => r.argus.estado.grupoLogado['101'] === undefined && r.chamadas('logaroperador').length === 1,
+      { descricao: '101 relogado na URA' });
+    await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 12_000, descricao: '101 ocioso → Ativo' });
+    await aguardar(() => r.chamadas('logaroperador').length === 2, { descricao: '101 relogado no Ativo' });
+    if (r.argus.estado.grupoLogado['101'] !== undefined) throw new Error('a telefonia do 101 não acompanhou a volta');
   },
 
   async 'URA: atender zera o tempo ocioso'(r) {
@@ -239,6 +255,8 @@ const CENARIOS = {
     await esperar(1000);
     r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
+    await aguardar(() => r.chamadas('logaroperador').length, { descricao: '101 relogado na URA' });
+    await esperar(500);
     r.argus.definirStatus('101', null);
     await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 3000, descricao: '101 offline → Ativo' });
   },
@@ -474,7 +492,8 @@ const ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO = {
 };
 
 const VARIACOES = {
-  'URA: quem está na URA mas logado em outro grupo gera aviso e aparece no /health (sem mover nada)': {
+  'URA: logado em outro grupo → avisa; em ligação não mexe; ao ficar livre, reloga na URA': {
+    status: { ...STATUS_BASE, 200: 'em atendimento' },
     preparar: ({ argus }) => { argus.estado.grupoLogado = { 200: 1 }; },
   },
   'URA: último livre ocioso espera os robôs em ligação terminarem (eles param de discar)': ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO,

@@ -4,6 +4,10 @@
  *
  * Mantém grupos e status de operadores em memória, registra cada comando
  * recebido e permite que o teste altere status no meio da execução.
+ *
+ * Como a Argus real: transferir de grupo quem já está logado muda só a lista;
+ * a telefonia (statusoperador.idGrupo) continua no grupo antigo até ele logar
+ * de novo (logaroperador loga no grupo vinculado).
  */
 
 const http = require('http');
@@ -49,6 +53,8 @@ function criarArgusFake({ grupos, status, usuarios = [] }) {
 
     transferiroperadorgrupo: ({ idGrupoUsuarioDestino, ramaisOperadores }) => {
       for (const r of ramaisOperadores) {
+        const logadoEm = estado.grupoLogado[r] ?? grupoDe(r)?.idGrupoUsuario;
+        if (estado.status[r] != null && logadoEm != null) estado.grupoLogado[r] = logadoEm; // a sessão fica onde está
         for (const g of estado.grupos) g.ramaisOperadores = g.ramaisOperadores.filter((x) => String(x) !== String(r));
         estado.grupos.find((g) => g.idGrupoUsuario === idGrupoUsuarioDestino).ramaisOperadores.push(String(r));
       }
@@ -60,7 +66,15 @@ function criarArgusFake({ grupos, status, usuarios = [] }) {
 
     deslogaroperador: ({ ramal }) => {
       estado.status[ramal] = null;
+      delete estado.grupoLogado[ramal]; // ao logar de novo, cai no grupo vinculado
       return { codStatus: 1, descStatus: 'Deslogado' };
+    },
+
+    // Humano: loga (ou reloga) no grupo vinculado, como o "deslogar e logar" do operador.
+    logaroperador: ({ ramal }) => {
+      delete estado.grupoLogado[ramal];
+      if (estado.status[ramal] == null) estado.status[ramal] = 'livre';
+      return { codStatus: 1, descStatus: 'Operador logado' };
     },
 
     // Mailing: /apiargus/{hashSkill}/novo e /excluir

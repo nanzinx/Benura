@@ -275,6 +275,15 @@ class ArgusClient {
     return null; // demais códigos: operador não logado
   }
 
+  /**
+   * Conecta o operador na telefonia (doc 4.5). Sem codIntegGrupo, loga no grupo
+   * já vinculado: depois de uma transferência, é o que leva a sessão para o
+   * grupo novo (veja alinhar-login.js).
+   */
+  logarOperador(ramal) {
+    return this.comando('logaroperador', { ramal: String(ramal) }, { timeoutMs: 3000, tentativas: 1 });
+  }
+
   /** Desconecta um operador ou operador virtual. Emergencial: segue mesmo durante a pausa de limite. */
   deslogarOperador(ramal) {
     return this.comando('deslogaroperador', { ramal: String(ramal) }, { timeoutMs: 1500, tentativas: 1 });
