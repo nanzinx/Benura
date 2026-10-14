@@ -16,6 +16,7 @@ const { EstadoRodizioRepository } = require('./estado-rodizio.repository');
 const { Transferencias } = require('./transferencias');
 const { ControleRobos } = require('./controle-robos');
 const { RodizioService } = require('./rodizio.service');
+const { ElegiveisUra } = require('./elegiveis-ura');
 const { DiretorioOperadores } = require('../integrations/argus/diretorio-operadores.service');
 const { criarRotasDoRodizio } = require('./controllers');
 const { RetornoFilaService } = require('../retorno-fila/retorno-fila.service');
@@ -51,6 +52,9 @@ function montarRodizio(overrides) {
     diretorio: new DiretorioOperadores({
       client, cfg: cfg.argus, arquivoSupervisoresGrupos: cfg.arquivoSupervisoresGrupos, logger: log.filho('diretorio'),
     }),
+    elegiveis: cfgRodizio.soElegiveis
+      ? new ElegiveisUra({ arquivo: cfgRodizio.arquivoVendas, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') })
+      : null,
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
   return { cfg, cfgRodizio, log, rodizio, retornoFila };
@@ -116,7 +120,7 @@ function logarInicio({ cfg, cfgRodizio, log }) {
   const retorno = cfg.retornoFila.ativo ? `ligado (origem ${cfg.retornoFila.origem})` : 'desligado';
   log.info(`Rodízio iniciado | HTTP na porta ${cfgRodizio.porta} (GET /health, POST /webhook, POST /robos/manual, POST /robos/automatico) | `
     + `TEMPO_MIN=${cfgRodizio.tempoNaUraMs / 60_000} | URA=${cfgRodizio.grupoUraId} | robôs=grupos ${cfgRodizio.gruposRobosIds.join(',')} (${cfgRodizio.robosPorLivre} por livre) | `
-    + `Ativo=${cfgRodizio.gruposAtivosIds.join(',')} | retorno da fila: ${retorno}${cfgRodizio.dryRun ? ' | DRY_RUN' : ''}`);
+    + `Ativo=${cfgRodizio.gruposAtivosIds.join(',')} | sobem à URA: ${cfgRodizio.soElegiveis ? 'só elegíveis' : 'todos'} | retorno da fila: ${retorno}${cfgRodizio.dryRun ? ' | DRY_RUN' : ''}`);
 }
 
 async function iniciarRodizio() {
