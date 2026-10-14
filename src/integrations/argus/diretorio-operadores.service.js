@@ -59,9 +59,14 @@ function grupoMajoritario(contagemPorGrupo) {
   return primeiro[0];
 }
 
-/** { "NOME DO SUPERVISOR": idGrupo } → Map(chave normalizada → idGrupo). */
+/**
+ * { "NOME DO SUPERVISOR": idGrupo } → Map(chave normalizada → idGrupo).
+ * Grupo vazio (null, 0) é ignorado: o arquivo sugerido traz null para quem falta preencher.
+ */
 const mapearExcecoesSupervisores = (bruto) => new Map(
-  Object.entries(bruto || {}).map(([nome, id]) => [normalizarNome(nome), Number(id)]),
+  Object.entries(bruto || {})
+    .filter(([, id]) => Number(id) > 0)
+    .map(([nome, id]) => [normalizarNome(nome), Number(id)]),
 );
 
 /** Agrupa itens por chave, preservando todos (nomes podem repetir). */
@@ -301,6 +306,53 @@ class DiretorioOperadores {
       .filter((op) => op.vinculos.some((v) => v.idSupervisor === supervisor.idUsuario))
       .map((op) => op.ramal);
     return { supervisor, candidatos, ramais };
+  }
+
+  /**
+   * Para conferir o supervisores-grupos.json: cada supervisor com equipe na URA
+   * ou no Ativo, o grupo do Ativo para onde a equipe volta e por qual regra, e
+   * quem não tem supervisor (o arquivo não resolve: precisa corrigir na Argus).
+   * @returns {{ supervisores: object[], semSupervisor: object[], gruposAtivos: object[] }}
+   */
+  conferirSupervisores() {
+    const { equipes, semSupervisor } = this.agruparEquipes();
+    const supervisores = [...equipes.values()]
+      .map(({ supervisor, ramais }) => this.situacaoDoSupervisor(supervisor, ramais.size))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+    const gruposAtivos = [...this.gruposAtivos].map((idGrupo) => ({ idGrupo, nome: this.grupo(idGrupo)?.grupoUsuarioDesc ?? null }));
+    return { supervisores, semSupervisor, gruposAtivos };
+  }
+
+  /** Operadores gerenciados (URA/Ativo) agrupados pelo supervisor de cada vínculo. */
+  agruparEquipes() {
+    const gerenciados = this.gruposGerenciados;
+    const equipes = new Map(); // idSupervisor → { supervisor, ramais }
+    const semSupervisor = [];
+    for (const op of this.exigirSnapshot().operadoresPorRamal.values()) {
+      const vinculos = op.vinculos.filter((v) => gerenciados.has(v.idGrupo));
+      const comSupervisor = vinculos.filter((v) => v.idSupervisor != null);
+      if (vinculos.length && !comSupervisor.length) semSupervisor.push({ nome: op.nome, ramal: op.ramal });
+      comSupervisor.forEach((v) => this.incluirNaEquipe(equipes, v, op.ramal));
+    }
+    return { equipes, semSupervisor };
+  }
+
+  incluirNaEquipe(equipes, vinculo, ramal) {
+    const equipe = equipes.get(vinculo.idSupervisor) ?? { supervisor: this.supervisorDoVinculo(vinculo), ramais: new Set() };
+    equipe.ramais.add(ramal);
+    equipes.set(vinculo.idSupervisor, equipe);
+  }
+
+  situacaoDoSupervisor(supervisor, operadores) {
+    const grupo = this.grupoDoSupervisor(supervisor);
+    return {
+      nome: supervisor.nome || supervisor.chave,
+      cadastrado: this.usuarioPorId(supervisor.idUsuario) != null,
+      idGrupo: grupo?.idGrupo ?? null,
+      grupo: grupo ? this.grupo(grupo.idGrupo)?.grupoUsuarioDesc ?? null : null,
+      origem: grupo?.origem ?? null,
+      operadores,
+    };
   }
 
   /** Operadores ativos que estão hoje na URA ou em algum grupo do Ativo. */

@@ -185,3 +185,39 @@ test('ArgusClient: uploadMailing (form-data), excluirMailing e listarSkills', as
     servidor.close();
   }
 });
+
+test('Diretório: conferirSupervisores mostra o grupo de cada equipe e por qual regra', async () => {
+  const { diretorio, client } = montarArgusMock();
+  // Toda a equipe da Maysa na URA: o grupo sai pelo nome ("MAYSA - COMERCIAL"), não pela equipe.
+  for (const u of client.dados.usuarios) {
+    if (u.campanhas[0].idUsuarioSupervisor === 880) u.campanhas[0].idGrupoUsuario = 2;
+  }
+  const semSupervisor = client.dados.usuarios.find((u) => u.ramal === '1002');
+  semSupervisor.campanhas[0].idUsuarioSupervisor = null;
+  await diretorio.atualizar();
+
+  const { supervisores, semSupervisor: sem, gruposAtivos } = diretorio.conferirSupervisores();
+  const porNome = Object.fromEntries(supervisores.map((s) => [s.nome, s]));
+  assert.deepEqual(
+    { idGrupo: porNome['GABRIEL NASCIMENTO DA SILVA'].idGrupo, origem: porNome['GABRIEL NASCIMENTO DA SILVA'].origem },
+    { idGrupo: 1, origem: 'inferido' },
+  );
+  assert.equal(porNome['MAYSA DE FATIMA SIQUEIRA DOS SANTOS CARNEIRO'].origem, 'nome');
+  assert.deepEqual(sem.map((o) => o.ramal), ['1002'], 'sem supervisor: corrigir na Argus');
+  assert.deepEqual(gruposAtivos.map((g) => g.idGrupo), [1, 3]);
+  assert.ok(!supervisores.some((s) => s.operadores === 0));
+});
+
+test('conferir:supervisores: a sugestão fixa todos os supervisores; quem falta vem com null e é ignorado ao ler', async () => {
+  const { montarSugestao } = require('../../scripts/conferir-supervisores');
+  const sugestao = montarSugestao([{ nome: 'GABRIEL NASCIMENTO DA SILVA', idGrupo: 1 }, { nome: 'FULANO SEM GRUPO', idGrupo: null }]);
+  assert.deepEqual(sugestao, { 'GABRIEL NASCIMENTO DA SILVA': 1, 'FULANO SEM GRUPO': null });
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sug-'));
+  const arquivo = path.join(dir, 's.json');
+  fs.writeFileSync(arquivo, JSON.stringify({ ...sugestao, 'GABRIEL NASCIMENTO DA SILVA': null }));
+  const { diretorio } = montarArgusMock({ arquivoSupervisoresGrupos: arquivo });
+  await diretorio.atualizar();
+  const gabriel = diretorio.supervisorPorNome('GABRIEL NASCIMENTO DA SILVA').supervisor;
+  assert.deepEqual(diretorio.grupoDoSupervisor(gabriel), { idGrupo: 1, origem: 'inferido' }, 'null não vira grupo 0');
+});

@@ -11,3 +11,6 @@ logs/
 .simulacao/
 atualizador.lock
 rotinas.lock
+supervisores-grupos.sugerido.json
+supervisores-grupos.json
+vendedores-ramais.json

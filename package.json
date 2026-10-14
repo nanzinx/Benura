@@ -25,7 +25,8 @@
     "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",
     "atualizador:agora": "node atualizador.js --uma-vez",
     "rotinas:agora": "node rotinas.js --agora",
-    "diagnostico:callbacks": "node scripts/diagnostico-callbacks.js"
+    "diagnostico:callbacks": "node scripts/diagnostico-callbacks.js",
+    "conferir:supervisores": "node scripts/conferir-supervisores.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5"

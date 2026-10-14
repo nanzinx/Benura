@@ -144,6 +144,7 @@ automaticamente pelo `/listarusuarios` da Argus, que traz nome, login, ramal, gr
 - **Exceções** (opcionais, relidas sem reiniciar):
   - `vendedores-ramais.json`: nome no Carrossel diferente do nome na Argus, ou homônimos: `{ "NOME NO CARROSSEL": "2266111" }`
   - `supervisores-grupos.json`: supervisor cujo grupo não é identificado: `{ "NOME DO SUPERVISOR": 12 }`
+    - Para conferir todos de uma vez (só lê a Argus): **`npm run conferir:supervisores`**. Mostra o grupo do Ativo de cada supervisor e por qual regra foi encontrado (arquivo, pela equipe, pelo nome do grupo), quem ficou **sem grupo** e os **operadores sem supervisor** (esses precisam ser corrigidos na Argus). Grava `supervisores-grupos.sugerido.json` com todos os supervisores: troque cada `null` pelo número do grupo e renomeie para `supervisores-grupos.json` (relido sozinho, sem reiniciar). Grupo `null` ou `0` no arquivo é ignorado.
 
 ### Endpoints HTTP do roteador
 | Método | Rota | Auth | Descrição |
