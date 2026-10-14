@@ -28,6 +28,8 @@ const configDoRodizio = (cfg) => ({
   grupoUraId: cfg.argus.grupoUraId,
   gruposAtivosIds: cfg.argus.gruposAtivosIds,
   dryRun: cfg.argus.dryRun,
+  alinharLogin: cfg.argus.alinharLogin,
+  esperaLoginMs: cfg.argus.esperaLoginMs,
 });
 
 /** Monta as dependências (sem efeitos colaterais: nada é iniciado aqui). */

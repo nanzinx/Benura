@@ -94,6 +94,11 @@ function carregarConfig(overrides = {}) {
       // Cache do diretório de usuários (/listarusuarios).
       cacheDiretorioMs: envNum('ARGUS_CACHE_DIRETORIO_MS', 5 * 60_000),
       dryRun: envBool('DRY_RUN'),
+      // Mover de grupo quem já está logado muda só a lista: a telefonia continua no grupo
+      // antigo até relogar (na URA, a derivação dos robôs não chega e vira callback).
+      // true = depois de transferir, loga de novo no grupo novo (logaroperador).
+      alinharLogin: envBool('ALINHAR_LOGIN_APOS_TRANSFERIR', true),
+      esperaLoginMs: envNum('ALINHAR_LOGIN_ESPERA_MS', 1500),
       // Pausa por limite (HTTP 429) compartilhada entre roteador, rodízio e rotinas.
       arquivoPausa: env('ARGUS_PAUSA_FILE', path.join(RAIZ, 'argus-pausa.json')),
     },

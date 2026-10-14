@@ -196,7 +196,11 @@ src/utils/                         HTTP com retry, persistência atômica, trava
    - **O último livre espera os robôs em ligação.** Se a volta deixaria a URA sem nenhum livre, o ocioso fica: os robôs param de discar (os parados desligam) e os que estão em ligação terminam, ainda com alguém para receber a derivação. Ele volta ao Ativo quando os robôs desligam, ou depois de `SEGURAR_ULTIMO_LIVRE_MS` (**90 s**). Antes, tirá-lo zerava o alvo e derrubava os robôs em ligação, e o cliente que pedia atendimento virava callback.
    - Quem o rodízio moveu e ficou offline volta na hora.
    - Quem voltou retorna à URA pela regra 1, assim que atender no Ativo.
-3. **Robôs proporcionais aos livres**: ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
+3. **Telefonia acompanha a troca de grupo** (`ALINHAR_LOGIN_APOS_TRANSFERIR=true`, padrão).
+   - **O problema:** mover de grupo quem já está logado (pelo painel ou pela API) muda só a lista. A telefonia continua no grupo onde a pessoa logou até ela relogar. Na URA, a derivação dos robôs não chega nela: o cliente espera na fila e vira callback (`OPER. VIRTUAL - ABANDONO EM FILA`). Visto em 14/10/2026 e confirmado com o deslogar e logar.
+   - **O que o BenURA faz:** depois de mover alguém, no rodízio ou no roteador, ele **loga a pessoa de novo** (`logaroperador`, que loga no grupo vinculado) e confere no status. Se não bastar, desloga e loga. Só com a pessoa **livre**; em ligação ou pausa, espera.
+   - **Quem foi movido à mão:** quem está no grupo da URA, logado em outro grupo e livre também é relogado sozinho, no máximo uma vez por minuto.
+4. **Robôs proporcionais aos livres**: ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
    Com 1 livre, 7; com 2 livres, 14; e assim por diante, até o total de robôs (ou `ROBOS_MAXIMO`). Muitos robôs para poucos livres geram callback.
    - **Ninguém livre** → todos desligados **na hora**. **Com gente livre**, a redução só acontece se a queda de livres durar `ROBOS_REDUZIR_APOS_MS` (**10 s**), para não reagir a cada piscada de status, e desliga **só os robôs que não estão em ligação**: derrubar um robô falando corta o cliente e vira callback. Os que estão em ligação saem nos ciclos seguintes, quando a ligação termina (o log mostra "N em ligação mantidos até terminar").
    - **Aumentar** espera `MIN_ROBOS_OFF_MS` (padrão **15 s**) desde a última redução e sobe **em degraus**: no máximo `ROBOS_DEGRAU` (**7**) robôs a cada `ROBOS_SUBIDA_INTERVALO_MS` (**10 s**). Religar todos de uma vez faz todos discarem juntos, as derivações chegam juntas e o excedente vira callback.
@@ -206,7 +210,7 @@ src/utils/                         HTTP com retry, persistência atômica, trava
    - **Ninguém livre** (todos ocupados ou em pausa, URA vazia ou offline, ou a Argus sem responder) → **todos desligados** na hora.
    - Os grupos dos robôs ficam em `GRUPOS_ROBOS_URA_IDS` (hoje URA PORT 3). A cada atualização de grupos, o rodízio confere na Argus quais robôs estão de fato ligados.
    - O `/health` mostra `robos: { ligados, alvo, total, porLivre, mudancasPorFora, manualAte }`, `intervaloUraMs` e `ultimoWebhook`.
-4. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
+5. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
    Se nenhum webhook chegar em 1 h com robôs ligados, o log avisa que ele não está configurado.
 
 ### Diagnóstico de callbacks
@@ -224,10 +228,10 @@ Para descobrir **quando** e **por que** os robôs geram callback:
    - os campos do relatório e a contagem por status/resultado;
    - a linha do tempo de 15 em 15 min: derivou (`ATENDIMENTO`), callback (`OPER. VIRTUAL - ABANDONO EM FILA`, que é o "Gerou Callback" do painel) e sem agente (do discador);
    - cada callback com hora e robô;
-   - **"Quem está na URA agora":** em que grupo cada pessoa da URA está **logada na telefonia** (status do operador, só leitura). `⚠ LOGADO EM OUTRO GRUPO` quer dizer que a pessoa aparece na URA, mas a derivação dos robôs não chega nela.
+   - **"Quem está na URA agora":** em que grupo cada pessoa da URA está **logada na telefonia** (status do operador, só leitura). `ATENCAO: LOGADO EM OUTRO GRUPO` quer dizer que a pessoa aparece na URA, mas a derivação dos robôs não chega nela.
    Também grava o resultado em `logs/diagnostico-callbacks-AAAA-MM-DD.json`. CPF, telefone, nome do cliente e lead são descartados antes de imprimir ou gravar.
 
-3. **Aviso no rodízio:** quem está no grupo da URA mas logado na telefonia em outro grupo gera um aviso no log (uma vez por ramal) e aparece em `uraLogadosEmOutroGrupo` no `/health`. Funciona também com `DRY_RUN=1`, porque só lê.
+3. **Aviso no rodízio:** quem está no grupo da URA mas logado na telefonia em outro grupo gera um aviso no log (uma vez por ramal) e aparece em `uraLogadosEmOutroGrupo` no `/health`. Com `DRY_RUN=1` o rodízio só avisa e registra `[DRY_RUN] Relogaria ...`.
 
 Compare a hora de cada callback com a linha do tempo daquele minuto.
 

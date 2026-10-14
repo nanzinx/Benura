@@ -130,6 +130,11 @@ class ArgusMockClient {
     return this.status.get(String(ramal)) || null;
   }
 
+  async logarOperador(ramal) {
+    this.log.info(`[MOCK] Argus: ramal ${ramal} logado no grupo vinculado`);
+    return { codStatus: 1, descStatus: 'Operador logado' };
+  }
+
   async deslogarOperador(ramal) {
     this.log.info(`[MOCK] Argus: ramal ${ramal} deslogado`);
     this.status.delete(String(ramal));

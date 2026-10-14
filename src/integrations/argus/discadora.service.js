@@ -33,6 +33,7 @@
  *     descoberto pelo DiretorioOperadores.
  */
 
+const { alinharLogin } = require('./alinhar-login');
 const { Fila } = require('../../domain/fila');
 
 /** Índice ramal → grupo a partir da resposta de /listargrupos. */
@@ -213,11 +214,21 @@ class DiscadoraService {
     try {
       await this.client.transferirOperador(ramal, destinoId);
       this.invalidarCache();
-      return { ...base, resultado: Resultado.TRANSFERIDO };
+      return { ...base, resultado: Resultado.TRANSFERIDO, login: await this.alinharLogin(ramal, destinoId) };
     } catch (e) {
       this.log.erro(`Falha ao transferir ramal ${ramal} → ${rotulo}: ${e.message}`);
       return { ...base, resultado: Resultado.FALHA, erro: e.message };
     }
+  }
+
+  /**
+   * Quem já estava logado continua com a telefonia no grupo antigo depois da
+   * transferência: loga de novo no grupo novo (alinhar-login.js).
+   * @returns {Promise<string|null>} resultado do alinhamento, ou null se desligado
+   */
+  alinharLogin(ramal, idGrupo) {
+    if (!this.cfg.alinharLogin) return Promise.resolve(null);
+    return alinharLogin({ client: this.client, ramal, idGrupo, log: this.log, esperaMs: this.cfg.esperaLoginMs });
   }
 }
 

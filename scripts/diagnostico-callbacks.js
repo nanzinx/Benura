@@ -87,9 +87,10 @@ function imprimir({ idCampanha, minutos, porGrupo, ura }) {
   imprimirUra(ura);
 }
 
-const SIMBOLO = { ok: '✓', 'outro grupo': '⚠ LOGADO EM OUTRO GRUPO', deslogado: '· deslogado', erro: '? sem resposta' };
+/** Só ASCII: o console do Windows (PowerShell) mostra ✓/⚠ como quadradinho. */
+const SIMBOLO = { ok: 'OK', 'outro grupo': 'ATENCAO: LOGADO EM OUTRO GRUPO', deslogado: 'deslogado', erro: 'sem resposta' };
 
-/** Quem está na URA e em que grupo está logado: ⚠ = a derivação dos robôs não chega nele. */
+/** Quem está na URA e em que grupo está logado: ATENCAO = a derivação dos robôs não chega nele. */
 function imprimirUra(ura) {
   if (!ura.length) return;
   const logados = ura.filter((u) => u.situacao !== 'deslogado');
@@ -100,7 +101,7 @@ function imprimirUra(ura) {
   }
   const fora = ura.filter((u) => u.situacao === 'outro grupo').length;
   console.log(fora
-    ? `  ⚠ ${fora} pessoa(s) na URA logada(s) em outro grupo: a derivação dos robôs não chega nelas.\n`
+    ? `  ATENCAO: ${fora} pessoa(s) na URA logada(s) em outro grupo: a derivação dos robôs não chega nelas. Peça para deslogar e logar.\n`
     : '  Todos os logados estão logados no grupo da URA.\n');
 }
 
