@@ -3,6 +3,7 @@
  * Serviço de roteamento — orquestra os casos de uso do dia:
  *
  *   executarCargaInicial()  → distribui vendedores com base nas vendas de ontem
+ *                             (os fixos vão para a URA com ou sem venda)
  *   monitorarVendas()       → detecta vendas de hoje e sobe vendedores do Ativo à URA
  *   registrarVenda()        → mesmo gatilho, disparado por webhook
  *
@@ -43,6 +44,7 @@ const novoRegistro = (campos) => ({
   equipe: 'Sem equipe',
   vendaOntem: null,
   fila: Fila.ATIVO,
+  fixo: false,
   promovidoNoDia: false,
   vendaQueDisparou: null,
   sincronizado: false,
@@ -52,9 +54,10 @@ const novoRegistro = (campos) => ({
   ...campos,
 });
 
-const motivoDaCarga = (fila, venda) => (fila === Fila.URA
-  ? `meta batida ontem (${formatarReais(venda)})`
-  : `abaixo da meta ontem (${formatarReais(venda)})`);
+function motivoDaCarga(fila, venda, fixo) {
+  if (fixo) return `operador fixo na URA (vendeu ${formatarReais(venda)} ontem)`;
+  return fila === Fila.URA ? `meta batida ontem (${formatarReais(venda)})` : `abaixo da meta ontem (${formatarReais(venda)})`;
+}
 
 /** "grupo anterior: 1, destino: 3" — só o que for informativo. */
 const descreverGrupos = (anterior, destino) => [
@@ -70,7 +73,7 @@ class RoteamentoService {
    * @param {import('../repositories/estado.repository').EstadoRepository} deps.repositorio
    * @param {import('../integrations/argus/diretorio-operadores.service').DiretorioOperadores} deps.diretorio
    * @param {{ hoje(): string }} deps.relogio
-   * @param {{ metaDiaria: number }} deps.regras
+   * @param {{ metaDiaria: number, fixosUra?: string[] }} deps.regras - fixosUra: ramais ou nomes
    * @param {object} deps.logger
    */
   constructor({ carrossel, discadora, repositorio, diretorio, relogio, regras, logger }) {
@@ -86,6 +89,8 @@ class RoteamentoService {
     this.estado = estadoVazio();
     this.trava = Promise.resolve();
     this.ultimoMonitoramento = null;
+    /** Dia em que os fixos já foram para a URA com a carga adiada. */
+    this.fixosPosicionadosEm = null;
   }
 
   /** Carrega o estado persistido. */
@@ -125,14 +130,15 @@ class RoteamentoService {
   }
 
   async cargaInicial() {
-    const vendasOntem = await this.buscarVendasOntem();
+    const vendasOntem = await this.buscarVendasOntemOuPosicionarFixos();
     const vendedores = await this.montarUniversoOuAdiar(vendasOntem.vendedores);
 
     this.log.info(`Carga inicial: vendas de ${vendasOntem.diaOntem || 'ontem (dia útil anterior)'}, `
       + `meta ${formatarReais(this.regras.metaDiaria)}, extração do Carrossel: ${vendasOntem.ultimaExtracao}.`);
 
     const { ura, ativo } = distribuirCargaInicial(vendedores, this.regras.metaDiaria);
-    this.log.info(`${vendedores.length} vendedor(es): ${ura.length} → URA, ${ativo.length} → Ativo.`);
+    const fixos = ura.filter((v) => v.fixo).length;
+    this.log.info(`${vendedores.length} vendedor(es): ${ura.length} → URA${fixos ? ` (${fixos} fixo(s))` : ''}, ${ativo.length} → Ativo.`);
 
     const { estado, falhas } = await this.aplicarDistribuicao(ura, ativo);
     // Carrossel e esteira colada usam critérios diferentes: registra de onde veio a carga.
@@ -142,6 +148,54 @@ class RoteamentoService {
 
     this.log.info(`Carga inicial concluída: URA=${ura.length} Ativo=${ativo.length} falhas=${falhas}.`);
     return { ura: ura.length, ativo: ativo.length, falhas };
+  }
+
+  /** Sem as vendas de ontem a carga é adiada, mas os fixos não dependem delas. */
+  async buscarVendasOntemOuPosicionarFixos() {
+    try {
+      return await this.buscarVendasOntem();
+    } catch (e) {
+      await this.posicionarFixosSemCarga();
+      throw e;
+    }
+  }
+
+  /**
+   * Carga adiada (Carrossel fora, sem esteira colada): os fixos vão para a
+   * URA assim mesmo, uma vez por dia. A carga, quando sair, confirma.
+   */
+  async posicionarFixosSemCarga() {
+    const hoje = this.relogio.hoje();
+    if (!this.regras.fixosUra?.length || this.fixosPosicionadosEm === hoje) return;
+    try {
+      await this.diretorio.atualizar({ forcar: true });
+      for (const ramal of this.ramaisFixos()) {
+        const registro = novoRegistro({ nome: this.nomeDoRamal(ramal), fila: Fila.URA, fixo: true });
+        await this.sincronizar(ramal, registro, 'operador fixo na URA (carga do dia adiada)');
+      }
+      this.fixosPosicionadosEm = hoje;
+    } catch (e) {
+      this.log.erro(`Operadores fixos não posicionados: ${e.message}. Nova tentativa no próximo ciclo.`);
+    }
+  }
+
+  /**
+   * Ramais dos operadores fixos na URA. Cada item de OPERADORES_FIXOS_URA é um
+   * ramal (só dígitos) ou um nome, resolvido como os nomes do Carrossel.
+   * @returns {Set<string>}
+   */
+  ramaisFixos() {
+    const ramais = new Set();
+    for (const item of this.regras.fixosUra || []) {
+      const ramal = /^\d+$/.test(item) ? item : this.diretorio.ramalPorNome(item);
+      if (ramal) ramais.add(String(ramal));
+      else this.avisarSemRamal({ nome: item, chave: `fixo:${item}` }, 'em OPERADORES_FIXOS_URA');
+    }
+    return ramais;
+  }
+
+  nomeDoRamal(ramal) {
+    return this.diretorio.operadorPorRamal(ramal)?.nome || `Ramal ${ramal}`;
   }
 
   async buscarVendasOntem() {
@@ -167,9 +221,9 @@ class RoteamentoService {
     let falhas = 0;
 
     for (const [v, fila] of decisoes) {
-      const registro = novoRegistro({ nome: v.nome, equipe: v.equipe, vendaOntem: v.totalVendas, fila });
+      const registro = novoRegistro({ nome: v.nome, equipe: v.equipe, vendaOntem: v.totalVendas, fila, fixo: Boolean(v.fixo) });
       estado.vendedores[v.ramal] = registro;
-      const sincronizado = await this.sincronizar(v.ramal, registro, motivoDaCarga(fila, v.totalVendas));
+      const sincronizado = await this.sincronizar(v.ramal, registro, motivoDaCarga(fila, v.totalVendas, v.fixo));
       if (!sincronizado) falhas++;
     }
     return { estado, falhas };
@@ -177,8 +231,8 @@ class RoteamentoService {
 
   /**
    * Universo da carga: todos os operadores que estão na URA ou no Ativo hoje
-   * (pela Argus), mais as exceções do arquivo de ramais. Como o Carrossel só
-   * lista quem vendeu, quem não aparece nele vendeu R$ 0.
+   * (pela Argus), mais as exceções do arquivo de ramais e os fixos. Como o
+   * Carrossel só lista quem vendeu, quem não aparece nele vendeu R$ 0.
    */
   async montarUniversoDoDia(vendasOntem) {
     await this.diretorio.atualizar({ forcar: true });
@@ -189,7 +243,12 @@ class RoteamentoService {
       if (porRamal.has(c.ramal)) continue;
       porRamal.set(c.ramal, { nome: c.nome, chave: c.chave, equipe: 'Sem venda ontem', totalVendas: 0, ramal: c.ramal });
     }
-    return [...porRamal.values()];
+
+    const fixos = this.ramaisFixos();
+    for (const ramal of fixos) {
+      if (!porRamal.has(ramal)) porRamal.set(ramal, { nome: this.nomeDoRamal(ramal), equipe: 'Sem venda ontem', totalVendas: 0, ramal });
+    }
+    return [...porRamal.values()].map((v) => ({ ...v, fixo: fixos.has(v.ramal) }));
   }
 
   /**
@@ -209,11 +268,11 @@ class RoteamentoService {
     return resolvidos;
   }
 
-  avisarSemRamal(v) {
+  avisarSemRamal(v, onde = 'no Carrossel') {
     if (this.semRamalAvisados.has(v.chave)) return;
     this.semRamalAvisados.add(v.chave);
-    this.log.aviso(`"${v.nome}" está no Carrossel mas não foi encontrado(a) entre os operadores ativos da Argus; `
-      + 'será ignorado(a). Se o nome for diferente na Argus, adicione-o ao arquivo de exceções de ramal.');
+    this.log.aviso(`"${v.nome}" está ${onde} mas não foi encontrado(a) entre os operadores `
+      + 'ativos da Argus; será ignorado(a). Se o nome for diferente na Argus, use o ramal ou o arquivo de exceções de ramal.');
   }
 
   // ───────────────────────────── Monitoramento ─────────────────────────────

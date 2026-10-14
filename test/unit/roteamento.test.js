@@ -9,7 +9,7 @@ const { loggerNulo } = require('../../src/utils/logger');
 
 const relogio = { hoje: () => '2026-10-08' };
 
-function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [] } = {}) {
+function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [] } = {}) {
   const movimentos = [];
   const salvos = [];
   const vendas = { ontem, hoje };
@@ -25,6 +25,7 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [] } =
     ramalPorNome: (nome) => (/^V\d+$/.test(nome) ? nome.slice(1) : null),
     vendedoresGerenciados: () => cadastrados.map((ramal) => ({ nome: `V${ramal}`, chave: `V${ramal}`, ramal })),
     listarExcecoesRamal: () => [],
+    operadorPorRamal: (ramal) => ({ nome: `V${ramal}`, ramal }),
   };
   const discadora = {
     async moverPara(ramal, fila) {
@@ -40,7 +41,7 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [] } =
     aguardarEscritas: async () => {},
   };
   const svc = new RoteamentoService({
-    carrossel, discadora, repositorio, diretorio, relogio, regras: { metaDiaria: 50_000 }, logger: loggerNulo,
+    carrossel, discadora, repositorio, diretorio, relogio, regras: { metaDiaria: 50_000, fixosUra }, logger: loggerNulo,
   }).inicializar();
   return { svc, movimentos, salvos, vendas };
 }
@@ -67,6 +68,42 @@ test('operador da Argus sem venda ontem (fora da lista do Carrossel) vai para o 
   assert.deepEqual(r, { ura: 1, ativo: 1, falhas: 0 });
   assert.deepEqual(movimentos, [['1', 'URA'], ['7', 'ATIVO']]);
   assert.equal(svc.estado.vendedores['7'].vendaOntem, 0);
+});
+
+test('regra: fixo vai para a URA com ou sem venda', () => {
+  const { ura, ativo } = distribuirCargaInicial([{ ...v('1', 0), fixo: true }, v('2', 10)], 50_000);
+  assert.deepEqual(ura.map((x) => x.ramal), ['1']);
+  assert.deepEqual(ativo.map((x) => x.ramal), ['2']);
+});
+
+test('carga inicial: fixos (por ramal ou nome) vão para a URA mesmo sem venda; nome desconhecido é ignorado', async () => {
+  const { svc, movimentos } = montar({
+    ontem: [v('1', 72_500), v('2', 10)], cadastrados: ['1', '2', '7'], fixosUra: ['7', 'V2', 'Fulano Sem Ramal'],
+  });
+  const r = await svc.executarCargaInicial();
+  assert.deepEqual(r, { ura: 3, ativo: 0, falhas: 0 });
+  assert.deepEqual(movimentos.sort(), [['1', 'URA'], ['2', 'URA'], ['7', 'URA']]);
+  assert.equal(svc.estado.vendedores['7'].fixo, true);
+  assert.equal(svc.estado.vendedores['1'].fixo, false);
+});
+
+test('carga inicial: fixo fora da URA/Ativo e do Carrossel entra pelo ramal', async () => {
+  const { svc, movimentos } = montar({ ontem: [v('1', 10)], fixosUra: ['9'] });
+  await svc.executarCargaInicial();
+  assert.deepEqual(movimentos, [['9', 'URA'], ['1', 'ATIVO']]);
+  assert.equal(svc.estado.vendedores['9'].nome, 'V9');
+});
+
+test('carga adiada: os fixos vão para a URA assim mesmo, uma vez por dia', async () => {
+  const { svc, movimentos, vendas } = montar({ ontem: null, fixosUra: ['7', 'V8'] });
+  await assert.rejects(svc.executarCargaInicial(), CargaInicialError);
+  await assert.rejects(svc.executarCargaInicial(), CargaInicialError);
+  assert.deepEqual(movimentos, [['7', 'URA'], ['8', 'URA']]);
+  assert.ok(!svc.cargaInicialFeitaHoje());
+
+  vendas.ontem = [v('1', 10)];
+  await svc.executarCargaInicial();
+  assert.deepEqual(movimentos.slice(2), [['7', 'URA'], ['8', 'URA'], ['1', 'ATIVO']]);
 });
 
 test('carga inicial é adiada (sem marcar o dia) se o Carrossel falhar ou vier vazio', async () => {

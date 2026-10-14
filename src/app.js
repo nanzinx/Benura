@@ -112,6 +112,7 @@ function logarResumo(cfg, log) {
   log.info('Roteador de Vendas — Carrossel ↔ Argus');
   log.info(`Meta: ${formatarReais(cfg.regras.metaDiaria)} | Expediente: ${cfg.agenda.horarioCarga}–${cfg.agenda.horarioFim} | `
     + `Grupos Ativo: ${cfg.argus.gruposAtivosIds.join(',')} | URA: ${cfg.argus.grupoUraId} | `
+    + `Fixos na URA: ${cfg.regras.fixosUra.length ? cfg.regras.fixosUra.join(', ') : 'nenhum'} | `
     + `Carrossel: ${carrossel} (${cfg.carrossel.metrica}) | Argus: ${argus}`);
 }
 

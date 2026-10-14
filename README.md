@@ -82,6 +82,9 @@ npm run test:cenarios    # cenários do rodízio contra uma Argus falsa
 ### Regras de negócio
 1. **Carga inicial** (primeiro ciclo do expediente): quem vendeu **mais** que `META_DIARIA` no dia útil anterior vai para a URA.
    Os demais, inclusive quem não vendeu nada, vão para o Ativo, no grupo **do próprio supervisor**.
+   - **Operadores fixos** (`OPERADORES_FIXOS_URA`, ramais ou nomes separados por vírgula) começam o dia na URA **com ou sem venda**.
+     Se a carga for adiada (Carrossel fora e sem esteira colada), eles vão para a URA mesmo assim.
+     Depois seguem o rodízio como todos: ociosos por `TEMPO_MIN` vão para o Ativo e voltam à URA quando atendem lá.
 2. **Gatilho**: quem está no Ativo e faz qualquer venda hoje sobe para a URA e fica lá até o fim do dia.
 3. **Reset**: no dia seguinte (no fuso `FUSO_HORARIO`) o ciclo recomeça.
 

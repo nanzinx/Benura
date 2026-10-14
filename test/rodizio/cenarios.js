@@ -179,6 +179,14 @@ const CENARIOS = {
     if (r.transferencias().some((t) => t.startsWith('200→'))) throw new Error('200 está em atendimento e não podia sair');
   },
 
+  async 'URA: fixo (posto na URA pelo roteador) ocioso vai ao Ativo e volta à URA ao atender lá'(r) {
+    await aguardar(() => r.transferencias().includes('201→1'), { timeoutMs: 12_000, descricao: '201 ocioso → grupo 1' });
+    r.argus.definirStatus('201', 'em atendimento');
+    await esperar(1000); // ligação curta: o rodízio o vigia no Ativo desde a volta, sem esperar reler os grupos
+    r.argus.definirStatus('201', 'livre');
+    await aguardar(() => r.transferencias().includes('201→2'), { descricao: '201 atendeu no Ativo → URA' });
+  },
+
   async 'URA: atender zera o tempo ocioso'(r) {
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
@@ -414,11 +422,18 @@ const USUARIOS_COM_SUPERVISOR = [
   })),
 ];
 
+/** 201 começa na URA sem ter sido movido pelo rodízio (como um fixo posto pelo roteador). */
+const URA_COM_201_NAO_MOVIDO = {
+  grupos: GRUPOS_BASE.map((g) => (g.idGrupoUsuario === 2 ? { ...g, ramaisOperadores: ['200', '201'] } : g)),
+  status: { ...STATUS_BASE, 200: 'em atendimento', 201: 'livre' },
+  usuarios: USUARIOS_COM_SUPERVISOR,
+};
+
 const VARIACOES = {
-  'URA: quem já estava na URA (não movido) e fica ocioso volta ao grupo do supervisor': {
-    grupos: GRUPOS_BASE.map((g) => (g.idGrupoUsuario === 2 ? { ...g, ramaisOperadores: ['200', '201'] } : g)),
-    status: { ...STATUS_BASE, 200: 'em atendimento', 201: 'livre' },
-    usuarios: USUARIOS_COM_SUPERVISOR,
+  'URA: quem já estava na URA (não movido) e fica ocioso volta ao grupo do supervisor': URA_COM_201_NAO_MOVIDO,
+  // Grupos relidos só a cada 60 s: a volta à URA não pode depender dessa releitura.
+  'URA: fixo (posto na URA pelo roteador) ocioso vai ao Ativo e volta à URA ao atender lá': {
+    ...URA_COM_201_NAO_MOVIDO, env: { REFRESH_GRUPOS_MS: '60000' },
   },
   'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera': {
     grupos: [
