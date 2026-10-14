@@ -205,6 +205,20 @@ const CENARIOS = {
     await aguardar(() => r.chamadas('deslogaroperador').some((c) => String(c.dados.ramal) === '900'), { descricao: 'URA vazia desliga todos' });
   },
 
+  async 'URA: quem está na URA mas logado em outro grupo gera aviso e aparece no /health (sem mover nada)'(r) {
+    await aguardar(() => r.saida.join('').includes('Ramal 200 está no grupo da URA, mas a telefonia diz que está logado'),
+      { descricao: 'aviso do grupo logado' });
+    const { uraLogadosEmOutroGrupo } = await (await fetch(`${r.base}/health`)).json();
+    if (uraLogadosEmOutroGrupo?.[0]?.ramal !== '200' || uraLogadosEmOutroGrupo[0].grupoLogado !== 1) {
+      throw new Error(`health sem o 200: ${JSON.stringify(uraLogadosEmOutroGrupo)}`);
+    }
+    const avisos = r.saida.join('').split('Ramal 200 está no grupo da URA').length - 1;
+    if (avisos !== 1) throw new Error(`avisou ${avisos} vezes; devia avisar uma`);
+
+    r.argus.estado.grupoLogado = {}; // relogou na URA
+    await aguardar(() => r.saida.join('').includes('Ramal 200 agora está logado no grupo da URA'), { descricao: 'aviso de correção' });
+  },
+
   async 'URA: atender zera o tempo ocioso'(r) {
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
@@ -460,6 +474,9 @@ const ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO = {
 };
 
 const VARIACOES = {
+  'URA: quem está na URA mas logado em outro grupo gera aviso e aparece no /health (sem mover nada)': {
+    preparar: ({ argus }) => { argus.estado.grupoLogado = { 200: 1 }; },
+  },
   'URA: último livre ocioso espera os robôs em ligação terminarem (eles param de discar)': ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO,
   'URA: último livre segurado sai depois de SEGURAR_ULTIMO_LIVRE_MS mesmo com robô em ligação': {
     ...ULTIMO_LIVRE_COM_ROBO_EM_LIGACAO, env: { ROBOS_POR_LIVRE: '3', SEGURAR_ULTIMO_LIVRE_MS: '3000' },

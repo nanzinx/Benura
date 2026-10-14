@@ -53,6 +53,8 @@ class RodizioService {
     this.statusUra = new Map();
     /** ramais cuja última leitura de status falhou (para avisar uma vez só) */
     this.ramaisComFalha = new Set();
+    /** ramal → { grupoLogado, grupo }: no grupo da URA, mas logado na telefonia em outro grupo */
+    this.logadosEmOutroGrupo = new Map();
     /** ramais do Ativo que atenderam uma ligação desde que ficaram online */
     this.atenderamNoAtivo = new Set();
     /** ramais com transferência em andamento */
@@ -249,8 +251,9 @@ class RodizioService {
   }
 
   async atualizarStatusUra(ramal) {
-    const { classe } = await this.lerStatus(ramal);
+    const { classe, status } = await this.lerStatus(ramal);
     if (classe === Classe.ERRO) return; // mantém o último status; a validade dele decide os robôs
+    this.conferirGrupoLogado(ramal, classe, status);
 
     // Um "livre" lido logo depois do webhook de atendimento é atraso do polling: ignora.
     const anterior = this.statusUra.get(ramal);
@@ -261,6 +264,28 @@ class RodizioService {
     const agora = Date.now();
     const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? agora) : undefined;
     this.statusUra.set(ramal, { classe, ts: agora, livreDesde });
+  }
+
+  /**
+   * O statusoperador traz o grupo em que a pessoa está LOGADA na telefonia
+   * (doc 4.14). Estar no grupo da URA e logado em outro significa que a
+   * derivação dos robôs não chega nela (o cliente espera na fila e vira
+   * callback). Só lê e avisa, uma vez por ramal; o /health lista quem está assim.
+   */
+  conferirGrupoLogado(ramal, classe, status) {
+    const logado = Boolean(status) && classe !== Classe.OFFLINE && status.idGrupo != null;
+    const emOutroGrupo = logado && Number(status.idGrupo) !== Number(this.cfg.grupoUraId);
+    if (!emOutroGrupo) return this.esquecerGrupoLogado(ramal, logado);
+    if (this.logadosEmOutroGrupo.has(ramal)) return undefined;
+
+    this.logadosEmOutroGrupo.set(ramal, { ramal, grupoLogado: status.idGrupo, grupo: status.grupo ?? null });
+    this.log.aviso(`Ramal ${ramal} está no grupo da URA, mas a telefonia diz que está logado em "${status.grupo ?? '?'}" `
+      + `(grupo ${status.idGrupo}): a derivação dos robôs não chega nele.`);
+    return undefined;
+  }
+
+  esquecerGrupoLogado(ramal, logadoNaUra) {
+    if (this.logadosEmOutroGrupo.delete(ramal) && logadoNaUra) this.log.info(`Ramal ${ramal} agora está logado no grupo da URA.`);
   }
 
   deveDevolver(ramal, agora) {
@@ -463,6 +488,7 @@ class RodizioService {
       intervaloUraMs: this.intervaloUraMs(),
       seguradoNaUra: this.segurado ? { ramal: this.segurado.ramal, desde: new Date(this.segurado.desde).toISOString() } : null,
       ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,
+      uraLogadosEmOutroGrupo: [...this.logadosEmOutroGrupo.values()],
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),

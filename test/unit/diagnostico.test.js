@@ -2,7 +2,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { resumirLigacoes, semDadosDeCliente, minutosDesdeMeiaNoite, minutoDoDia } = require('../../src/domain/diagnostico-callbacks');
+const {
+  resumirLigacoes, semDadosDeCliente, minutosDesdeMeiaNoite, minutoDoDia, conferirUra,
+} = require('../../src/domain/diagnostico-callbacks');
 const { ArgusClient } = require('../../src/integrations/argus/argus.client');
 const { RodizioService } = require('../../src/rodizio/rodizio.service');
 const { Classe } = require('../../src/domain/rodizio');
@@ -26,21 +28,21 @@ test('diagnóstico: nenhum dado de cliente sai do resumo (nem camposCRM e histó
   assert.ok(!('x' in semDadosDeCliente({ x: { cpf: '1' } })), 'objeto aninhado nunca sai');
 });
 
-test('diagnóstico: "abandono em fila" e "sem agente" são os callbacks; "ATENDIMENTO" é o derivou', () => {
+test('diagnóstico: "abandono em fila" é o callback; "sem agente" (discador) conta à parte; "ATENDIMENTO" é o derivou', () => {
   const r = resumirLigacoes([
     ligacao('OPER. VIRTUAL - ABANDONO EM FILA', '09:03:12'), ligacao('SEM AGENTE', '09:04:00'),
     ligacao('ATENDIMENTO', '09:20:00'), ligacao('OPER. VIRTUAL - ABANDONO', '09:21:00'), ligacao('CAIXA POSTAL / MSG', '09:22:00'),
   ]);
   assert.equal(r.total, 5);
   assert.equal(r.resultados.resultadoLigacao['SEM AGENTE'], 1);
-  assert.equal(r.callbacks.length, 2);
+  assert.equal(r.callbacks.length, 1);
   assert.deepEqual(r.callbacks[0], {
     idLigacao: 1, usuarioOperador: 'Oper Virtual 11', dataHoraLigacao: '2026-10-14T09:03:12',
     resultadoLigacao: 'OPER. VIRTUAL - ABANDONO EM FILA', tempoSegundos: 42,
   });
   assert.deepEqual(r.linhaDoTempo, [
-    { janela: '09:00', total: 2, callback: 2, derivou: 0, abandonoNaUra: 0 },
-    { janela: '09:15', total: 3, callback: 0, derivou: 1, abandonoNaUra: 1 },
+    { janela: '09:00', total: 2, callback: 1, semAgente: 1, derivou: 0, abandonoNaUra: 0 },
+    { janela: '09:15', total: 3, callback: 0, semAgente: 0, derivou: 1, abandonoNaUra: 1 },
   ]);
   assert.ok(!JSON.stringify(r).includes('CLIENTE TESTE'));
   assert.ok(!JSON.stringify(r).includes('00000000000'));
@@ -90,7 +92,7 @@ test('diagnosticar: usa a única campanha ativa; com várias, pede --campanha', 
   const pedidos = [];
   const client = (campanhas) => ({
     listarCampanhas: async () => campanhas,
-    ligacoesDetalhadas: async (filtro) => { pedidos.push(filtro); return [ligacao('SEM AGENTE')]; },
+    ligacoesDetalhadas: async (filtro) => { pedidos.push(filtro); return [ligacao('OPER. VIRTUAL - ABANDONO EM FILA')]; },
   });
   const r = await diagnosticar({ client: client([{ idCampanha: 4, ativo: true }, { idCampanha: 5, ativo: false }]), gruposRobos: [6], minutos: 30 });
   assert.equal(r.idCampanha, 4);
@@ -100,6 +102,55 @@ test('diagnosticar: usa a única campanha ativa; com várias, pede --campanha', 
   const duas = client([{ idCampanha: 4, campanhaDesc: 'A' }, { idCampanha: 5, campanhaDesc: 'B' }]);
   await assert.rejects(diagnosticar({ client: duas, gruposRobos: [6], minutos: 30 }), /--campanha/);
   assert.equal((await diagnosticar({ client: duas, gruposRobos: [6], minutos: 30, campanha: '5' })).idCampanha, 5);
+});
+
+test('conferirUra: logado no grupo da URA = ok; logado em outro grupo = ⚠; sem dados do cliente', () => {
+  const status = new Map([
+    ['201', { nome: 'Op A', idGrupo: 7, grupo: 'RECEPTIVO - URA', descricaoStatus: 'Livre', origemDerivacao: 'Receptivo' }],
+    ['202', { nome: 'Op B', idGrupo: 3, grupo: 'MAYSA - COMERCIAL', descricaoStatus: 'Livre', origemDerivacao: 'Preditivo' }],
+    ['203', null],
+    ['204', new Error('timeout')],
+  ]);
+  const r = conferirUra(['201', '202', '203', '204'], status, 7);
+  assert.deepEqual(r.map((u) => u.situacao), ['ok', 'outro grupo', 'deslogado', 'erro']);
+  assert.deepEqual(r[1], {
+    ramal: '202', operador: 'Op B', grupoLogado: 3, grupo: 'MAYSA - COMERCIAL', status: 'Livre', origemDerivacao: 'Preditivo', situacao: 'outro grupo',
+  });
+});
+
+test('diagnosticar: confere em que grupo quem está na URA está logado (só lê)', async () => {
+  const lidos = [];
+  const client = {
+    listarCampanhas: async () => [{ idCampanha: 1 }],
+    ligacoesDetalhadas: async () => [],
+    listarGrupos: async () => [{ idGrupoUsuario: 7, ramaisOperadores: ['201', '202'] }, { idGrupoUsuario: 3, ramaisOperadores: ['300'] }],
+    statusOperador: async (ramal) => { lidos.push(ramal); return { idGrupo: ramal === '201' ? 7 : 3 }; },
+  };
+  const r = await diagnosticar({ client, gruposRobos: [6], minutos: 30, grupoUraId: 7 });
+  assert.deepEqual(lidos.sort(), ['201', '202'], 'só quem está no grupo da URA');
+  assert.deepEqual(r.ura.map((u) => [u.ramal, u.situacao]), [['201', 'ok'], ['202', 'outro grupo']]);
+});
+
+test('rodízio: humano da URA logado em outro grupo → aviso uma vez, /health lista, some ao relogar', () => {
+  const avisos = [];
+  const infos = [];
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, repositorio: {}, robos: { resumo: () => ({}) }, cfg: { grupoUraId: 7 },
+    logger: { ...loggerNulo, aviso: (m) => avisos.push(m), info: (m) => infos.push(m) },
+  });
+  const fora = { idGrupo: 3, grupo: 'MAYSA - COMERCIAL' };
+  svc.conferirGrupoLogado('202', Classe.LIVRE, fora);
+  svc.conferirGrupoLogado('202', Classe.LIVRE, fora);
+  assert.equal(avisos.length, 1);
+  assert.match(avisos[0], /Ramal 202 .*logado em "MAYSA - COMERCIAL" \(grupo 3\)/);
+  assert.deepEqual(svc.resumo().uraLogadosEmOutroGrupo, [{ ramal: '202', grupoLogado: 3, grupo: 'MAYSA - COMERCIAL' }]);
+
+  svc.conferirGrupoLogado('202', Classe.LIVRE, { idGrupo: 7 });
+  assert.deepEqual(svc.resumo().uraLogadosEmOutroGrupo, []);
+  assert.match(infos.at(-1), /Ramal 202 agora está logado no grupo da URA/);
+
+  svc.conferirGrupoLogado('203', Classe.OFFLINE, null);
+  assert.equal(avisos.length, 1, 'deslogado não é "outro grupo"');
 });
 
 test('linha do tempo da URA: uma linha só quando o número de livres muda', () => {
