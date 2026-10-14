@@ -15,6 +15,7 @@
 
 const { Fila } = require('../domain/fila');
 const { Resultado } = require('../integrations/argus/discadora.service');
+const { resolverFixos } = require('../integrations/argus/fixos');
 const { distribuirCargaInicial, deveSubirParaUra } = require('../domain/regras-roteamento');
 const { estadoVazio } = require('../repositories/estado.repository');
 const { formatarReais, paraNumero } = require('../utils/moeda');
@@ -180,39 +181,27 @@ class RoteamentoService {
   }
 
   /**
-   * Ramais dos operadores fixos na URA. Cada item de OPERADORES_FIXOS_URA é um
-   * ramal (só dígitos) ou um nome, resolvido como os nomes do Carrossel.
+   * Ramais dos fixos na URA: OPERADORES_FIXOS_URA (ramais ou nomes) e a equipe
+   * de cada supervisor de EQUIPES_FIXAS_URA. Quem não for encontrado fica de
+   * fora, com um aviso.
    * @returns {Set<string>}
    */
   ramaisFixos() {
-    const ramais = new Set();
-    for (const item of this.regras.fixosUra || []) {
-      const ramal = /^\d+$/.test(item) ? item : this.diretorio.ramalPorNome(item);
-      if (ramal) ramais.add(String(ramal));
-      else this.avisarSemRamal({ nome: item, chave: `fixo:${item}` }, 'em OPERADORES_FIXOS_URA');
-    }
-    for (const supervisor of this.regras.equipesFixasUra || []) {
-      this.ramaisDaEquipeFixa(supervisor).forEach((ramal) => ramais.add(ramal));
-    }
+    const { ramais, faltando } = resolverFixos(this.diretorio, this.regras);
+    for (const { item, onde, motivo } of faltando) this.avisarFixoNaoEncontrado(item, onde, motivo);
     return ramais;
+  }
+
+  /** Aviso uma vez por item (a carga e o ciclo dos fixos repetem a resolução). */
+  avisarFixoNaoEncontrado(item, onde, motivo) {
+    const chave = `fixo:${onde}:${item}`;
+    if (this.semRamalAvisados.has(chave)) return;
+    this.semRamalAvisados.add(chave);
+    this.log.aviso(`${onde}: "${item}" ${motivo}. Fica fora dos fixos.`);
   }
 
   temFixos() {
     return Boolean(this.regras.fixosUra?.length || this.regras.equipesFixasUra?.length);
-  }
-
-  /** Equipe de um supervisor de EQUIPES_FIXAS_URA (aviso uma vez se o nome não bater com a Argus). */
-  ramaisDaEquipeFixa(nomeSupervisor) {
-    const { supervisor, candidatos, ramais } = this.diretorio.ramaisDaEquipe(nomeSupervisor);
-    const chave = `equipe:${nomeSupervisor}`;
-    if (supervisor && ramais.length) return ramais;
-    if (this.semRamalAvisados.has(chave)) return [];
-    this.semRamalAvisados.add(chave);
-    const motivo = !supervisor && candidatos.length > 1
-      ? `corresponde a ${candidatos.length} supervisores (${candidatos.map((c) => c.nome).join(', ')}); use o nome completo`
-      : (supervisor ? 'não tem nenhum operador ativo na equipe' : 'não foi encontrado entre os supervisores da Argus');
-    this.log.aviso(`EQUIPES_FIXAS_URA: "${nomeSupervisor}" ${motivo}.`);
-    return [];
   }
 
   nomeDoRamal(ramal) {

@@ -186,7 +186,7 @@ class RodizioService {
   async cicloAtivo() {
     const cheia = this.emUraCheia();
     if (cheia) await this.levarTodosParaUra();
-    else this.elegiveis?.atualizar();
+    else await this.elegiveis?.atualizar();
     // Na URA cheia, qualquer um que atender no Ativo volta (sem olhar elegíveis).
     const alvos = this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal));
     await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));

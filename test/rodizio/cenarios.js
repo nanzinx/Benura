@@ -89,6 +89,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ALINHAR_LOGIN_ESPERA_MS: '100',
       ALINHAR_LOGIN_APOS_MS: '1000',
       PREPARAR_SAIDA_ULTIMO_LIVRE_MS: '0', // cada cenário de último livre liga o seu
+      RODIZIO_SO_ELEGIVEIS: '0', // os cenários de elegíveis ligam o filtro
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -174,11 +175,13 @@ const CENARIOS = {
     await aguardar(() => r.transferencias().includes('100→2'), { descricao: '100 (vendeu hoje) → URA' });
   },
 
-  async 'Ativo: sem a lista do dia do roteador, todos sobem (e avisa)'(r) {
-    r.argus.definirStatus('100', 'em atendimento');
+  async 'Ativo: sem a lista do dia do roteador, só os fixos sobem (e avisa)'(r) {
+    for (const ramal of ['100', '101']) r.argus.definirStatus(ramal, 'em atendimento');
     await esperar(1000);
-    r.argus.definirStatus('100', 'livre');
-    await aguardar(() => r.transferencias().includes('100→2'), { descricao: '100 → URA' });
+    for (const ramal of ['100', '101']) r.argus.definirStatus(ramal, 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101 (fixo) → URA' });
+    await esperar(1500);
+    if (r.transferencias().some((t) => t.startsWith('100→'))) throw new Error('100 não é fixo e subiu sem a lista do dia');
     if (!r.saida.join('').includes('Sem a lista de elegíveis do dia')) throw new Error('não avisou que está sem a lista');
   },
 
@@ -629,10 +632,12 @@ const VARIACOES = {
   'URA: quem já estava na URA (não movido) e fica ocioso volta ao grupo do supervisor': URA_COM_201_NAO_MOVIDO,
   // Grupos relidos só a cada 60 s: a volta à URA não pode depender dessa releitura.
   'URA: fixo (posto na URA pelo roteador) ocioso vai ao Ativo e volta à URA ao atender lá': {
-    ...URA_COM_201_NAO_MOVIDO, env: { REFRESH_GRUPOS_MS: '60000' },
+    ...URA_COM_201_NAO_MOVIDO, env: { REFRESH_GRUPOS_MS: '60000', RODIZIO_SO_ELEGIVEIS: '1' },
     preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 201: 'URA' }),
   },
+  'Ativo: sem a lista do dia do roteador, só os fixos sobem (e avisa)': { env: { RODIZIO_SO_ELEGIVEIS: '1', OPERADORES_FIXOS_URA: '101' } },
   'Ativo: só elegível sobe; quem vende hoje passa a subir': {
+    env: { RODIZIO_SO_ELEGIVEIS: '1' },
     preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
   },
   'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera': {
@@ -692,6 +697,7 @@ const VARIACOES = {
     env: { ROBOS_POR_LIVRE: '2', ROBOS_DEGRAU: '2' },
   },
   'URA cheia: todos sobem uma vez; a regra do ocioso vale; quem atender no Ativo volta mesmo sem ser elegível': {
+    env: { RODIZIO_SO_ELEGIVEIS: '1' },
     preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
   },
   'URA cheia em DRY_RUN: simula a ida de cada um uma vez só': { env: { DRY_RUN: '1' } },

@@ -5,7 +5,9 @@
  *
  * O roteador e o rodízio são processos separados; o arquivo é relido só quando
  * muda. Sem a lista do dia (roteador desligado, carga adiada porque o Carrossel
- * falhou, arquivo de ontem), o rodízio gira todos, como antes, e avisa.
+ * falhou, arquivo de ontem), só os fixos (OPERADORES_FIXOS_URA e
+ * EQUIPES_FIXAS_URA) sobem: quem não bateu meta nem vendeu não vai para a URA
+ * por falta de informação. Para pôr mais gente na URA, a supervisão usa a URA cheia.
  */
 
 const { ArquivoJsonObservado } = require('../utils/arquivo-json');
@@ -20,31 +22,44 @@ class ElegiveisUra {
    * @param {string} deps.arquivo - STATE_FILE do roteador
    * @param {string} deps.fusoHorario
    * @param {object} deps.logger
+   * @param {() => Promise<Set<string>>} [deps.fixos] - ramais dos fixos, para quando não há a lista do dia
    */
-  constructor({ arquivo, fusoHorario, logger }) {
-    Object.assign(this, { arquivo, fusoHorario, log: logger });
+  constructor({ arquivo, fusoHorario, logger, fixos = async () => new Set() }) {
+    Object.assign(this, { arquivo, fusoHorario, log: logger, fixos });
     this.fonte = new ArquivoJsonObservado(arquivo);
     this.estado = null; // último conteúdo bom do arquivo
-    this.ramais = undefined; // Set = lista do dia; null = sem lista (gira todos); undefined = ainda não lido
+    this.ramais = undefined; // Set = lista do dia; null = sem lista (só fixos); undefined = ainda não lido
+    this.fixosSemLista = new Set();
   }
 
-  /** Relê o arquivo se mudou e confere se a lista é de hoje. */
-  atualizar(agora = new Date()) {
+  /** Relê o arquivo se mudou e confere se a lista é de hoje; sem ela, resolve os fixos. */
+  async atualizar(agora = new Date()) {
     const lido = this.fonte.verificar();
     if (lido.estado === 'atualizado') this.estado = lido.dados;
     if (lido.estado === 'ausente') this.estado = null;
     // 'invalido': o roteador grava de forma atômica; mantém a última versão boa.
 
     const ramais = elegiveisDoEstado(this.estado, dataLocal(this.fusoHorario, agora));
+    if (!ramais) this.fixosSemLista = await this.lerFixos();
     if (mesmaLista(this.ramais, ramais)) return;
     this.registrarMudanca(this.ramais, ramais);
     this.ramais = ramais;
   }
 
+  async lerFixos() {
+    try {
+      return await this.fixos();
+    } catch (e) {
+      this.log.debug(`Fixos indisponíveis agora: ${e.message}`);
+      return this.fixosSemLista;
+    }
+  }
+
   registrarMudanca(antes, depois) {
     if (!depois) {
       this.log.aviso(`Sem a lista de elegíveis do dia (${this.arquivo} ausente ou de outro dia; o roteador está rodando?). `
-        + 'Todos que atenderem no Ativo vão para a URA, como antes.');
+        + `Só os fixos sobem para a URA (${this.fixosSemLista.size}); quem não bateu meta nem vendeu fica no Ativo. `
+        + 'Para pôr todo mundo na URA, use a URA cheia (/ura).');
       return;
     }
     const novos = antes instanceof Set ? [...depois].filter((r) => !antes.has(r)) : [];
@@ -52,13 +67,14 @@ class ElegiveisUra {
       + `${novos.length ? `; novos: ${novos.join(', ')}` : ''}. Os demais ficam no Ativo.`);
   }
 
-  /** @returns {boolean} sem a lista do dia, todos podem */
+  /** @returns {boolean} sem a lista do dia, só os fixos */
   permite(ramal) {
-    return !this.ramais || this.ramais.has(String(ramal));
+    return (this.ramais || this.fixosSemLista).has(String(ramal));
   }
 
   resumo() {
-    return { disponivel: this.ramais instanceof Set, total: this.ramais?.size ?? null };
+    const disponivel = this.ramais instanceof Set;
+    return { disponivel, total: disponivel ? this.ramais.size : this.fixosSemLista.size };
   }
 }
 

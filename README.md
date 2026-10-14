@@ -193,7 +193,7 @@ src/utils/                         HTTP com retry, persistência atômica, trava
 ### Regras
 1. **Ativo → URA**: operador **elegível** do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
    - **Elegível** = quem o roteador pôs na URA hoje: bateu a meta ontem, vendeu hoje ou é fixo (fila `URA` no `state-vendas.json` do roteador). Quem vende durante o dia passa a ser elegível na hora. Os demais ficam só no Ativo.
-   - Sem a lista do dia (roteador desligado, carga adiada porque o Carrossel falhou, arquivo de outro dia), **todos** sobem, como antes, e o log avisa uma vez.
+   - Sem a lista do dia (roteador desligado, carga adiada porque o Carrossel falhou, arquivo de outro dia), **só os fixos** (`OPERADORES_FIXOS_URA` e `EQUIPES_FIXAS_URA`) sobem, e o log avisa uma vez. Quem não bateu meta nem vendeu não vai para a URA por falta de informação; para pôr todo mundo, use a URA cheia.
    - O `/health` mostra `elegiveisUra: { disponivel, total }`. Para voltar a girar todos sempre: `RODIZIO_SO_ELEGIVEIS=0`.
 2. **URA → Ativo**: **qualquer** humano do RECEPTIVO - URA **ocioso (Livre) há `TEMPO_MIN` minutos seguidos** (padrão 3) volta ao Ativo, **sem exceção**: nem o último livre, nem na URA cheia.
    Atender uma ligação (ou entrar em pausa) zera a contagem, como a coluna "Tempo" do painel.
@@ -354,7 +354,7 @@ O roteador, o rodízio, as rotinas e a supervisão (pelo painel) mexem nos mesmo
 | C9 | Supervisor move alguém à mão | Esperado: o roteador respeita grupos externos e o rodízio esquece o emprestado em ~1 min |
 | C10 | Fim de expediente com `deslogar` desconectaria o plantão | Aviso quando `deslogar` está sem `FIM_EXPEDIENTE_IGNORAR_RAMAIS` |
 | C11 | Lista mudou, mas a telefonia só troca quando a pessoa fica livre | Só conta como livre na URA quem já está logado nela; quem fica preso é relogado após 30 s livre |
-| C12 | Rodízio sem a lista do dia do roteador | Gira todos, como antes, e avisa (`elegiveisUra.disponivel: false`) |
+| C12 | Rodízio sem a lista do dia do roteador | Só os fixos sobem, e avisa (`elegiveisUra.disponivel: false`); para mais gente, URA cheia |
 | C13 | Ajuste pelos callbacks reagindo a callback que não foi excesso de robôs (telefonia, modo manual) | Só baixa, com piso e um degrau por minuto; volta sozinho em 15 min; no modo manual não ajusta |
 | C14 | Exceções à regra do ocioso (último livre segurado, URA cheia) | A regra vale sempre; o último livre sai no horário e os robôs param antes (`PREPARAR_SAIDA_ULTIMO_LIVRE_MS`) |
 | C15 | URA cheia ligada antes da carga das 08:00: a carga manda ao Ativo quem não bateu a meta | Na URA cheia só quem voltou por ocioso espera atender no Ativo; quem foi mandado ao Ativo pela carga ou à mão sobe de novo |

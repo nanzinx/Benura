@@ -22,23 +22,25 @@ test('elegiveisDoEstado: só a fila URA do dia; outro dia ou sem estado = sem li
   assert.equal(elegiveisDoEstado(estado(HOJE, { 1002: { fila: 'ATIVO' } }), HOJE).size, 0, 'lista do dia vazia: ninguém sobe');
 });
 
-test('ElegiveisUra: lê o state-vendas.json, avisa sem lista, registra quem entra (venda hoje)', () => {
+test('ElegiveisUra: lê o state-vendas.json; sem a lista do dia só os fixos sobem; registra quem entra (venda hoje)', async () => {
   const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'elegiveis-'));
   const arquivo = path.join(pasta, 'state-vendas.json');
   const infos = [];
   const avisos = [];
   const logger = { ...loggerNulo, info: (m) => infos.push(m), aviso: (m) => avisos.push(m) };
-  const elegiveis = new ElegiveisUra({ arquivo, fusoHorario: 'America/Sao_Paulo', logger });
+  const elegiveis = new ElegiveisUra({ arquivo, fusoHorario: 'America/Sao_Paulo', logger, fixos: async () => new Set(['3000']) });
   try {
-    elegiveis.atualizar(AGORA);
-    assert.equal(elegiveis.permite('1002'), true, 'sem arquivo: gira todos');
+    await elegiveis.atualizar(AGORA);
+    assert.equal(elegiveis.permite('1002'), false, 'sem arquivo: quem não é fixo fica no Ativo');
+    assert.equal(elegiveis.permite('3000'), true, 'o fixo sobe');
+    assert.deepEqual(elegiveis.resumo(), { disponivel: false, total: 1 });
     assert.equal(avisos.length, 1);
-    assert.match(avisos[0], /Todos que atenderem no Ativo vão para a URA/);
-    elegiveis.atualizar(AGORA);
+    assert.match(avisos[0], /Só os fixos sobem para a URA \(1\)/);
+    await elegiveis.atualizar(AGORA);
     assert.equal(avisos.length, 1, 'avisa uma vez só');
 
     fs.writeFileSync(arquivo, JSON.stringify(estado(HOJE, { 1001: { fila: 'URA' }, 1002: { fila: 'ATIVO' } })));
-    elegiveis.atualizar(AGORA);
+    await elegiveis.atualizar(AGORA);
     assert.equal(elegiveis.permite('1001'), true);
     assert.equal(elegiveis.permite('1002'), false);
     assert.deepEqual(elegiveis.resumo(), { disponivel: true, total: 1 });
@@ -47,20 +49,21 @@ test('ElegiveisUra: lê o state-vendas.json, avisa sem lista, registra quem entr
     // O roteador promove o 1002 (vendeu hoje): o arquivo muda e ele passa a poder subir.
     fs.writeFileSync(arquivo, JSON.stringify(estado(HOJE, { 1001: { fila: 'URA' }, 1002: { fila: 'URA' } })));
     fs.utimesSync(arquivo, new Date(), new Date(Date.now() + 5000));
-    elegiveis.atualizar(AGORA);
+    await elegiveis.atualizar(AGORA);
     assert.equal(elegiveis.permite('1002'), true);
     assert.match(infos.at(-1), /Elegíveis para a URA: 2 .*novos: 1002/);
 
-    // Virou o dia e o roteador ainda não fez a carga: gira todos.
-    elegiveis.atualizar(new Date('2026-10-15T12:00:00Z'));
-    assert.equal(elegiveis.permite('9999'), true);
+    // Virou o dia e o roteador ainda não fez a carga: só os fixos.
+    await elegiveis.atualizar(new Date('2026-10-15T12:00:00Z'));
+    assert.equal(elegiveis.permite('1001'), false);
+    assert.equal(elegiveis.permite('3000'), true);
     assert.equal(avisos.length, 2);
   } finally {
     fs.rmSync(pasta, { recursive: true, force: true });
   }
 });
 
-test('rodízio: no Ativo, só elegível é lido (e pode subir); sem lista, todos', async () => {
+test('rodízio: no Ativo, só elegível é lido (e pode subir); sem o filtro de elegíveis, todos', async () => {
   const lidos = [];
   const criar = (elegiveis) => {
     const svc = new RodizioService({
@@ -71,7 +74,7 @@ test('rodízio: no Ativo, só elegível é lido (e pode subir); sem lista, todos
     svc.gruposAtivos = [{ idGrupoUsuario: 1, ramaisOperadores: ['1001', '1002'] }];
     return svc;
   };
-  const so1001 = { atualizar() {}, permite: (r) => r === '1001' };
+  const so1001 = { atualizar: async () => {}, permite: (r) => r === '1001' };
 
   await criar(so1001).cicloAtivo();
   assert.deepEqual(lidos, ['1001'], 'o 1002 não é elegível: nem lê o status');
@@ -79,4 +82,21 @@ test('rodízio: no Ativo, só elegível é lido (e pode subir); sem lista, todos
   lidos.length = 0;
   await criar(null).cicloAtivo();
   assert.deepEqual(lidos.sort(), ['1001', '1002']);
+});
+
+test('resolverFixos: ramais, nomes e equipes; quem não bate vira aviso', () => {
+  const { resolverFixos } = require('../../src/integrations/argus/fixos');
+  const diretorio = {
+    ramalPorNome: (nome) => ({ 'MARIA SOUZA': '1004' }[nome] ?? null),
+    ramaisDaEquipe: (nome) => (nome === 'ROBSON JUNIOR'
+      ? { supervisor: { nome }, candidatos: [{ nome }], ramais: ['2001', '2002'] }
+      : { supervisor: null, candidatos: [], ramais: [] }),
+  };
+  const r = resolverFixos(diretorio, { fixosUra: ['1003', 'MARIA SOUZA', 'FULANO'], equipesFixasUra: ['ROBSON JUNIOR', 'NINGUEM'] });
+  assert.deepEqual([...r.ramais].sort(), ['1003', '1004', '2001', '2002']);
+  assert.deepEqual(r.faltando.map((f) => [f.onde, f.item]), [['OPERADORES_FIXOS_URA', 'FULANO'], ['EQUIPES_FIXAS_URA', 'NINGUEM']]);
+
+  const fora = resolverFixos({ ramalPorNome: () => { throw new Error('sem diretório'); } }, { fixosUra: ['1003', 'MARIA'] });
+  assert.deepEqual([...fora.ramais], ['1003'], 'ramal numérico não depende do diretório');
+  assert.match(fora.faltando[0].motivo, /diretório da Argus indisponível/);
 });
