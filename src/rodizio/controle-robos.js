@@ -108,6 +108,21 @@ class ControleRobos {
   async reduzir(ramais, alvo, motivo) {
     this.alvo = alvo;
     if (alvo === 0) return this.desligar(ramais, motivo);
+    return this.reduzirPoupando(alvo, motivo);
+  }
+
+  /**
+   * Para de discar sem derrubar ligação: desliga os robôs parados; os que estão
+   * em ligação terminam a chamada e saem num próximo ciclo. Usado enquanto o
+   * último livre da URA espera para voltar ao Ativo.
+   */
+  async encerrarSemDerrubar(motivo) {
+    this.alvo = 0;
+    return this.reduzirPoupando(0, motivo);
+  }
+
+  /** Desliga o excesso sobre `alvo`, só entre os robôs que não estão em ligação. */
+  async reduzirPoupando(alvo, motivo) {
     const ligados = await Promise.all([...(this.ligados || [])].map((r) => this.lerClasse(r)));
     const excesso = ligados.length - alvo;
     if (excesso <= 0) return undefined;

@@ -13,6 +13,8 @@
  *   2. Senão, é inferido dos dados: o grupo do Ativo onde está a maioria dos
  *      operadores daquele supervisor. Não depende do nome do grupo
  *      ("MAYSA - COMERCIAL"), então renomear grupos na Argus não quebra nada.
+ *   3. Sem operadores dele no Ativo (equipe toda na URA, por exemplo), o grupo
+ *      do Ativo cujo nome começa pelo primeiro nome do supervisor, se for único.
  *
  * O snapshot fica em cache (ARGUS_CACHE_DIRETORIO_MS). Se a Argus falhar, o
  * último snapshot válido continua sendo usado.
@@ -233,7 +235,7 @@ class DiretorioOperadores {
 
   /**
    * Grupo do Ativo de um supervisor.
-   * @returns {{ idGrupo: number, origem: 'excecao'|'inferido' }|null}
+   * @returns {{ idGrupo: number, origem: 'excecao'|'inferido'|'nome' }|null}
    */
   grupoDoSupervisor(supervisor) {
     if (!supervisor) return null;
@@ -242,7 +244,19 @@ class DiretorioOperadores {
     if (idExcecao != null) return { idGrupo: idExcecao, origem: 'excecao' };
 
     const inferido = this.exigirSnapshot().grupoInferidoPorSupervisor.get(supervisor.idUsuario);
-    return inferido != null ? { idGrupo: inferido, origem: 'inferido' } : null;
+    if (inferido != null) return { idGrupo: inferido, origem: 'inferido' };
+    const peloNome = this.grupoPeloNome(supervisor);
+    return peloNome != null ? { idGrupo: peloNome, origem: 'nome' } : null;
+  }
+
+  /** Grupo do Ativo cujo nome começa pelo primeiro nome do supervisor ("ROBSON - COMERCIAL"); só se for único. */
+  grupoPeloNome(supervisor) {
+    const primeiroNome = (texto) => normalizarNome(texto).split(/[^A-Z0-9]+/)[0];
+    const nome = primeiroNome(supervisor.chave);
+    if (!nome) return null;
+    const grupos = [...this.exigirSnapshot().grupos.values()]
+      .filter((g) => this.gruposAtivos.has(g.idGrupoUsuario) && primeiroNome(g.grupoUsuarioDesc) === nome);
+    return grupos.length === 1 ? grupos[0].idGrupoUsuario : null;
   }
 
   /**

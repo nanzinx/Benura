@@ -192,7 +192,8 @@ src/utils/                         HTTP com retry, persistência atômica, trava
 1. **Ativo → URA**: operador do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
 2. **URA → Ativo**: **qualquer** humano do RECEPTIVO - URA **ocioso (Livre) há `TEMPO_MIN` minutos seguidos** (padrão 3) volta ao Ativo, sem exceção.
    Atender uma ligação (ou entrar em pausa) zera a contagem, como a coluna "Tempo" do painel.
-   - Quem o rodízio moveu volta ao **grupo de origem**; os demais (colocados à mão, pelo roteador ou antes de o programa iniciar) voltam ao **grupo do supervisor** (diretório da Argus ou `SUPERVISORES_GRUPOS_FILE`). Sem grupo identificável, fica na URA com um aviso.
+   - Quem o rodízio moveu volta ao **grupo de origem**; os demais (colocados à mão, pelo roteador ou antes de o programa iniciar) voltam ao **grupo do supervisor** (diretório da Argus ou `SUPERVISORES_GRUPOS_FILE`). O grupo do supervisor é o grupo do Ativo com a maioria da equipe dele; se não houver ninguém da equipe no Ativo, o grupo cujo nome começa pelo primeiro nome do supervisor ("ROBSON - COMERCIAL"). Sem grupo identificável, fica na URA com um aviso.
+   - **O último livre espera os robôs em ligação.** Se a volta deixaria a URA sem nenhum livre, o ocioso fica: os robôs param de discar (os parados desligam) e os que estão em ligação terminam, ainda com alguém para receber a derivação. Ele volta ao Ativo quando os robôs desligam, ou depois de `SEGURAR_ULTIMO_LIVRE_MS` (**90 s**). Antes, tirá-lo zerava o alvo e derrubava os robôs em ligação, e o cliente que pedia atendimento virava callback.
    - Quem o rodízio moveu e ficou offline volta na hora.
    - Quem voltou retorna à URA pela regra 1, assim que atender no Ativo.
 3. **Robôs proporcionais aos livres**: ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.

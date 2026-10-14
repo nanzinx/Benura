@@ -111,6 +111,9 @@ function carregarConfig(overrides = {}) {
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
       // Minutos ocioso (Livre) seguidos na URA antes de voltar ao Ativo. Atender zera a contagem.
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
+      // O último livre da URA, ocioso, só volta ao Ativo depois que os robôs em ligação
+      // terminarem (eles param de discar), ou depois deste tempo. 0 = sai na hora.
+      segurarUltimoLivreMs: envNum('SEGURAR_ULTIMO_LIVRE_MS', 90_000),
       // Intervalo entre as consultas à Argus (Ativo e URA). 5 s evita o liga-desliga
       // de robôs a cada oscilação de status; o webhook de atendimento continua imediato.
       pollAtivoMs: envNum('POLL_ATIVO_MS', 5000),
