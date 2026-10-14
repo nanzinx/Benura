@@ -256,7 +256,8 @@ class ArgusClient {
       if (r.endOfTable || !r.idProxPagina) return ligacoes;
       ultimoId = r.idProxPagina;
     }
-    this.log.aviso(`ligacoesdetalhadas: parou em ${maxPaginas} páginas (${ligacoes.length} ligações).`);
+    this.log.aviso(`ligacoesdetalhadas: parou em ${maxPaginas} páginas (${ligacoes.length} ligações); o fim do período ficou de fora. `
+      + 'Use um período menor (ex.: --minutos 240).');
     return ligacoes;
   }
 

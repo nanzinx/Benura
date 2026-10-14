@@ -3,7 +3,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { alinharLogin, Alinhamento } = require('../../src/integrations/argus/alinhar-login');
 const { loggerNulo } = require('../../src/utils/logger');
-const { montarArgusMock } = require('./helpers');
 
 /**
  * Argus mínima: `grupoLogado` é onde a telefonia está; `vinculo`, o grupo da lista.
@@ -78,17 +77,4 @@ test('alinharLogin: DRY_RUN só registra; erro da Argus vira FALHOU com aviso', 
   const avisos = [];
   assert.equal(await alinhar(argus({ falhar: true }), { log: { ...loggerNulo, aviso: (m) => avisos.push(m) } }), Alinhamento.FALHOU);
   assert.match(avisos[0], /deslogar e logar/);
-});
-
-test('roteador: depois de transferir, alinha o login (e não alinha com a opção desligada)', async () => {
-  for (const alinharLoginLigado of [true, false]) {
-    const { discadora, client } = montarArgusMock({ cfg: { alinharLogin: alinharLoginLigado, esperaLoginMs: 0 } });
-    const logados = [];
-    client.statusOperador = async () => ({ descricaoStatus: 'Livre', idGrupo: logados.length ? 2 : 1 });
-    client.logarOperador = async (ramal) => { logados.push(ramal); };
-    const r = await discadora.moverPara('1001', 'URA');
-    assert.equal(r.resultado, 'TRANSFERIDO');
-    assert.deepEqual(logados, alinharLoginLigado ? ['1001'] : []);
-    assert.equal(r.login, alinharLoginLigado ? Alinhamento.RELOGADO : null);
-  }
 });

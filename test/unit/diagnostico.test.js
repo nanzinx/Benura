@@ -131,21 +131,23 @@ test('diagnosticar: confere em que grupo quem está na URA está logado (só lê
   assert.deepEqual(r.ura.map((u) => [u.ramal, u.situacao]), [['201', 'ok'], ['202', 'outro grupo']]);
 });
 
-test('rodízio: humano da URA logado em outro grupo → aviso uma vez, /health lista, some ao relogar', () => {
+test('rodízio: na lista da URA mas logado em outro grupo → espera a discadora; preso → aviso uma vez, /health lista, some ao trocar', () => {
   const avisos = [];
   const infos = [];
   const svc = new RodizioService({
-    client: {}, transferencias: {}, repositorio: {}, robos: { resumo: () => ({}) }, cfg: { grupoUraId: 7 },
+    client: {}, transferencias: {}, repositorio: {}, robos: { resumo: () => ({}) }, cfg: { grupoUraId: 7, alinharAposMs: 30_000 },
     logger: { ...loggerNulo, aviso: (m) => avisos.push(m), info: (m) => infos.push(m) },
   });
   const fora = { idGrupo: 3, grupo: 'MAYSA - COMERCIAL' };
-  svc.conferirGrupoLogado('202', Classe.LIVRE, fora);
-  svc.conferirGrupoLogado('202', Classe.LIVRE, fora);
+  assert.equal(svc.conferirGrupoLogado('202', Classe.LIVRE, fora, 0), true, 'não conta como livre na URA');
+  assert.equal(avisos.length, 0, 'nos primeiros 30 s a discadora ainda pode trocar');
+  svc.conferirGrupoLogado('202', Classe.LIVRE, fora, 30_000);
+  svc.conferirGrupoLogado('202', Classe.LIVRE, fora, 40_000);
   assert.equal(avisos.length, 1);
-  assert.match(avisos[0], /Ramal 202 .*logado em "MAYSA - COMERCIAL" \(grupo 3\)/);
+  assert.match(avisos[0], /Ramal 202 .*continua logada em "MAYSA - COMERCIAL" \(grupo 3\)/);
   assert.deepEqual(svc.resumo().uraLogadosEmOutroGrupo, [{ ramal: '202', grupoLogado: 3, grupo: 'MAYSA - COMERCIAL' }]);
 
-  svc.conferirGrupoLogado('202', Classe.LIVRE, { idGrupo: 7 });
+  assert.equal(svc.conferirGrupoLogado('202', Classe.LIVRE, { idGrupo: 7 }), false);
   assert.deepEqual(svc.resumo().uraLogadosEmOutroGrupo, []);
   assert.match(infos.at(-1), /Ramal 202 agora está logado no grupo da URA/);
 

@@ -63,6 +63,8 @@ class RodizioService {
     this.alinhandoLogin = new Set();
     /** ramal → quando se tentou relogar pela última vez */
     this.ultimoAlinhamento = new Map();
+    /** ramal → desde quando está na lista da URA, mas logado em outro grupo */
+    this.foraDoGrupoDesde = new Map();
     /** ramais do Ativo que atenderam uma ligação desde que ficaram online */
     this.atenderamNoAtivo = new Set();
     /** ramais com transferência em andamento */
@@ -201,11 +203,12 @@ class RodizioService {
 
     this.movidos[ramal] = { origemGrupoId: grupoOrigem, entrouEm: Date.now() };
     this.ramaisUra.add(ramal);
-    this.statusUra.set(ramal, { classe: Classe.LIVRE, ts: Date.now(), livreDesde: Date.now() });
+    // Ainda não conta como livre: a discadora só troca a telefonia de grupo depois
+    // (quando a pessoa fica livre, com atraso). A próxima leitura diz se já trocou.
+    this.statusUra.set(ramal, { classe: Classe.OUTRO, ts: Date.now() });
     this.atenderamNoAtivo.delete(ramal);
     this.salvar();
     this.log.info(`ATIVO→URA ramal=${ramal} origem=${grupoOrigem}`);
-    this.alinharLoginEmSegundoPlano(ramal, this.cfg.grupoUraId, { forcar: true });
   }
 
   // ───────────────────────────── URA ─────────────────────────────
@@ -262,9 +265,11 @@ class RodizioService {
 
   async atualizarStatusUra(ramal) {
     if (this.alinhandoLogin.has(ramal)) return; // relogando: o "deslogado" de agora é passageiro
-    const { classe, status } = await this.lerStatus(ramal);
-    if (classe === Classe.ERRO) return; // mantém o último status; a validade dele decide os robôs
-    this.conferirGrupoLogado(ramal, classe, status);
+    const lido = await this.lerStatus(ramal);
+    if (lido.classe === Classe.ERRO) return; // mantém o último status; a validade dele decide os robôs
+    // Na lista da URA, mas a telefonia ainda em outro grupo: não recebe derivação,
+    // então não conta como livre (nem liga robô para ela) até a troca acontecer.
+    const classe = this.conferirGrupoLogado(ramal, lido.classe, lido.status) ? Classe.OUTRO : lido.classe;
 
     // Um "livre" lido logo depois do webhook de atendimento é atraso do polling: ignora.
     const anterior = this.statusUra.get(ramal);
@@ -279,34 +284,44 @@ class RodizioService {
 
   /**
    * O statusoperador traz o grupo em que a pessoa está LOGADA na telefonia
-   * (doc 4.14). Estar no grupo da URA e logado em outro significa que a
-   * derivação dos robôs não chega nela (o cliente espera na fila e vira
-   * callback). Avisa uma vez por ramal (o /health lista quem está assim) e,
-   * se a pessoa está livre, reloga na URA.
+   * (doc 4.14). Mover de grupo (pelo painel ou pela API) muda a lista na hora,
+   * mas a discadora só troca a telefonia quando a pessoa fica livre, e com
+   * atraso. Enquanto isso a derivação dos robôs não chega nela.
+   *
+   * Quem continua em outro grupo depois de ALINHAR_LOGIN_APOS_MS ficou preso
+   * (no preditivo, emendando ligação): avisa (uma vez; o /health lista) e, se
+   * estiver livre, reloga na URA.
+   * @returns {boolean} true se está na lista da URA, mas logado em outro grupo
    */
-  conferirGrupoLogado(ramal, classe, status) {
+  conferirGrupoLogado(ramal, classe, status, agora = Date.now()) {
     const logado = Boolean(status) && classe !== Classe.OFFLINE && status.idGrupo != null;
     const emOutroGrupo = logado && Number(status.idGrupo) !== Number(this.cfg.grupoUraId);
-    if (!emOutroGrupo) return this.esquecerGrupoLogado(ramal, logado);
-    // Livre: reloga na URA (também quem foi movido à mão já logado). Em ligação ou pausa, espera.
-    if (classe === Classe.LIVRE) this.alinharLoginEmSegundoPlano(ramal, this.cfg.grupoUraId);
-    if (this.logadosEmOutroGrupo.has(ramal) || this.alinhandoLogin.has(ramal)) return undefined;
+    if (!emOutroGrupo) {
+      this.esquecerGrupoLogado(ramal, logado);
+      return false;
+    }
+    if (!this.foraDoGrupoDesde.has(ramal)) this.foraDoGrupoDesde.set(ramal, agora);
+    if (agora - this.foraDoGrupoDesde.get(ramal) < (this.cfg.alinharAposMs ?? 30_000)) return true; // a discadora ainda pode trocar
 
+    if (!this.logadosEmOutroGrupo.has(ramal)) this.avisarPresoEmOutroGrupo(ramal, status);
+    if (classe === Classe.LIVRE) this.alinharLoginEmSegundoPlano(ramal, this.cfg.grupoUraId);
+    return true;
+  }
+
+  avisarPresoEmOutroGrupo(ramal, status) {
     this.logadosEmOutroGrupo.set(ramal, { ramal, grupoLogado: status.idGrupo, grupo: status.grupo ?? null });
-    this.log.aviso(`Ramal ${ramal} está no grupo da URA, mas a telefonia diz que está logado em "${status.grupo ?? '?'}" `
-      + `(grupo ${status.idGrupo}): a derivação dos robôs não chega nele.`);
-    return undefined;
+    this.log.aviso(`Ramal ${ramal} está no grupo da URA, mas a telefonia continua logada em "${status.grupo ?? '?'}" `
+      + `(grupo ${status.idGrupo}): a derivação dos robôs não chega nele. Livre, é relogado; em ligação, espera.`);
   }
 
   /**
    * Leva a telefonia para o grupo em que a pessoa está vinculada (alinhar-login.js).
-   * Em segundo plano, para não atrasar o ciclo; uma vez por ramal a cada 60 s,
-   * fora a tentativa logo depois de o rodízio mover (`forcar`).
+   * Em segundo plano, para não atrasar o ciclo; uma vez por ramal a cada 60 s.
    */
-  alinharLoginEmSegundoPlano(ramal, idGrupo, { forcar = false } = {}) {
+  alinharLoginEmSegundoPlano(ramal, idGrupo) {
     if (!this.cfg.alinharLogin || this.alinhandoLogin.has(ramal)) return;
     const agora = Date.now();
-    if (!forcar && agora - (this.ultimoAlinhamento.get(ramal) || 0) < INTERVALO_ALINHAMENTO_MS) return;
+    if (agora - (this.ultimoAlinhamento.get(ramal) || 0) < INTERVALO_ALINHAMENTO_MS) return;
 
     this.ultimoAlinhamento.set(ramal, agora);
     this.alinhandoLogin.add(ramal);
@@ -315,6 +330,7 @@ class RodizioService {
   }
 
   esquecerGrupoLogado(ramal, logadoNaUra) {
+    this.foraDoGrupoDesde.delete(ramal);
     if (this.logadosEmOutroGrupo.delete(ramal) && logadoNaUra) this.log.info(`Ramal ${ramal} agora está logado no grupo da URA.`);
   }
 
@@ -354,7 +370,6 @@ class RodizioService {
     this.vigiarNoAtivo(ramal, destino);
     this.salvar();
     this.log.info(`URA→ATIVO ramal=${ramal} destino=${destino} (motivo: ${motivoDaVolta({ ...info, agora: Date.now() })})`);
-    this.alinharLoginEmSegundoPlano(ramal, destino, { forcar: true });
     return undefined;
   }
 
