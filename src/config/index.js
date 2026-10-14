@@ -123,6 +123,8 @@ function carregarConfig(overrides = {}) {
       porLivreMinimo: envNum('ROBOS_POR_LIVRE_MINIMO', 4),
       recuperarAposMs: envNum('ROBOS_RECUPERAR_APOS_MIN', 15) * 60_000,
       intervaloAjusteMs: envNum('ROBOS_AJUSTE_INTERVALO_S', 60) * 1000,
+      // Ajuste gravado para um reinício no mesmo dia retomar o degrau em que estava.
+      arquivoAjuste: env('RODIZIO_AJUSTE_FILE', path.join(RAIZ, 'state-ajuste-robos.json')),
       // Minutos ocioso (Livre) seguidos na URA antes de voltar ao Ativo. Atender zera a contagem.
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
       // A regra do ocioso vale sempre. Quando o último livre da URA está a este tempo de

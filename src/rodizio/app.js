@@ -17,8 +17,10 @@ const { Transferencias } = require('./transferencias');
 const { ControleRobos } = require('./controle-robos');
 const { RodizioService } = require('./rodizio.service');
 const { ElegiveisUra } = require('./elegiveis-ura');
+const { resolverFixos } = require('../integrations/argus/fixos');
 const { UraCheia } = require('./ura-cheia');
 const { AjustePorCallback } = require('./ajuste-por-callback');
+const { dataLocal } = require('../utils/datas');
 const { DiretorioOperadores } = require('../integrations/argus/diretorio-operadores.service');
 const { criarRotasDoRodizio } = require('./controllers');
 const { RetornoFilaService } = require('../retorno-fila/retorno-fila.service');
@@ -43,6 +45,9 @@ function montarRodizio(overrides) {
   const cfgRodizio = configDoRodizio(cfg);
   const client = new ArgusClient(cfg.argus, log.filho('argus'));
 
+  const diretorio = new DiretorioOperadores({
+    client, cfg: cfg.argus, arquivoSupervisoresGrupos: cfg.arquivoSupervisoresGrupos, logger: log.filho('diretorio'),
+  });
   const rodizio = new RodizioService({
     client,
     transferencias: new Transferencias({ client, cfg: cfgRodizio, logger: log.filho('transferencias') }),
@@ -51,21 +56,26 @@ function montarRodizio(overrides) {
     cfg: cfgRodizio,
     logger: log.filho('rodizio'),
     // Grupo do supervisor, para devolver ao Ativo quem não foi movido pelo rodízio.
-    diretorio: new DiretorioOperadores({
-      client, cfg: cfg.argus, arquivoSupervisoresGrupos: cfg.arquivoSupervisoresGrupos, logger: log.filho('diretorio'),
-    }),
-    elegiveis: cfgRodizio.soElegiveis
-      ? new ElegiveisUra({ arquivo: cfgRodizio.arquivoVendas, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') })
-      : null,
-    ajuste: montarAjuste(cfgRodizio, log.filho('robos')),
+    diretorio,
+    elegiveis: cfgRodizio.soElegiveis ? montarElegiveis(cfg, diretorio, log.filho('rodizio')) : null,
+    ajuste: montarAjuste(cfgRodizio, cfg.agenda.fusoHorario, log.filho('robos')),
     uraCheia: new UraCheia({ arquivo: cfgRodizio.arquivoUraCheia, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
   return { cfg, cfgRodizio, log, rodizio, retornoFila };
 }
 
+/** Lista do dia do roteador; sem ela, só os fixos (resolvidos pelo diretório da Argus). */
+function montarElegiveis(cfg, diretorio, logger) {
+  const fixos = async () => {
+    await diretorio.atualizar();
+    return resolverFixos(diretorio, cfg.regras).ramais;
+  };
+  return new ElegiveisUra({ arquivo: cfg.rodizio.arquivoVendas, fusoHorario: cfg.agenda.fusoHorario, logger, fixos });
+}
+
 /** Robôs por livre ajustados pelos callbacks (ROBOS_AJUSTE_CALLBACK). */
-function montarAjuste(c, logger) {
+function montarAjuste(c, fusoHorario, logger) {
   if (!c.ajusteCallback) return null;
   const cfg = {
     base: c.robosPorLivre,
@@ -73,7 +83,8 @@ function montarAjuste(c, logger) {
     recuperarAposMs: c.recuperarAposMs,
     intervaloMinMs: c.intervaloAjusteMs,
   };
-  return new AjustePorCallback({ cfg, logger });
+  const repositorio = new ArquivoDeEstado({ arquivo: c.arquivoAjuste, logger });
+  return new AjustePorCallback({ cfg, logger, repositorio, hoje: () => dataLocal(fusoHorario) });
 }
 
 /** Retorno de quem desistiu da fila: recebe os mesmos webhooks do rodízio. */

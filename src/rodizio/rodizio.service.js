@@ -7,8 +7,8 @@
  *   atualizarGrupos()  ~30 s  lê os grupos da Argus: quem está na URA, no Ativo e quais são os robôs
  *   cicloAtivo()       ~5 s   quem é elegível (meta de ontem, venda hoje ou fixo), atendeu
  *                             no Ativo e ficou livre → URA. Na URA cheia (pedido da
- *                             supervisão), todos do Ativo sobem uma vez e qualquer um que
- *                             atender no Ativo volta; a regra do ocioso continua valendo.
+ *                             supervisão), todos do Ativo sobem; quem voltou por ocioso
+ *                             sobe ao atender no Ativo; a regra do ocioso continua valendo.
  *   cicloUra()         ~5 s   lê o status de quem está na URA, decide os robôs e devolve
  *                             ao Ativo quem está ocioso há TEMPO_MIN (ou o movido que ficou
  *                             offline); ~1 s com poucos livres (URA em alerta). O último
@@ -80,8 +80,11 @@ class RodizioService {
     this.atenderamNoAtivo = new Set();
     /** ramais com transferência em andamento */
     this.emTransferencia = new Set();
-    /** URA cheia: quem já foi levado nesta ativação (sobe uma vez; depois segue a regra do ocioso) */
-    this.levadosNaUraCheia = new Set();
+    /**
+     * URA cheia: quem não é levado de novo nesta ativação — voltou ao Ativo por
+     * ocioso (sobe ao atender lá) ou, em DRY_RUN, já teve a ida simulada.
+     */
+    this.naoLevarNaUraCheia = new Set();
     this.avaliandoRobos = false;
     this.reavaliarRobos = false;
     /** Até quando a supervisão comanda os robôs pelo painel (0 = o BenURA comanda). */
@@ -125,6 +128,7 @@ class RodizioService {
   inicializar() {
     this.movidos = this.repositorio.carregar();
     this.uraCheia?.carregar();
+    this.ajuste?.carregar();
     return this;
   }
 
@@ -183,7 +187,7 @@ class RodizioService {
   async cicloAtivo() {
     const cheia = this.emUraCheia();
     if (cheia) await this.levarTodosParaUra();
-    else this.elegiveis?.atualizar();
+    else await this.elegiveis?.atualizar();
     // Na URA cheia, qualquer um que atender no Ativo volta (sem olhar elegíveis).
     const alvos = this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal));
     await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
@@ -198,16 +202,18 @@ class RodizioService {
   }
 
   /**
-   * URA cheia: todos do Ativo vão para a URA uma vez, atendendo ou não (a
-   * telefonia troca quando ficam livres). Quem depois ficar ocioso volta ao
-   * Ativo pela regra de sempre e só sobe de novo ao atender lá.
+   * URA cheia: todos do Ativo vão para a URA, atendendo ou não (a telefonia
+   * troca quando ficam livres), inclusive quem a carga das 08:00 ou alguém à
+   * mão mandar para o Ativo depois. Só quem voltou por ocioso fica no Ativo
+   * até atender lá (senão iria e voltaria a cada TEMPO_MIN).
    */
   async levarTodosParaUra() {
-    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => !this.levadosNaUraCheia.has(ramal));
+    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => !this.naoLevarNaUraCheia.has(ramal));
     if (!alvos.length) return;
     this.log.info(`URA cheia: levando ${alvos.length} operador(es) do Ativo para a URA.`);
     await mapearComLimite(alvos, this.cfg.concorrencia, async ({ ramal, grupo }) => {
-      if (await this.moverParaUra(ramal, grupo)) this.levadosNaUraCheia.add(ramal);
+      // Em DRY_RUN ninguém sai do Ativo de verdade: simula uma vez só.
+      if (await this.moverParaUra(ramal, grupo) && this.cfg.dryRun) this.naoLevarNaUraCheia.add(ramal);
     });
   }
 
@@ -374,10 +380,20 @@ class RodizioService {
     });
   }
 
-  /** Quem o rodízio moveu volta ao grupo de origem; os demais, ao grupo do Ativo do supervisor. */
+  /**
+   * Quem o rodízio moveu volta ao grupo de origem; os demais, ao grupo do Ativo
+   * do supervisor; sem ele, ao grupo de onde o roteador o tirou (se for do Ativo).
+   */
   async grupoDeVolta(ramal) {
     const movido = this.movidos[ramal];
     if (movido) return movido.origemGrupoId;
+    const doSupervisor = await this.grupoDoSupervisor(ramal);
+    if (doSupervisor != null) return doSupervisor;
+    const origem = this.elegiveis?.grupoDeOrigem?.(ramal) ?? null;
+    return origem != null && (this.cfg.gruposAtivosIds || []).includes(origem) ? origem : null;
+  }
+
+  async grupoDoSupervisor(ramal) {
     if (!this.diretorio) return null;
     try {
       await this.diretorio.atualizar();
@@ -399,6 +415,7 @@ class RodizioService {
     delete this.movidos[ramal];
     this.ramaisUra.delete(ramal);
     this.statusUra.delete(ramal);
+    if (this.emUraCheia()) this.naoLevarNaUraCheia.add(ramal); // sobe de novo ao atender no Ativo
     this.vigiarNoAtivo(ramal, destino);
     this.salvar();
     this.log.info(`URA→ATIVO ramal=${ramal} destino=${destino} (motivo: ${motivoDaVolta({ ...info, agora: Date.now() })})`);
@@ -418,7 +435,7 @@ class RodizioService {
     if (this.semGrupoAvisados.has(ramal)) return;
     this.semGrupoAvisados.add(ramal);
     this.log.aviso(`Ramal ${ramal} ocioso na URA, mas sem grupo do Ativo identificável (supervisor?). `
-      + 'Fica na URA. Defina o grupo do supervisor em SUPERVISORES_GRUPOS_FILE (ex.: { "ROBSON JUNIOR": 20 }).');
+      + 'Fica na URA. Rode npm run conferir:supervisores e defina o grupo em SUPERVISORES_GRUPOS_FILE (ex.: { "ROBSON JUNIOR": 20 }).');
   }
 
   // ───────────────────────────── Robôs ─────────────────────────────
@@ -566,17 +583,17 @@ class RodizioService {
 
   // ───────────────────────────── URA cheia ─────────────────────────────
 
-  /** Ligada hoje? (desligada, esquece quem já foi levado: a próxima ativação leva todos de novo) */
+  /** Ligada hoje? (desligada, esquece quem voltou por ocioso: a próxima ativação leva todos de novo) */
   emUraCheia(agora = Date.now()) {
     const ligada = Boolean(this.uraCheia?.ativa(new Date(agora)));
-    if (!ligada) this.levadosNaUraCheia.clear();
+    if (!ligada) this.naoLevarNaUraCheia.clear();
     return ligada;
   }
 
   /** POST /ura/cheia. @returns {{ ligada: boolean, desde: string|null, mudou: boolean }} */
   ligarUraCheia() {
     const mudou = this.uraCheia.ligar();
-    if (mudou) this.levadosNaUraCheia.clear();
+    if (mudou) this.naoLevarNaUraCheia.clear();
     return { ...this.uraCheia.resumo(), mudou };
   }
 

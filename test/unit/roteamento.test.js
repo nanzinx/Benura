@@ -188,3 +188,10 @@ test('vendedor novo (fora da carga) que vende é promovido', async () => {
   await ctx.svc.monitorarVendas();
   assert.deepEqual(ctx.movimentos, [['99', 'URA']]);
 });
+
+test('carga inicial: quem vai para a URA guarda o grupo de onde saiu (volta do rodízio sem supervisor)', async () => {
+  const { svc } = montar({ ontem: [v('1', 72_500), v('2', 10)] });
+  await svc.executarCargaInicial();
+  assert.equal(svc.estado.vendedores['1'].grupoAtivoAnterior, 1);
+  assert.equal(svc.estado.vendedores['2'].grupoAtivoAnterior, undefined, 'foi para o Ativo: não precisa');
+});

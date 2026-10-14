@@ -144,7 +144,7 @@ automaticamente pelo `/listarusuarios` da Argus, que traz nome, login, ramal, gr
 - **Exceções** (opcionais, relidas sem reiniciar):
   - `vendedores-ramais.json`: nome no Carrossel diferente do nome na Argus, ou homônimos: `{ "NOME NO CARROSSEL": "2266111" }`
   - `supervisores-grupos.json`: supervisor cujo grupo não é identificado: `{ "NOME DO SUPERVISOR": 12 }`
-    - Para conferir todos de uma vez (só lê a Argus): **`npm run conferir:supervisores`**. Mostra o grupo do Ativo de cada supervisor e por qual regra foi encontrado (arquivo, pela equipe, pelo nome do grupo), quem ficou **sem grupo** e os **operadores sem supervisor** (esses precisam ser corrigidos na Argus). Grava `supervisores-grupos.sugerido.json` com todos os supervisores: troque cada `null` pelo número do grupo e renomeie para `supervisores-grupos.json` (relido sozinho, sem reiniciar). Grupo `null` ou `0` no arquivo é ignorado.
+    - Para conferir todos de uma vez (só lê a Argus): **`npm run conferir:supervisores`**. Mostra o grupo do Ativo de cada supervisor e por qual regra foi encontrado (arquivo, pela equipe, pelo nome do grupo), quem ficou **sem grupo** os **operadores sem supervisor** (esses precisam ser corrigidos na Argus) e os nomes de `OPERADORES_FIXOS_URA`/`EQUIPES_FIXAS_URA` que não batem com a Argus. Grava `supervisores-grupos.sugerido.json` com todos os supervisores: troque cada `null` pelo número do grupo e renomeie para `supervisores-grupos.json` (relido sozinho, sem reiniciar). Grupo `null` ou `0` no arquivo é ignorado.
 
 ### Endpoints HTTP do roteador
 | Método | Rota | Auth | Descrição |
@@ -193,22 +193,21 @@ src/utils/                         HTTP com retry, persistência atômica, trava
 ### Regras
 1. **Ativo → URA**: operador **elegível** do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
    - **Elegível** = quem o roteador pôs na URA hoje: bateu a meta ontem, vendeu hoje ou é fixo (fila `URA` no `state-vendas.json` do roteador). Quem vende durante o dia passa a ser elegível na hora. Os demais ficam só no Ativo.
-   - Sem a lista do dia (roteador desligado, carga adiada porque o Carrossel falhou, arquivo de outro dia), **todos** sobem, como antes, e o log avisa uma vez.
+   - Sem a lista do dia (roteador desligado, carga adiada porque o Carrossel falhou, arquivo de outro dia), **só os fixos** (`OPERADORES_FIXOS_URA` e `EQUIPES_FIXAS_URA`) sobem, e o log avisa uma vez. Quem não bateu meta nem vendeu não vai para a URA por falta de informação; para pôr todo mundo, use a URA cheia.
    - O `/health` mostra `elegiveisUra: { disponivel, total }`. Para voltar a girar todos sempre: `RODIZIO_SO_ELEGIVEIS=0`.
 2. **URA → Ativo**: **qualquer** humano do RECEPTIVO - URA **ocioso (Livre) há `TEMPO_MIN` minutos seguidos** (padrão 3) volta ao Ativo, **sem exceção**: nem o último livre, nem na URA cheia.
    Atender uma ligação (ou entrar em pausa) zera a contagem, como a coluna "Tempo" do painel.
-   - Quem o rodízio moveu volta ao **grupo de origem**; os demais (colocados à mão, pelo roteador ou antes de o programa iniciar) voltam ao **grupo do supervisor** (diretório da Argus ou `SUPERVISORES_GRUPOS_FILE`). O grupo do supervisor é o grupo do Ativo com a maioria da equipe dele; se não houver ninguém da equipe no Ativo, o grupo cujo nome começa pelo primeiro nome do supervisor ("ROBSON - COMERCIAL"). Sem grupo identificável, fica na URA com um aviso.
+   - Quem o rodízio moveu volta ao **grupo de origem**; os demais (colocados à mão, pelo roteador ou antes de o programa iniciar) voltam ao **grupo do supervisor** (diretório da Argus ou `SUPERVISORES_GRUPOS_FILE`). O grupo do supervisor é o grupo do Ativo com a maioria da equipe dele; se não houver ninguém da equipe no Ativo, o grupo cujo nome começa pelo primeiro nome do supervisor ("ROBSON - COMERCIAL"). Sem o grupo do supervisor, volta ao grupo do Ativo de onde o roteador a tirou (gravado no `state-vendas.json`). Sem nenhum dos dois, fica na URA com um aviso: rode `npm run conferir:supervisores`.
    - **O último livre sai no horário, e os robôs param antes.** Sem livre na URA, o alvo vira 0 e um robô em ligação que derivar não acha ninguém (callback). Por isso, quando o último livre está a `PREPARAR_SAIDA_ULTIMO_LIVRE_MS` (**90 s**, no máximo metade do `TEMPO_MIN`) de completar o tempo ocioso, os robôs param de discar e os que estão em ligação terminam enquanto ele ainda está na URA. Se ele atender ou aparecer outro livre, os robôs voltam. O `/health` mostra `ultimoLivreSaindo`.
    - Quem o rodízio moveu e ficou offline volta na hora.
 
 ### URA cheia (todos na URA)
 Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique em **Colocar todos na URA** (pede o `WEBHOOK_TOKEN`, se configurado).
-- Em até 5 s, todos os operadores dos grupos do Ativo (`GRUPOS_ATIVOS_IDS`) vão para a URA, atendendo ou não, sem olhar elegíveis. Quem entrar depois no Ativo também sobe (uma vez).
-- **A regra do ocioso continua valendo**: quem ficar livre `TEMPO_MIN` seguidos volta ao Ativo e sobe de novo ao atender lá, mesmo sem ser elegível. Os robôs continuam proporcionais aos livres (`ROBOS_POR_LIVRE`), até o total de robôs, e a telefonia continua sendo conferida.
+- Em até 5 s, todos os operadores dos grupos do Ativo (`GRUPOS_ATIVOS_IDS`) vão para a URA, atendendo ou não, sem olhar elegíveis. Quem entrar depois no Ativo também sobe, inclusive quem a carga das 08:00 do roteador ou alguém à mão mandar para lá.
+- **A regra do ocioso continua valendo**: quem ficar livre `TEMPO_MIN` seguidos volta ao Ativo e só sobe de novo ao atender lá, mesmo sem ser elegível (não fica indo e voltando). Os robôs continuam proporcionais aos livres (`ROBOS_POR_LIVRE`), até o total de robôs, e a telefonia continua sendo conferida.
 - **Voltar ao normal**: só os elegíveis voltam a subir do Ativo.
 - Vale até desligar ou até virar o dia; sobrevive a reinício (`RODIZIO_URA_CHEIA_FILE`). O `/health` mostra `uraCheia: { ligada, desde }`.
 - Pela API: `POST /ura/cheia` liga e `DELETE /ura/cheia` desliga (com token).
-- Com a URA cheia ligada, quem a carga das 08:00 do roteador mandar para o Ativo volta para a URA no ciclo seguinte.
    - Quem voltou retorna à URA pela regra 1, assim que atender no Ativo.
 3. **A telefonia demora a acompanhar a troca de grupo** (visto na operação em 14/10/2026).
    - Mover alguém de grupo (pelo painel ou pela API) muda a **Lista de Operadores** na hora. A **telefonia** (o painel "Operadores Online" do grupo, `statusoperador.idGrupo`) só troca quando a pessoa fica **livre**, com um atraso da discadora. Em ligação ou pausa, espera.
@@ -224,7 +223,7 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - **Ajuste pelos callbacks** (`ROBOS_AJUSTE_CALLBACK=1`, padrão): o 7 é a média; num dia de URA mais agressiva, cada callback baixa um degrau de robôs por livre (7→6→5…, até `ROBOS_POR_LIVRE_MINIMO`, padrão **4**). Sem callback por `ROBOS_RECUPERAR_APOS_MIN` (**15 min**), sobe um degrau de volta, até o `ROBOS_POR_LIVRE`.
      - O sinal é o webhook **encerramento de URA (tipo 5)** com "abandonou a fila" ou "time-out na fila": é o "Gerou Callback" do painel. Precisa estar configurado na Argus apontando para `POST /webhook?token=…` (o mesmo do retorno da fila).
      - Cada callback aparece no log com a situação da URA naquele instante: `Callback (abandonou a fila) com 1 livre(s) na URA e 7 robô(s) ligado(s): robôs por livre 7→6.` Isso ajuda a explicar callbacks que não deveriam acontecer.
-     - Só baixa: a redução segue as regras acima (não derruba robô em ligação). No máximo um degrau a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**), o mesmo evento reenviado conta uma vez, e no modo manual o callback é registrado mas não ajusta. Ao reiniciar, volta ao `ROBOS_POR_LIVRE`.
+     - Só baixa: a redução segue as regras acima (não derruba robô em ligação). No máximo um degrau a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**), o mesmo evento reenviado conta uma vez, e no modo manual o callback é registrado mas não ajusta. Fica gravado em `RODIZIO_AJUSTE_FILE`: reiniciar no mesmo dia retoma o degrau; no dia seguinte começa do `ROBOS_POR_LIVRE`.
      - O `/health` mostra `ajusteRobos: { porLivre, base, piso, callbacks, ultimoCallback }`.
    - **Ninguém livre** (todos ocupados ou em pausa, URA vazia ou offline, ou a Argus sem responder) → **todos desligados** na hora.
    - Os grupos dos robôs ficam em `GRUPOS_ROBOS_URA_IDS` (hoje URA PORT 3). A cada atualização de grupos, o rodízio confere na Argus quais robôs estão de fato ligados.
@@ -355,9 +354,13 @@ O roteador, o rodízio, as rotinas e a supervisão (pelo painel) mexem nos mesmo
 | C9 | Supervisor move alguém à mão | Esperado: o roteador respeita grupos externos e o rodízio esquece o emprestado em ~1 min |
 | C10 | Fim de expediente com `deslogar` desconectaria o plantão | Aviso quando `deslogar` está sem `FIM_EXPEDIENTE_IGNORAR_RAMAIS` |
 | C11 | Lista mudou, mas a telefonia só troca quando a pessoa fica livre | Só conta como livre na URA quem já está logado nela; quem fica preso é relogado após 30 s livre |
-| C12 | Rodízio sem a lista do dia do roteador | Gira todos, como antes, e avisa (`elegiveisUra.disponivel: false`) |
+| C12 | Rodízio sem a lista do dia do roteador | Só os fixos sobem, e avisa (`elegiveisUra.disponivel: false`); para mais gente, URA cheia |
 | C13 | Ajuste pelos callbacks reagindo a callback que não foi excesso de robôs (telefonia, modo manual) | Só baixa, com piso e um degrau por minuto; volta sozinho em 15 min; no modo manual não ajusta |
 | C14 | Exceções à regra do ocioso (último livre segurado, URA cheia) | A regra vale sempre; o último livre sai no horário e os robôs param antes (`PREPARAR_SAIDA_ULTIMO_LIVRE_MS`) |
+| C15 | URA cheia ligada antes da carga das 08:00: a carga manda ao Ativo quem não bateu a meta | Na URA cheia só quem voltou por ocioso espera atender no Ativo; quem foi mandado ao Ativo pela carga ou à mão sobe de novo |
+| C16 | Equipe ou operador fixo com nome que não bate com a Argus: não sobe | Aviso no log e conferência em `npm run conferir:supervisores`; grupo da equipe fixado no `supervisores-grupos.json` |
+| C17 | Reiniciar o rodízio no meio do dia voltava o ajuste dos robôs a 7 por livre de uma vez | O ajuste fica gravado e é retomado no mesmo dia; o atualizador só faz deploy fora do expediente |
+| C18 | Sem grupo do Ativo identificável, a pessoa ficava na URA (única exceção à regra do ocioso) | Volta ao grupo de onde o roteador a tirou; sem ele, aviso e `npm run conferir:supervisores` |
 
 **Regra de ouro:** um PC só, um jeito só de iniciar (PM2 **ou** janelas). Para conferir: `npx pm2 list` e `Get-Process node`.
 

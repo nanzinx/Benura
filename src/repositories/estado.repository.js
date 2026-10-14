@@ -18,6 +18,7 @@
  *       vendaQueDisparou: number|null,
  *       sincronizado: boolean,          // false = transferência pendente na Argus
  *       ultimoResultado: string,        // resultado da última ação na discadora
+ *       grupoAtivoAnterior?: number,    // grupo de onde saiu ao ir para a URA (volta do rodízio)
  *       atualizadoEm: ISOString
  *     }
  *   }

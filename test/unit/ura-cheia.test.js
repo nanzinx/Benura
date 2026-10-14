@@ -36,7 +36,7 @@ test('UraCheia: liga, sobrevive a reinício no mesmo dia e desliga sozinha na vi
   }
 });
 
-test('rodízio: na URA cheia cada um é levado uma vez; depois segue a regra do ocioso', async () => {
+test('rodízio: na URA cheia quem a carga mandar ao Ativo sobe de novo; quem voltou por ocioso, só ao atender', async () => {
   const transferidos = [];
   const svc = new RodizioService({
     client: {}, repositorio: { salvar() {} }, robos: {}, logger: loggerNulo, cfg: { grupoUraId: 2, concorrencia: 5 },
@@ -47,16 +47,34 @@ test('rodízio: na URA cheia cada um é levado uma vez; depois segue a regra do 
   await svc.levarTodosParaUra();
   assert.deepEqual(transferidos.sort(), ['100→2', '101→2']);
 
-  // 100 ficou ocioso e voltou ao Ativo pela regra de sempre: não é levado de novo.
+  // 101 ficou ocioso e voltou ao Ativo pela regra de sempre; 100 foi mandado ao Ativo pela carga (por fora do rodízio).
+  await svc.devolverAoAtivo('101');
   delete svc.movidos['100'];
   svc.ramaisUra.delete('100');
+  transferidos.length = 0;
   await svc.levarTodosParaUra();
-  assert.equal(transferidos.length, 2);
+  assert.deepEqual(transferidos, ['100→2'], 'o 101 só sobe ao atender no Ativo');
 
   // Religar a URA cheia leva todos de novo.
+  delete svc.movidos['100'];
+  svc.ramaisUra.delete('100');
   svc.ligarUraCheia();
+  transferidos.length = 0;
   await svc.levarTodosParaUra();
-  assert.deepEqual(transferidos.slice(2), ['100→2']);
+  assert.deepEqual(transferidos.sort(), ['100→2', '101→2']);
+});
+
+test('rodízio: URA cheia em DRY_RUN simula a ida de cada um uma vez só', async () => {
+  const transferidos = [];
+  const svc = new RodizioService({
+    client: {}, repositorio: { salvar() {} }, robos: {}, logger: loggerNulo, cfg: { grupoUraId: 2, concorrencia: 5, dryRun: true },
+    transferencias: { transferir: async (ramal) => { transferidos.push(ramal); return true; } },
+    uraCheia: { ativa: () => true },
+  });
+  svc.gruposAtivos = [{ idGrupoUsuario: 1, ramaisOperadores: ['100'] }];
+  await svc.levarTodosParaUra();
+  await svc.levarTodosParaUra();
+  assert.deepEqual(transferidos, ['100']);
 });
 
 test('rodízio: a regra do ocioso vale na URA cheia (quem passou do TEMPO_MIN sai)', () => {
