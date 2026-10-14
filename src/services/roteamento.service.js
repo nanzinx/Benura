@@ -388,6 +388,10 @@ class RoteamentoService {
       atualizadoEm: new Date().toISOString(),
       sincronizado: r.resultado !== Resultado.FALHA,
     });
+    // De onde veio quem subiu para a URA: o rodízio devolve para lá se não achar o grupo do supervisor.
+    if (registro.fila === Fila.URA && r.resultado === Resultado.TRANSFERIDO && r.grupoAnterior != null) {
+      registro.grupoAtivoAnterior = r.grupoAnterior;
+    }
     this.logarSincronizacao(ramal, registro, motivo, r);
     return registro.sincronizado;
   }

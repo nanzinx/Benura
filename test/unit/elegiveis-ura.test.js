@@ -39,8 +39,10 @@ test('ElegiveisUra: lê o state-vendas.json; sem a lista do dia só os fixos sob
     await elegiveis.atualizar(AGORA);
     assert.equal(avisos.length, 1, 'avisa uma vez só');
 
-    fs.writeFileSync(arquivo, JSON.stringify(estado(HOJE, { 1001: { fila: 'URA' }, 1002: { fila: 'ATIVO' } })));
+    fs.writeFileSync(arquivo, JSON.stringify(estado(HOJE, { 1001: { fila: 'URA', grupoAtivoAnterior: 20 }, 1002: { fila: 'ATIVO' } })));
     await elegiveis.atualizar(AGORA);
+    assert.equal(elegiveis.grupoDeOrigem('1001'), 20);
+    assert.equal(elegiveis.grupoDeOrigem('1002'), null);
     assert.equal(elegiveis.permite('1001'), true);
     assert.equal(elegiveis.permite('1002'), false);
     assert.deepEqual(elegiveis.resumo(), { disponivel: true, total: 1 });
@@ -99,4 +101,17 @@ test('resolverFixos: ramais, nomes e equipes; quem não bate vira aviso', () => 
   const fora = resolverFixos({ ramalPorNome: () => { throw new Error('sem diretório'); } }, { fixosUra: ['1003', 'MARIA'] });
   assert.deepEqual([...fora.ramais], ['1003'], 'ramal numérico não depende do diretório');
   assert.match(fora.faltando[0].motivo, /diretório da Argus indisponível/);
+});
+
+test('rodízio: sem o grupo do supervisor, volta ao grupo de onde o roteador tirou (se for do Ativo)', async () => {
+  const origem = { 3001: 20, 3002: 2 };
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, repositorio: {}, robos: {}, logger: loggerNulo, cfg: { gruposAtivosIds: [20, 21] },
+    diretorio: { atualizar: async () => {}, grupoAtivoDoOperador: (r) => (r === '3003' ? 21 : null) },
+    elegiveis: { grupoDeOrigem: (r) => origem[r] ?? null },
+  });
+  assert.equal(await svc.grupoDeVolta('3003'), 21, 'o do supervisor vem primeiro');
+  assert.equal(await svc.grupoDeVolta('3001'), 20);
+  assert.equal(await svc.grupoDeVolta('3002'), null, 'origem fora do Ativo (era a URA) não serve');
+  assert.equal(await svc.grupoDeVolta('3004'), null);
 });

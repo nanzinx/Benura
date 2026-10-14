@@ -380,10 +380,20 @@ class RodizioService {
     });
   }
 
-  /** Quem o rodízio moveu volta ao grupo de origem; os demais, ao grupo do Ativo do supervisor. */
+  /**
+   * Quem o rodízio moveu volta ao grupo de origem; os demais, ao grupo do Ativo
+   * do supervisor; sem ele, ao grupo de onde o roteador o tirou (se for do Ativo).
+   */
   async grupoDeVolta(ramal) {
     const movido = this.movidos[ramal];
     if (movido) return movido.origemGrupoId;
+    const doSupervisor = await this.grupoDoSupervisor(ramal);
+    if (doSupervisor != null) return doSupervisor;
+    const origem = this.elegiveis?.grupoDeOrigem?.(ramal) ?? null;
+    return origem != null && (this.cfg.gruposAtivosIds || []).includes(origem) ? origem : null;
+  }
+
+  async grupoDoSupervisor(ramal) {
     if (!this.diretorio) return null;
     try {
       await this.diretorio.atualizar();
@@ -425,7 +435,7 @@ class RodizioService {
     if (this.semGrupoAvisados.has(ramal)) return;
     this.semGrupoAvisados.add(ramal);
     this.log.aviso(`Ramal ${ramal} ocioso na URA, mas sem grupo do Ativo identificável (supervisor?). `
-      + 'Fica na URA. Defina o grupo do supervisor em SUPERVISORES_GRUPOS_FILE (ex.: { "ROBSON JUNIOR": 20 }).');
+      + 'Fica na URA. Rode npm run conferir:supervisores e defina o grupo em SUPERVISORES_GRUPOS_FILE (ex.: { "ROBSON JUNIOR": 20 }).');
   }
 
   // ───────────────────────────── Robôs ─────────────────────────────

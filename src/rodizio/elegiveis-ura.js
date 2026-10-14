@@ -67,6 +67,16 @@ class ElegiveisUra {
       + `${novos.length ? `; novos: ${novos.join(', ')}` : ''}. Os demais ficam no Ativo.`);
   }
 
+  /**
+   * Grupo de onde o roteador tirou a pessoa ao levá-la para a URA (último
+   * recurso para a volta ao Ativo, quando o grupo do supervisor é desconhecido).
+   * @returns {number|null}
+   */
+  grupoDeOrigem(ramal) {
+    const grupo = this.estado?.vendedores?.[String(ramal)]?.grupoAtivoAnterior;
+    return Number.isFinite(grupo) ? grupo : null;
+  }
+
   /** @returns {boolean} sem a lista do dia, só os fixos */
   permite(ramal) {
     return (this.ramais || this.fixosSemLista).has(String(ramal));
