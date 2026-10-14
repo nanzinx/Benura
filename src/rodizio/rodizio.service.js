@@ -7,7 +7,8 @@
  *   atualizarGrupos()  ~30 s  lê os grupos da Argus: quem está na URA, no Ativo e quais são os robôs
  *   cicloAtivo()       ~5 s   quem é elegível (meta de ontem, venda hoje ou fixo), atendeu
  *                             no Ativo e ficou livre → URA. Na URA cheia (pedido da
- *                             supervisão), todos do Ativo → URA e ninguém volta por ocioso.
+ *                             supervisão), todos do Ativo sobem uma vez e qualquer um que
+ *                             atender no Ativo volta; a regra do ocioso continua valendo.
  *   cicloUra()         ~5 s   lê o status de quem está na URA, decide os robôs e devolve
  *                             ao Ativo quem está ocioso há TEMPO_MIN (ou o movido que ficou
  *                             offline); ~1 s com poucos livres (URA em alerta). O último
@@ -20,7 +21,7 @@
  */
 
 const {
-  Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, quemSegurarNaUra,
+  Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, ultimoLivreQueSai,
   decidirRobos, reconciliarMovidos, VALIDADE_STATUS_MS,
 } = require('../domain/rodizio');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
@@ -79,10 +80,8 @@ class RodizioService {
     this.atenderamNoAtivo = new Set();
     /** ramais com transferência em andamento */
     this.emTransferencia = new Set();
-    /** DRY_RUN: ramais cuja ida à URA já foi simulada na URA cheia (para não repetir a cada ciclo) */
-    this.simuladosNaUra = new Set();
-    /** URA cheia no ciclo anterior (para perceber quando desliga) */
-    this.uraCheiaAntes = false;
+    /** URA cheia: quem já foi levado nesta ativação (sobe uma vez; depois segue a regra do ocioso) */
+    this.levadosNaUraCheia = new Set();
     this.avaliandoRobos = false;
     this.reavaliarRobos = false;
     /** Até quando a supervisão comanda os robôs pelo painel (0 = o BenURA comanda). */
@@ -91,8 +90,8 @@ class RodizioService {
     this.ultimosLivres = null;
     /** Desde quando há mais robôs ligados que o alvo, com gente livre (null = não há). */
     this.excessoDesde = null;
-    /** Último livre segurado na URA enquanto os robôs em ligação terminam: { ramal, desde } | null. */
-    this.segurado = null;
+    /** Último livre da URA prestes a sair por ociosidade (robôs param de discar): { ramal, desde } | null. */
+    this.ultimoSaindo = null;
     this.iniciadoEm = Date.now();
     this.ultimoWebhookEm = 0;
     this.ultimoAvisoSemWebhookEm = 0;
@@ -182,11 +181,12 @@ class RodizioService {
   // ───────────────────────────── Ativo → URA ─────────────────────────────
 
   async cicloAtivo() {
-    if (this.emUraCheia()) return this.levarTodosParaUra();
-    this.elegiveis?.atualizar();
-    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => this.podeIrParaUra(ramal));
+    const cheia = this.emUraCheia();
+    if (cheia) await this.levarTodosParaUra();
+    else this.elegiveis?.atualizar();
+    // Na URA cheia, qualquer um que atender no Ativo volta (sem olhar elegíveis).
+    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal));
     await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
-    return undefined;
   }
 
   /** Quem está no Ativo e não está sendo mexido agora. */
@@ -197,12 +197,18 @@ class RodizioService {
         && !this.alinhandoLogin.has(ramal));
   }
 
-  /** URA cheia: todos do Ativo vão para a URA, atendendo ou não (a telefonia troca quando ficam livres). */
+  /**
+   * URA cheia: todos do Ativo vão para a URA uma vez, atendendo ou não (a
+   * telefonia troca quando ficam livres). Quem depois ficar ocioso volta ao
+   * Ativo pela regra de sempre e só sobe de novo ao atender lá.
+   */
   async levarTodosParaUra() {
-    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => !this.simuladosNaUra.has(ramal));
+    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => !this.levadosNaUraCheia.has(ramal));
     if (!alvos.length) return;
     this.log.info(`URA cheia: levando ${alvos.length} operador(es) do Ativo para a URA.`);
-    await mapearComLimite(alvos, this.cfg.concorrencia, ({ ramal, grupo }) => this.moverParaUra(ramal, grupo));
+    await mapearComLimite(alvos, this.cfg.concorrencia, async ({ ramal, grupo }) => {
+      if (await this.moverParaUra(ramal, grupo)) this.levadosNaUraCheia.add(ramal);
+    });
   }
 
   /** Só quem é elegível (meta de ontem, venda hoje ou fixo) sobe; os demais nem são lidos. */
@@ -227,14 +233,14 @@ class RodizioService {
     if (deveIrParaUra(classe, this.atenderamNoAtivo.has(ramal))) await this.moverParaUra(ramal, grupo);
   }
 
+  /** @returns {Promise<boolean>} true se transferiu (ou simulou, em DRY_RUN) */
   async moverParaUra(ramal, grupoOrigem) {
     const ok = await this.comTrava(ramal, () => this.transferencias.transferir(ramal, this.cfg.grupoUraId));
-    if (!ok) return;
+    if (!ok) return false;
     // Em DRY_RUN ninguém foi movido de verdade: contá-lo como livre na URA inflaria o alvo de robôs.
     if (this.cfg.dryRun) {
       this.atenderamNoAtivo.delete(ramal);
-      this.simuladosNaUra.add(ramal);
-      return;
+      return true;
     }
 
     this.movidos[ramal] = { origemGrupoId: grupoOrigem, entrouEm: Date.now() };
@@ -245,58 +251,47 @@ class RodizioService {
     this.atenderamNoAtivo.delete(ramal);
     this.salvar();
     this.log.info(`ATIVO→URA ramal=${ramal} origem=${grupoOrigem}`);
+    return true;
   }
 
   // ───────────────────────────── URA ─────────────────────────────
 
   async cicloUra() {
     const ramais = [...this.ramaisUra];
-    // 1. Status de todos  2. Quem volta (e quem segura a URA)  3. Robôs (é o que evita fila)  4. Devoluções
+    // 1. Status de todos  2. Quem volta (e se é o último livre)  3. Robôs (é o que evita fila)  4. Devoluções
     await mapearComLimite(ramais, this.cfg.concorrencia, (ramal) => this.atualizarStatusUra(ramal));
     const agora = Date.now();
-    // URA cheia: ninguém volta ao Ativo por ocioso.
-    const ociosos = this.emUraCheia(agora) ? [] : ramais.filter((ramal) => this.deveDevolver(ramal, agora));
-    const segurado = this.atualizarSegurado(ociosos, ramais, agora);
+    // A regra do ocioso vale sempre, sem exceção: quem passou do TEMPO_MIN sai.
+    const ociosos = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
+    this.prepararSaidaDoUltimoLivre(ramais, agora);
     await this.avaliarRobos();
 
     this.avisarSeSemWebhook();
-    const devolver = ociosos.filter((ramal) => ramal !== segurado);
-    await mapearComLimite(devolver, this.cfg.concorrencia, (ramal) => this.devolverAoAtivo(ramal));
+    await mapearComLimite(ociosos, this.cfg.concorrencia, (ramal) => this.devolverAoAtivo(ramal));
   }
 
   /**
-   * O último livre da URA não sai enquanto há robô ligado: sem ele o alvo vira 0
-   * e os robôs em ligação caem (o cliente que pedir atendimento vira callback).
-   * Enquanto isso os robôs param de discar; ele sai quando todos desligam, ou
-   * depois de SEGURAR_ULTIMO_LIVRE_MS.
-   * @returns {string|null} ramal segurado neste ciclo
+   * O último livre sai no horário (regra do ocioso). Sem ele, o alvo vira 0 e um
+   * robô em ligação que derivar não acha ninguém (callback). Por isso, quando o
+   * último livre está a PREPARAR_SAIDA_ULTIMO_LIVRE_MS de sair, os robôs param de
+   * discar e os que estão em ligação terminam enquanto ele ainda está na URA.
+   * Se ele atender ou aparecer outro livre, os robôs voltam.
    */
-  atualizarSegurado(ociosos, ramais, agora) {
-    const limiteMs = this.cfg.segurarUltimoLivreMs;
-    const candidato = limiteMs > 0 ? quemSegurarNaUra({ devolver: ociosos, ramaisUra: ramais, status: this.statusUra }) : null;
-    const ligados = this.robos.situacao(this.ramaisRobos.length).ligados || 0;
-    if (!candidato || !ligados) return this.soltarSegurado(null);
-    if (this.segurado?.ramal !== candidato) this.segurarNaUra(candidato, ligados, agora);
-    if (agora - this.segurado.desde < limiteMs) return candidato;
-    return this.soltarSegurado(`${ligados} robô(s) ainda ligados depois de ${Math.round(limiteMs / 1000)} s`);
+  prepararSaidaDoUltimoLivre(ramais, agora) {
+    // No máximo metade do TEMPO_MIN: senão, com um livre só, os robôs nunca discariam.
+    const antecedenciaMs = Math.min(this.cfg.prepararSaidaMs ?? 0, (this.cfg.tempoNaUraMs ?? Infinity) / 2);
+    const saindo = antecedenciaMs > 0 ? ramais.filter((ramal) => this.deveDevolver(ramal, agora + antecedenciaMs)) : [];
+    const ramal = ultimoLivreQueSai({ saindo, ramaisUra: ramais, status: this.statusUra });
+    if (ramal === this.ultimoSaindo?.ramal) return;
+    this.ultimoSaindo = ramal ? { ramal, desde: agora } : null;
+    if (!ramal || !this.robos.situacao(this.ramaisRobos.length).ligados) return;
+    this.log.info(`Ramal ${ramal} é o último livre da URA e sai por ociosidade em até ${Math.round(antecedenciaMs / 1000)} s: `
+      + 'os robôs param de discar e os que estão em ligação terminam antes.');
   }
 
-  segurarNaUra(ramal, ligados, agora) {
-    this.segurado = { ramal, desde: agora };
-    this.log.info(`Ramal ${ramal} ocioso, mas é o último livre da URA: fica até os robôs em ligação terminarem `
-      + `(${ligados} ligado(s); máx. ${Math.round(this.cfg.segurarUltimoLivreMs / 1000)} s). Os robôs param de discar.`);
-  }
-
-  /** @returns {null} */
-  soltarSegurado(motivoAviso) {
-    if (this.segurado && motivoAviso) this.log.aviso(`Último livre ${this.segurado.ramal} volta ao Ativo com ${motivoAviso}.`);
-    this.segurado = null;
-    return null;
-  }
-
-  /** Ramal segurado que continua livre (se atendeu, não segura mais nada). */
-  seguradoLivre() {
-    const ramal = this.segurado?.ramal;
+  /** Último livre prestes a sair que continua livre (se atendeu, os robôs voltam). */
+  ultimoLivreSaindo() {
+    const ramal = this.ultimoSaindo?.ramal;
     return ramal && this.statusUra.get(ramal)?.classe === Classe.LIVRE ? ramal : null;
   }
 
@@ -450,9 +445,9 @@ class RodizioService {
   }
 
   async aplicarDecisaoDosRobos() {
-    if (this.seguradoLivre()) {
+    if (this.ultimoLivreSaindo()) {
       this.excessoDesde = null;
-      return this.robos.encerrarSemDerrubar(`último livre (${this.segurado.ramal}) saindo por ociosidade`);
+      return this.robos.encerrarSemDerrubar(`último livre (${this.ultimoSaindo.ramal}) saindo por ociosidade`);
     }
     const agora = Date.now();
     const { acao, alvo, motivo, livres, excesso } = decidirRobos({
@@ -571,25 +566,17 @@ class RodizioService {
 
   // ───────────────────────────── URA cheia ─────────────────────────────
 
-  /** Ligada hoje? Ao perceber que desligou, o ocioso de quem está na URA passa a contar dali. */
+  /** Ligada hoje? (desligada, esquece quem já foi levado: a próxima ativação leva todos de novo) */
   emUraCheia(agora = Date.now()) {
     const ligada = Boolean(this.uraCheia?.ativa(new Date(agora)));
-    if (this.uraCheiaAntes && !ligada) this.recomecarContagemDeOcioso(agora);
-    this.uraCheiaAntes = ligada;
+    if (!ligada) this.levadosNaUraCheia.clear();
     return ligada;
-  }
-
-  /** Sem isso, todo mundo livre há mais de TEMPO_MIN sairia da URA de uma vez no ciclo seguinte. */
-  recomecarContagemDeOcioso(agora) {
-    for (const info of this.statusUra.values()) {
-      if (info.livreDesde) info.livreDesde = agora;
-    }
-    this.simuladosNaUra.clear();
   }
 
   /** POST /ura/cheia. @returns {{ ligada: boolean, desde: string|null, mudou: boolean }} */
   ligarUraCheia() {
     const mudou = this.uraCheia.ligar();
+    if (mudou) this.levadosNaUraCheia.clear();
     return { ...this.uraCheia.resumo(), mudou };
   }
 
@@ -621,7 +608,7 @@ class RodizioService {
         manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,
       },
       intervaloUraMs: this.intervaloUraMs(),
-      seguradoNaUra: this.segurado ? { ramal: this.segurado.ramal, desde: new Date(this.segurado.desde).toISOString() } : null,
+      ultimoLivreSaindo: this.ultimoSaindo ? { ramal: this.ultimoSaindo.ramal, desde: new Date(this.ultimoSaindo.desde).toISOString() } : null,
       ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,
       uraLogadosEmOutroGrupo: [...this.logadosEmOutroGrupo.values()],
       elegiveisUra: this.elegiveis ? this.elegiveis.resumo() : { disponivel: false, total: null, desligado: true },

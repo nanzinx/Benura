@@ -2,7 +2,8 @@
 /**
  * Modo "URA cheia": a supervisão pede todo mundo na URA (como na operação
  * manual). Enquanto ligado, o rodízio leva todos os operadores do Ativo para a
- * URA e ninguém volta por ocioso; os robôs continuam proporcionais aos livres.
+ * URA uma vez e qualquer um que atender no Ativo volta, sem olhar elegíveis. A
+ * regra do ocioso continua valendo; os robôs continuam proporcionais aos livres.
  *
  * Fica gravado em arquivo (sobrevive a reinício) e vale só para o dia em que
  * foi ligado: na virada do dia o rodízio volta ao normal sozinho.
@@ -35,7 +36,7 @@ class UraCheia {
     if (this.ativa(agora)) return false;
     this.estado = { data: dataLocal(this.fusoHorario, agora), desde: agora.toISOString() };
     this.repositorio.salvar(this.estado);
-    this.log.aviso('URA cheia ligada: todos do Ativo vão para a URA e ninguém volta por ocioso até desligar.');
+    this.log.aviso('URA cheia ligada: todos do Ativo vão para a URA; quem ficar ocioso volta ao Ativo e sobe de novo ao atender lá.');
     return true;
   }
 
@@ -44,7 +45,7 @@ class UraCheia {
     if (!this.estado.data) return false;
     this.estado = {};
     this.repositorio.salvar(this.estado);
-    this.log.aviso(`URA cheia desligada (${motivo}): o rodízio volta ao normal; quem ficar ocioso por TEMPO_MIN, contado a partir de agora, volta ao Ativo.`);
+    this.log.aviso(`URA cheia desligada (${motivo}): só os elegíveis sobem do Ativo para a URA.`);
     return true;
   }
 
