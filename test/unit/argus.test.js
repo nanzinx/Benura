@@ -117,6 +117,17 @@ test('Diretório: supervisor por nome parcial único; administrativo apenas', as
   assert.equal(diretorio.supervisorPorNome('RICARDO MENDES').supervisor, null); // é operador
 });
 
+test('Diretório: ramais da equipe de um supervisor (EQUIPES_FIXAS_URA)', async () => {
+  const { diretorio, client } = montarArgusMock();
+  await diretorio.atualizar();
+  const daMaysa = client.dados.usuarios
+    .filter((u) => u.ativo && u.ramal && u.campanhas.some((c) => c.idUsuarioSupervisor === 880)).map((u) => u.ramal).sort();
+  const equipe = diretorio.ramaisDaEquipe('MAYSA DE FÁTIMA SIQUEIRA DOS SANTOS CARNEIRO');
+  assert.ok(daMaysa.length > 0);
+  assert.deepEqual(equipe.ramais.sort(), daMaysa);
+  assert.deepEqual(diretorio.ramaisDaEquipe('NINGUEM COM ESSE NOME').ramais, []);
+});
+
 test('Diretório: vendedores gerenciados = operadores ativos na URA ou no Ativo', async () => {
   const { diretorio } = montarArgusMock();
   await diretorio.atualizar();

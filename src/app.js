@@ -113,6 +113,7 @@ function logarResumo(cfg, log) {
   log.info(`Meta: ${formatarReais(cfg.regras.metaDiaria)} | Expediente: ${cfg.agenda.horarioCarga}–${cfg.agenda.horarioFim} | `
     + `Grupos Ativo: ${cfg.argus.gruposAtivosIds.join(',')} | URA: ${cfg.argus.grupoUraId} | `
     + `Fixos na URA: ${cfg.regras.fixosUra.length ? cfg.regras.fixosUra.join(', ') : 'nenhum'} | `
+    + `Equipes fixas: ${cfg.regras.equipesFixasUra.length ? cfg.regras.equipesFixasUra.join(', ') : 'nenhuma'} | `
     + `Carrossel: ${carrossel} (${cfg.carrossel.metrica}) | Argus: ${argus}`);
 }
 

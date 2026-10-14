@@ -289,6 +289,20 @@ class DiretorioOperadores {
     return this.excecoesRamal?.listar() || [];
   }
 
+  /**
+   * Ramais da equipe de um supervisor: operadores ativos com algum vínculo em
+   * que ele é o supervisor.
+   * @returns {{ supervisor: object|null, candidatos: object[], ramais: string[] }}
+   */
+  ramaisDaEquipe(nomeSupervisor) {
+    const { supervisor, candidatos } = this.supervisorPorNome(nomeSupervisor);
+    if (!supervisor) return { supervisor, candidatos, ramais: [] };
+    const ramais = [...this.exigirSnapshot().operadoresPorRamal.values()]
+      .filter((op) => op.vinculos.some((v) => v.idSupervisor === supervisor.idUsuario))
+      .map((op) => op.ramal);
+    return { supervisor, candidatos, ramais };
+  }
+
   /** Operadores ativos que estão hoje na URA ou em algum grupo do Ativo. */
   vendedoresGerenciados() {
     const gerenciados = this.gruposGerenciados;

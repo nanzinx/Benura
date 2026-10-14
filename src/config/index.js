@@ -174,6 +174,9 @@ function carregarConfig(overrides = {}) {
       // Operadores fixos: começam o dia na URA com ou sem venda (ramais ou nomes, separados por vírgula).
       // Depois seguem o rodízio: ociosos vão ao Ativo e voltam à URA ao atender lá.
       fixosUra: envLista('OPERADORES_FIXOS_URA', ''),
+      // Equipes fixas: toda a equipe destes supervisores (nomes como na Argus) começa o dia
+      // na URA, como os fixos. Ex.: EQUIPES_FIXAS_URA=ROBSON JUNIOR
+      equipesFixasUra: envLista('EQUIPES_FIXAS_URA', ''),
       // Se true, vendedores que estão em um grupo diferente de URA/Ativo
       // (ex.: colocados manualmente em treinamento/supervisão) não são tocados.
       respeitarGruposExternos: envBool('RESPEITAR_GRUPOS_EXTERNOS', true),
