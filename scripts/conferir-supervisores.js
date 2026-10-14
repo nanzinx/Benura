@@ -8,7 +8,8 @@
  *
  * Mostra cada supervisor com equipe na URA ou no Ativo, o grupo que o BenURA
  * encontra e por qual regra (arquivo, pela equipe, pelo nome do grupo), quem
- * ficou sem grupo e os operadores sem supervisor na Argus. Grava
+ * ficou sem grupo, os operadores sem supervisor na Argus e os nomes de
+ * OPERADORES_FIXOS_URA e EQUIPES_FIXAS_URA que não batem com a Argus. Grava
  * supervisores-grupos.sugerido.json com todos os supervisores: quem falta vem
  * com null. Preencha os números, confira e renomeie para supervisores-grupos.json
  * (o BenURA relê o arquivo sozinho).
@@ -20,11 +21,21 @@ const { carregarConfig } = require('../src/config');
 const { criarLogger } = require('../src/utils/logger');
 const { ArgusClient } = require('../src/integrations/argus/argus.client');
 const { DiretorioOperadores } = require('../src/integrations/argus/diretorio-operadores.service');
+const { resolverFixos } = require('../src/integrations/argus/fixos');
 
 const ORIGEM = { excecao: 'arquivo', inferido: 'pela equipe', nome: 'pelo nome do grupo' };
 
 /** { "NOME DO SUPERVISOR": idGrupo | null } — fixa também quem hoje é achado pela equipe ou pelo nome. */
 const montarSugestao = (supervisores) => Object.fromEntries(supervisores.map((s) => [s.nome, s.idGrupo]));
+
+/** Fixos e equipes fixas do .env: quantos ramais cada um rendeu e quem não bate com a Argus. */
+function imprimirFixos(diretorio, regras) {
+  if (!regras.fixosUra.length && !regras.equipesFixasUra.length) return;
+  const { ramais, faltando } = resolverFixos(diretorio, regras);
+  console.log(`\nFixos na URA (OPERADORES_FIXOS_URA e EQUIPES_FIXAS_URA): ${ramais.size} ramal(is)`);
+  for (const f of faltando) console.log(`  ATENCAO  ${f.onde}: "${f.item}" ${f.motivo}`);
+  if (!faltando.length) console.log('  Todos os nomes batem com a Argus.');
+}
 
 function imprimir({ supervisores, semSupervisor, gruposAtivos }) {
   console.log('\nGrupos do Ativo (GRUPOS_ATIVOS_IDS):');
@@ -55,6 +66,7 @@ async function main() {
 
   const resultado = diretorio.conferirSupervisores();
   imprimir(resultado);
+  imprimirFixos(diretorio, cfg.regras);
 
   const arquivo = path.join(process.cwd(), 'supervisores-grupos.sugerido.json');
   fs.writeFileSync(arquivo, `${JSON.stringify(montarSugestao(resultado.supervisores), null, 2)}\n`);

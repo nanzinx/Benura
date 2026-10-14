@@ -144,7 +144,7 @@ automaticamente pelo `/listarusuarios` da Argus, que traz nome, login, ramal, gr
 - **Exceções** (opcionais, relidas sem reiniciar):
   - `vendedores-ramais.json`: nome no Carrossel diferente do nome na Argus, ou homônimos: `{ "NOME NO CARROSSEL": "2266111" }`
   - `supervisores-grupos.json`: supervisor cujo grupo não é identificado: `{ "NOME DO SUPERVISOR": 12 }`
-    - Para conferir todos de uma vez (só lê a Argus): **`npm run conferir:supervisores`**. Mostra o grupo do Ativo de cada supervisor e por qual regra foi encontrado (arquivo, pela equipe, pelo nome do grupo), quem ficou **sem grupo** e os **operadores sem supervisor** (esses precisam ser corrigidos na Argus). Grava `supervisores-grupos.sugerido.json` com todos os supervisores: troque cada `null` pelo número do grupo e renomeie para `supervisores-grupos.json` (relido sozinho, sem reiniciar). Grupo `null` ou `0` no arquivo é ignorado.
+    - Para conferir todos de uma vez (só lê a Argus): **`npm run conferir:supervisores`**. Mostra o grupo do Ativo de cada supervisor e por qual regra foi encontrado (arquivo, pela equipe, pelo nome do grupo), quem ficou **sem grupo** os **operadores sem supervisor** (esses precisam ser corrigidos na Argus) e os nomes de `OPERADORES_FIXOS_URA`/`EQUIPES_FIXAS_URA` que não batem com a Argus. Grava `supervisores-grupos.sugerido.json` com todos os supervisores: troque cada `null` pelo número do grupo e renomeie para `supervisores-grupos.json` (relido sozinho, sem reiniciar). Grupo `null` ou `0` no arquivo é ignorado.
 
 ### Endpoints HTTP do roteador
 | Método | Rota | Auth | Descrição |
@@ -358,6 +358,7 @@ O roteador, o rodízio, as rotinas e a supervisão (pelo painel) mexem nos mesmo
 | C13 | Ajuste pelos callbacks reagindo a callback que não foi excesso de robôs (telefonia, modo manual) | Só baixa, com piso e um degrau por minuto; volta sozinho em 15 min; no modo manual não ajusta |
 | C14 | Exceções à regra do ocioso (último livre segurado, URA cheia) | A regra vale sempre; o último livre sai no horário e os robôs param antes (`PREPARAR_SAIDA_ULTIMO_LIVRE_MS`) |
 | C15 | URA cheia ligada antes da carga das 08:00: a carga manda ao Ativo quem não bateu a meta | Na URA cheia só quem voltou por ocioso espera atender no Ativo; quem foi mandado ao Ativo pela carga ou à mão sobe de novo |
+| C16 | Equipe ou operador fixo com nome que não bate com a Argus: não sobe | Aviso no log e conferência em `npm run conferir:supervisores`; grupo da equipe fixado no `supervisores-grupos.json` |
 | C17 | Reiniciar o rodízio no meio do dia voltava o ajuste dos robôs a 7 por livre de uma vez | O ajuste fica gravado e é retomado no mesmo dia; o atualizador só faz deploy fora do expediente |
 | C18 | Sem grupo do Ativo identificável, a pessoa ficava na URA (única exceção à regra do ocioso) | Volta ao grupo de onde o roteador a tirou; sem ele, aviso e `npm run conferir:supervisores` |
 
