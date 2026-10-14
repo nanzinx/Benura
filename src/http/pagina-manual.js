@@ -28,6 +28,7 @@ const PAGINA_MANUAL = `<!doctype html>
   input[type=password] { padding:8px; border:1px solid var(--borda); border-radius:8px; background:var(--fundo); color:var(--texto); }
   button { background:var(--primaria); color:#fff; border:0; border-radius:8px; padding:10px 18px; font-weight:600; cursor:pointer; }
   button:disabled { opacity:.6; cursor:wait; }
+  button.secundario { background:transparent; color:var(--erro); border:1px solid var(--erro); }
   .ok { color:var(--ok); } .erro { color:var(--erro); }
   table { width:100%; border-collapse:collapse; margin-top:8px; }
   td, th { text-align:left; padding:6px 4px; border-bottom:1px solid var(--borda); }
@@ -45,6 +46,7 @@ const PAGINA_MANUAL = `<!doctype html>
       <li>Na esteira, filtre <b>Etapa = Andamento</b> e o período por <b>data de cadastro</b> incluindo o <b>dia anterior trabalhado e hoje</b>.</li>
       <li>Exporte o CSV e escolha o arquivo abaixo, <b>ou</b> copie a tabela (com o cabeçalho) e cole na caixa.</li>
       <li>Clique em <b>Enviar</b>. Durante o dia, cole de novo para atualizar as vendas de hoje.</li>
+      <li>Cada colagem substitui os dias que contém. <b>Limpar esteiras coladas</b> apaga tudo o que foi colado.</li>
     </ol>
   </div>
 
@@ -54,6 +56,7 @@ const PAGINA_MANUAL = `<!doctype html>
     <div class="linha">
       <label>Token (WEBHOOK_TOKEN, se configurado): <input type="password" id="token" autocomplete="off"></label>
       <button id="enviar">Enviar</button>
+      <button id="limpar" class="secundario">Limpar esteiras coladas</button>
       <span id="situacao"></span>
     </div>
   </div>
@@ -110,29 +113,42 @@ const PAGINA_MANUAL = `<!doctype html>
     secao(destino, 'Venderam hoje (' + r.hoje + ') → sobem para a URA', r.vendeuHoje, 'Nenhuma venda de hoje na esteira colada.');
   }
 
-  $('enviar').addEventListener('click', async () => {
+  /** Chama /manual com o token; mostra o andamento e o erro em #situacao. */
+  async function pedir(method, emAndamento, sucesso, body) {
     const token = $('token').value.trim();
     try { localStorage.setItem('benura-token', token); } catch {}
-    $('enviar').disabled = true;
+    $('enviar').disabled = $('limpar').disabled = true;
     $('situacao').className = '';
-    $('situacao').textContent = 'Enviando…';
+    $('situacao').textContent = emAndamento;
     try {
       const resposta = await fetch('/manual', {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        body: JSON.stringify({ texto: $('texto').value }),
+        body,
       });
       const corpo = await resposta.json();
       if (!resposta.ok) throw new Error(corpo.erro || ('HTTP ' + resposta.status));
       $('situacao').className = 'ok';
-      $('situacao').textContent = 'Esteira recebida.';
-      mostrar(corpo);
+      $('situacao').textContent = sucesso(corpo);
+      return corpo;
     } catch (e) {
       $('situacao').className = 'erro';
       $('situacao').textContent = 'Erro: ' + e.message;
+      return null;
     } finally {
-      $('enviar').disabled = false;
+      $('enviar').disabled = $('limpar').disabled = false;
     }
+  }
+
+  $('enviar').addEventListener('click', async () => {
+    const corpo = await pedir('POST', 'Enviando…', () => 'Esteira recebida.', JSON.stringify({ texto: $('texto').value }));
+    if (corpo) mostrar(corpo);
+  });
+
+  $('limpar').addEventListener('click', async () => {
+    if (!confirm('Apagar todas as esteiras coladas? Se o Carrossel estiver fora do ar, o roteador fica sem vendas até colar de novo.')) return;
+    const corpo = await pedir('DELETE', 'Apagando…', (c) => c.apagados + ' dia(s) apagado(s).');
+    if (corpo) $('resultado').hidden = true;
   });
 </script>
 </body>

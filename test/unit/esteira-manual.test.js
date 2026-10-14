@@ -108,9 +108,25 @@ test('EsteiraManualRepository: une colagens e sobrevive a reinício', async () =
   assert.ok(!recarregado.coladaHoje('2026-10-14'));
 });
 
-async function redundancia({ falha, resposta, colar = true, colarEm = HOJE } = {}) {
+test('EsteiraManualRepository: limpar apaga todos os dias e grava no arquivo', async () => {
+  const arquivo = tmp();
+  const repo = new EsteiraManualRepository({ arquivo, logger: loggerNulo });
+  await repo.colar(esteiraCsv([['1', '10/10/2026', 'V1', '60.000,00'], ['2', '13/10/2026', 'V2', '1,00']]), HOJE);
+  assert.equal(await repo.limpar(), 2);
+  assert.deepEqual(repo.dias(), {});
+  assert.ok(!repo.coladaHoje(HOJE));
+  assert.equal(repo.coladaEm(), null);
+
+  const recarregado = new EsteiraManualRepository({ arquivo, logger: loggerNulo });
+  assert.deepEqual(recarregado.dias(), {});
+  assert.ok(!recarregado.coladaHoje(HOJE));
+  assert.equal(await recarregado.limpar(), 0);
+});
+
+async function redundancia({ falha, resposta, colar = true, colarEm = HOJE, limpar = false } = {}) {
   const esteira = new EsteiraManualRepository({ arquivo: tmp(), logger: loggerNulo });
   if (colar) await esteira.colar(esteiraCsv([['1', '10/10/2026', 'V1', '60.000,00']]), colarEm);
+  if (limpar) await esteira.limpar();
   const client = { async buscarRankingVendedores() { if (falha) throw falha; return resposta; } };
   return new CarrosselComRedundancia({ client, esteira, relogio: { hoje: () => HOJE }, metrica: 'vendaConcluida', logger: loggerNulo });
 }
@@ -133,6 +149,7 @@ test('redundância: sem esteira colada hoje → o erro original continua', async
   const falha = new Error('ECONNREFUSED');
   await assert.rejects((await redundancia({ falha, colar: false })).buscarRankingVendedores(), /ECONNREFUSED/);
   await assert.rejects((await redundancia({ falha, colarEm: '2026-10-10' })).buscarRankingVendedores(), /ECONNREFUSED/);
+  await assert.rejects((await redundancia({ falha, limpar: true })).buscarRankingVendedores(), /ECONNREFUSED/);
   const erro = { ultimaExtracao: 'Erro', hoje: [], ontem: [] };
   assert.equal(await (await redundancia({ resposta: erro, colar: false })).buscarRankingVendedores(), erro);
 });
@@ -172,7 +189,7 @@ test('com o Carrossel fora do ar, a esteira colada faz a carga pela meta e o gat
 
 // ───────────── HTTP ─────────────
 
-test('GET /manual devolve a página; POST /manual exige token, aceita esteira grande e resume', async (t) => {
+test('GET /manual devolve a página; POST /manual exige token, aceita esteira grande e resume; DELETE /manual limpa', async (t) => {
   const esteira = new EsteiraManualRepository({ arquivo: tmp(), logger: loggerNulo });
   const controllers = criarControllers({ roteamento: {}, esteira, relogio: { hoje: () => HOJE }, metaDiaria: 50_000, logger: loggerNulo });
   const srv = criarServidor({ controllers, cfg: { tokenAdmin: 'segredo', limiteCorpoBytes: 100 }, logger: loggerNulo });
@@ -197,6 +214,14 @@ test('GET /manual devolve a página; POST /manual exige token, aceita esteira gr
   assert.equal(corpo.diaAnterior, '10/10/2026');
   assert.deepEqual(corpo.diasColados, ['10/10/2026', '13/10/2026']);
   assert.equal(corpo.vendeuHoje.length, 3);
+
+  const limpar = (headers = { Authorization: 'Bearer segredo' }) => fetch(`${base}/manual`, { method: 'DELETE', headers });
+  assert.equal((await limpar({})).status, 401);
+  assert.equal(Object.keys(esteira.dias()).length, 2);
+  const limpou = await limpar();
+  assert.equal(limpou.status, 200);
+  assert.deepEqual(await limpou.json(), { apagados: 2 });
+  assert.deepEqual(esteira.dias(), {});
 });
 
 test('a carga e cada promoção registram de onde vieram as vendas (Carrossel ou esteira)', async () => {

@@ -139,7 +139,7 @@ async function iniciar() {
 
   await escutar(servidor, cfg.http.porta);
   log.info(`HTTP na porta ${cfg.http.porta}: GET /health, GET /status, POST /recarregar, POST /webhook/venda, `
-    + `GET /manual (esteira colada se o Carrossel cair)`);
+    + `GET /manual (esteira colada se o Carrossel cair), DELETE /manual`);
 
   agendador.iniciar();
   registrarDesligamento({

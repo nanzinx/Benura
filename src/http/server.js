@@ -88,6 +88,7 @@ const rotasDoRoteador = (controllers) => [
   { metodo: 'POST', caminho: '/webhook/venda', handler: controllers.webhookVenda, protegida: true },
   { metodo: 'GET', caminho: '/manual', handler: controllers.paginaManual },
   { metodo: 'POST', caminho: '/manual', handler: controllers.colarEsteira, protegida: true, limiteCorpoBytes: LIMITE_ESTEIRA_BYTES },
+  { metodo: 'DELETE', caminho: '/manual', handler: controllers.limparEsteira, protegida: true },
 ];
 
 /**

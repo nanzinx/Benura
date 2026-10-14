@@ -43,6 +43,13 @@ function criarControllers({ roteamento, esteira, relogio, metaDiaria, logger }) 
       return guardarEsteira(corpo.texto).catch(esteiraInvalidaComo422);
     },
 
+    /** DELETE /manual — apaga todas as esteiras coladas. */
+    async limparEsteira() {
+      const apagados = await esteira.limpar();
+      logger.info(`Esteiras coladas apagadas (${apagados} dia(s)).`);
+      return { status: 200, corpo: { apagados } };
+    },
+
     /** GET /health */
     async health() {
       return {

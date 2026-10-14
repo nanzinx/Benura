@@ -122,12 +122,13 @@ Quando o Carrossel volta, ele volta a ser a fonte.
 2. Abra `http://localhost:3001/manual` e escolha o CSV exportado, **ou** copie a tabela (com o cabeçalho) e cole.
 3. Clique em **Enviar**. A página mostra quem passou da meta no dia anterior e quem vendeu hoje.
    - Durante o dia, cole de novo para atualizar as vendas de hoje.
+4. Para apagar tudo o que foi colado, clique em **Limpar esteiras coladas** (pede confirmação e o token).
 
 Detalhes:
 - **Colunas usadas:** só `Agente`, `Valor Contrato` e `Data/Hora` (cadastro). `Proposta`, se vier, evita contar a mesma proposta duas vezes.
 - **"Dia anterior":** o **último dia trabalhado**, ou seja, a data mais recente antes de hoje com vendas na esteira. Segunda-feira usa a sexta; depois de feriado, usa o dia útil.
 - **Colagens se somam por dia:** cada colagem substitui só os dias que contém. Dá para colar a esteira de ontem e a de hoje separadamente.
-- **Validade:** só vale a esteira colada **hoje**. O arquivo é `ESTEIRA_MANUAL_FILE`, padrão `state-esteira-manual.json`.
+- **Validade:** só vale a esteira colada **hoje**. Guarda os 7 dias mais recentes. O arquivo é `ESTEIRA_MANUAL_FILE`, padrão `state-esteira-manual.json`.
 - **Proteção:** se houver `WEBHOOK_TOKEN`, a página pede o token.
 
 ### Vendedor do Carrossel → ramal da Argus (automático)
@@ -149,6 +150,7 @@ automaticamente pelo `/listarusuarios` da Argus, que traz nome, login, ramal, gr
 | `POST` | `/webhook/venda` | 🔒 token | `{ "ramal": "1004", "valor": 1500 }` |
 | `GET` | `/manual` | — | página para colar a esteira |
 | `POST` | `/manual` | 🔒 token | `{ "texto": "<esteira>" }` → resumo |
+| `DELETE` | `/manual` | 🔒 token | apaga as esteiras coladas → `{ "apagados": <dias> }` |
 
 Token: `Authorization: Bearer <WEBHOOK_TOKEN>` ou `X-Webhook-Token: <WEBHOOK_TOKEN>`.
 
