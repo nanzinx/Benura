@@ -90,6 +90,9 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ALINHAR_LOGIN_APOS_MS: '1000',
       PREPARAR_SAIDA_ULTIMO_LIVRE_MS: '0', // cada cenário de último livre liga o seu
       RODIZIO_SO_ELEGIVEIS: '0', // os cenários de elegíveis ligam o filtro
+      CARENCIA_TROCA_GRUPO_MS: '0', // os cenários de carência ligam a sua
+      OFFLINE_VOLTA_APOS_MS: '0',
+      ROBOS_PASSIVA_APOS_MIN: '60', // os cenários de URA passiva ligam a sua
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -334,15 +337,36 @@ const CENARIOS = {
     if (segundos < 4.5) throw new Error(`voltou ${segundos.toFixed(1)} s depois do atendimento; deveria contar 6 s de novo`);
   },
 
-  async 'URA: movido que fica offline volta imediatamente'(r) {
+  async 'URA: movido que pisca offline não volta; offline que continua volta depois de OFFLINE_VOLTA_APOS_MS'(r) {
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
     r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
     await aguardar(() => r.argus.estado.grupoLogado['101'] === undefined, { descricao: 'a discadora trocar o 101 para a URA' });
     await esperar(500);
-    r.argus.definirStatus('101', null);
-    await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 3000, descricao: '101 offline → Ativo' });
+    r.argus.definirStatus('101', null); // pisca "deslogado" (troca de grupo, relogin)
+    await esperar(1000);
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(2500);
+    if (r.transferencias().includes('101→1')) throw new Error('devolveu ao Ativo por um offline passageiro');
+
+    r.argus.definirStatus('101', null); // agora fica offline
+    const desde = Date.now();
+    await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 6000, descricao: '101 offline → Ativo' });
+    if (Date.now() - desde < 1800) throw new Error('voltou antes de OFFLINE_VOLTA_APOS_MS');
+  },
+
+  async 'Robôs: quem acabou de trocar a telefonia para a URA só liga robô depois da carência'(r) {
+    const robosLigados = () => r.chamadas('logaroperadorvirtual').length;
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
+    await aguardar(() => r.saida.join('').includes('Ramal 101: telefonia na URA'), { descricao: 'registrar a troca' });
+    const trocou = Date.now();
+    await aguardar(() => robosLigados() > 0, { timeoutMs: 8000, descricao: 'ligar robô depois da carência' });
+    if (Date.now() - trocou < 2500) throw new Error('ligou robô dentro da carência');
+    if (!/livres: 101 \(grupo 2/.test(r.saida.join(''))) throw new Error('a linha do tempo não mostrou como a Argus via o livre');
   },
 
   async 'Ativo: quem ficou offline perde o histórico de atendimento'(r) {
@@ -400,6 +424,26 @@ const CENARIOS = {
     // Sem callback por ROBOS_RECUPERAR_APOS_MIN (~5 s), volta ao valor do .env.
     await aguardar(() => ligados().length === 6, { timeoutMs: 12_000, descricao: 'voltar a 6 robôs' });
     if ((await ajuste()).porLivre !== 3) throw new Error('não voltou a 3 por livre');
+  },
+
+  async 'Robôs: URA passiva sobe os robôs por livre; a supervisão ajusta na /ura'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
+    const ajuste = async () => (await (await fetch(`${r.base}/health`)).json()).ajusteRobos;
+    await aguardar(() => ligados().length === 2, { descricao: '1 livre × 2 = 2 robôs' });
+    // Ninguém da URA atende: depois de ROBOS_PASSIVA_APOS_MIN (~3 s), sobe 2 por livre.
+    await aguardar(() => ligados().length === 4, { timeoutMs: 10_000, descricao: 'URA passiva: 2 → 4 robôs' });
+    if (!r.saida.join('').includes('URA passiva (')) throw new Error('não registrou a subida no log');
+    if ((await ajuste()).porLivre !== 4) throw new Error('ajuste não subiu para 4');
+
+    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Robôs por livre')) throw new Error('a /ura não mostra os robôs por livre');
+    const definir = (valor, token = TOKEN) => fetch(`${r.base}/robos/por-livre`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ valor }),
+    });
+    if ((await definir(3, '')).status !== 401) throw new Error('ajustou sem token');
+    const resposta = await (await definir(3)).json();
+    if (resposta.porLivre !== 3) throw new Error(`ajuste manual: ${JSON.stringify(resposta)}`);
+    await aguardar(() => ligados().length === 3, { descricao: 'ajuste manual: 3 robôs' });
   },
 
   async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {
@@ -614,6 +658,12 @@ const URA_VAZIA_ROBOS_DESLIGADOS = {
 };
 
 const VARIACOES = {
+  'URA: movido que pisca offline não volta; offline que continua volta depois de OFFLINE_VOLTA_APOS_MS': {
+    env: { OFFLINE_VOLTA_APOS_MS: '2000', TEMPO_MIN: '1' },
+  },
+  'Robôs: quem acabou de trocar a telefonia para a URA só liga robô depois da carência': {
+    ...URA_VAZIA_ROBOS_DESLIGADOS, env: { CARENCIA_TROCA_GRUPO_MS: '3000' },
+  },
   'Rodízio: quem vai para a URA só conta como livre (e liga robô) depois que a discadora troca a telefonia': {
     ...URA_VAZIA_ROBOS_DESLIGADOS, atrasoTrocaMs: 1500, env: { ALINHAR_LOGIN_APOS_MS: '5000' },
   },
@@ -666,6 +716,19 @@ const VARIACOES = {
     },
     env: {
       ROBOS_POR_LIVRE: '3', ROBOS_DEGRAU: '10', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_RECUPERAR_APOS_MIN: '0.08', TEMPO_MIN: '5',
+      ROBOS_AJUSTE_DEGRAU: '1',
+    },
+  },
+  'Robôs: URA passiva sobe os robôs por livre; a supervisão ajusta na /ura': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: {
+      ROBOS_POR_LIVRE: '2', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_POR_LIVRE_MAXIMO: '4', ROBOS_PASSIVA_APOS_MIN: '0.05',
+      ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
     },
   },
   'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina': {

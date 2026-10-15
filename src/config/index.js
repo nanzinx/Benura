@@ -121,6 +121,11 @@ function carregarConfig(overrides = {}) {
       // por livre, até o mínimo; sem callback por ROBOS_RECUPERAR_APOS_MIN, sobe um de volta.
       ajusteCallback: envBool('ROBOS_AJUSTE_CALLBACK', true),
       porLivreMinimo: envNum('ROBOS_POR_LIVRE_MINIMO', 4),
+      // URA passiva (livres parados, robôs no alvo, ninguém atendendo por este tempo): sobe
+      // ROBOS_AJUSTE_DEGRAU robôs por livre, até o máximo. O callback desce o mesmo degrau.
+      porLivreMaximo: envNum('ROBOS_POR_LIVRE_MAXIMO', 15),
+      degrauAjuste: envNum('ROBOS_AJUSTE_DEGRAU', 2),
+      passivaMs: envNum('ROBOS_PASSIVA_APOS_MIN', 2) * 60_000,
       recuperarAposMs: envNum('ROBOS_RECUPERAR_APOS_MIN', 15) * 60_000,
       intervaloAjusteMs: envNum('ROBOS_AJUSTE_INTERVALO_S', 60) * 1000,
       // Ajuste gravado para um reinício no mesmo dia retomar o degrau em que estava.
@@ -129,8 +134,14 @@ function carregarConfig(overrides = {}) {
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
       // A regra do ocioso vale sempre. Quando o último livre da URA está a este tempo de
       // sair, os robôs param de discar para os que estão em ligação terminarem antes. 0 = não prepara.
-      // (SEGURAR_ULTIMO_LIVRE_MS, do .env antigo, vale como antecedência.)
-      prepararSaidaMs: envNum('PREPARAR_SAIDA_ULTIMO_LIVRE_MS', envNum('SEGURAR_ULTIMO_LIVRE_MS', 90_000)),
+      // (SEGURAR_ULTIMO_LIVRE_MS, do .env antigo, não vale mais: era 90 s, demais com poucos na URA.)
+      prepararSaidaMs: envNum('PREPARAR_SAIDA_ULTIMO_LIVRE_MS', 30_000),
+      // Quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta
+      // como livre para os robôs depois deste tempo (15/10: callback 37 s depois da troca).
+      carenciaTrocaMs: envNum('CARENCIA_TROCA_GRUPO_MS', 60_000),
+      // Movido que fica offline só volta ao Ativo se continuar offline por este tempo
+      // (durante a troca ou um relogin o status pisca "deslogado").
+      offlineVoltaAposMs: envNum('OFFLINE_VOLTA_APOS_MS', 60_000),
       // Só sobe do Ativo para a URA quem o roteador pôs na URA hoje (meta de ontem, venda
       // hoje ou fixo), lido do STATE_FILE do roteador. Sem a lista do dia, gira todos.
       soElegiveis: envBool('RODIZIO_SO_ELEGIVEIS', true),

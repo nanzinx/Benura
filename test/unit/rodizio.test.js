@@ -60,6 +60,22 @@ test('ida para a URA e volta ao Ativo', () => {
   assert.ok(!deveVoltarAoAtivo({ ...base, classe: Classe.OFFLINE, agora: 1 }), 'quem não foi movido e está offline é ignorado');
 });
 
+test('movido offline só volta se continuar offline por offlineMs (o status pisca na troca de grupo)', () => {
+  const movido = { origemGrupoId: 9 };
+  const offline = { classe: Classe.OFFLINE, ociosoMs: 180_000, movido, offlineDesde: 0, offlineMs: 60_000 };
+  assert.ok(!deveVoltarAoAtivo({ ...offline, agora: 42_000 }), 'offline há 42 s: ainda pode ser a troca');
+  assert.ok(deveVoltarAoAtivo({ ...offline, agora: 60_000 }), 'offline há 60 s: volta');
+});
+
+test('alvoDeRobos: livre ainda na carência da troca de grupo não liga robô', () => {
+  const agora = 10_000;
+  const cfg = { porLivre: 7 };
+  const status = (emCarencia) => new Map([['201', { classe: Classe.LIVRE, ts: agora, emCarencia }]]);
+  assert.deepEqual(alvoDeRobos({ ramaisUra: ['201'], status: status(true), agora, total: 58, cfg }),
+    { alvo: 0, livres: 0, motivo: 'livre(s) na URA ainda na carência da troca de grupo' });
+  assert.equal(alvoDeRobos({ ramaisUra: ['201'], status: status(false), agora, total: 58, cfg }).alvo, 7);
+});
+
 test('decidirRobos: robôs proporcionais aos livres; reduzir é imediato, aumentar espera', () => {
   const agora = 100_000;
   const st = (pares) => new Map(Object.entries(pares).map(([r, classe]) => [r, { classe, ts: agora }]));

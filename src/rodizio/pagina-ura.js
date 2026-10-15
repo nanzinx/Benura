@@ -37,7 +37,7 @@ const PAGINA_URA = `<!doctype html>
 <body>
 <main>
   <h1>URA cheia</h1>
-  <p class="sub">Quando pedirem todo mundo na URA. O BenURA continua cuidando dos robôs (proporcionais aos livres), da telefonia e da regra do ocioso.</p>
+  <p class="sub">Quando pedirem todo mundo na URA, e para ajustar os robôs por livre. O BenURA continua cuidando dos robôs (proporcionais aos livres), da telefonia e da regra do ocioso.</p>
 
   <div class="cartao">
     <div class="estado" id="estado">Carregando…</div>
@@ -66,6 +66,21 @@ const PAGINA_URA = `<!doctype html>
       <span id="situacao"></span>
     </div>
   </div>
+
+  <div class="cartao">
+    <div class="estado">Robôs por livre: <span id="porLivre">–</span></div>
+    <p class="sub" id="porLivreInfo"></p>
+    <ul>
+      <li>Sobe sozinho quando a URA está parada: livres sem receber derivação, robôs todos ligados.</li>
+      <li>Desce sozinho a cada callback (se o webhook da Argus estiver configurado).</li>
+      <li>Ajuste aqui quando quiser; o automático continua a partir do valor escolhido.</li>
+    </ul>
+    <div class="linha">
+      <label>Novo valor: <input type="number" id="novoPorLivre" min="1" max="100" style="width:80px"></label>
+      <button id="aplicarPorLivre">Aplicar</button>
+      <span id="situacaoPorLivre"></span>
+    </div>
+  </div>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
@@ -85,43 +100,59 @@ const PAGINA_URA = `<!doctype html>
       $('robos').textContent = (h.robos?.ligados ?? '?') + ' / ' + (h.robos?.alvo ?? '?');
       $('presos').textContent = (h.uraLogadosEmOutroGrupo || []).length;
       $('dryrun').hidden = !h.dryRun;
+      const a = h.ajusteRobos || {};
+      $('porLivre').textContent = a.porLivre ?? '?';
+      $('porLivreInfo').textContent = 'Começa em ' + (a.base ?? '?') + ' · mínimo ' + (a.piso ?? '?') + ' · máximo ' + (a.maximo ?? '?')
+        + (a.ajustadoAMao ? ' · ajustado à mão às ' + hora(a.ajustadoAMao) : '')
+        + (a.automatico === false ? ' · automático desligado' : '');
     } catch (e) {
       $('estado').className = 'estado erro';
       $('estado').textContent = 'Rodízio sem resposta: ' + e.message;
     }
   }
 
-  async function pedir(method, emAndamento, sucesso) {
+  /** Chama a API com o token; mostra o andamento e o erro no elemento de saída. */
+  async function pedir({ url, method, corpo, botoes, saida, emAndamento, sucesso }) {
     const token = $('token').value.trim();
     try { localStorage.setItem('benura-token', token); } catch {}
-    $('ligar').disabled = $('desligar').disabled = true;
-    $('situacao').className = '';
-    $('situacao').textContent = emAndamento;
+    botoes.forEach((b) => { $(b).disabled = true; });
+    $(saida).className = '';
+    $(saida).textContent = emAndamento;
     try {
-      const resposta = await fetch('/ura/cheia', {
-        method,
-        headers: token ? { Authorization: 'Bearer ' + token } : {},
-      });
-      const corpo = await resposta.json();
-      if (!resposta.ok) throw new Error(corpo.erro || ('HTTP ' + resposta.status));
-      $('situacao').className = 'ok';
-      $('situacao').textContent = sucesso(corpo);
+      const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) };
+      const resposta = await fetch(url, { method, headers, body: corpo ? JSON.stringify(corpo) : undefined });
+      const r = await resposta.json();
+      if (!resposta.ok) throw new Error(r.erro || ('HTTP ' + resposta.status));
+      $(saida).className = 'ok';
+      $(saida).textContent = sucesso(r);
     } catch (e) {
-      $('situacao').className = 'erro';
-      $('situacao').textContent = 'Erro: ' + e.message;
+      $(saida).className = 'erro';
+      $(saida).textContent = 'Erro: ' + e.message;
     } finally {
-      $('ligar').disabled = $('desligar').disabled = false;
+      botoes.forEach((b) => { $(b).disabled = false; });
       atualizar();
     }
   }
 
+  const uraCheia = (method, emAndamento, sucesso) => pedir({
+    url: '/ura/cheia', method, botoes: ['ligar', 'desligar'], saida: 'situacao', emAndamento, sucesso,
+  });
+
   $('ligar').addEventListener('click', () => {
     if (!confirm('Colocar todos os operadores do Ativo na URA?')) return;
-    pedir('POST', 'Ligando…', (c) => (c.mudou ? 'Ligada. Os operadores vão para a URA em até 5 s.' : 'Já estava ligada.'));
+    uraCheia('POST', 'Ligando…', (c) => (c.mudou ? 'Ligada. Os operadores vão para a URA em até 5 s.' : 'Já estava ligada.'));
   });
 
   $('desligar').addEventListener('click', () => {
-    pedir('DELETE', 'Desligando…', (c) => (c.mudou ? 'Rodízio de volta ao normal.' : 'Já estava desligada.'));
+    uraCheia('DELETE', 'Desligando…', (c) => (c.mudou ? 'Rodízio de volta ao normal.' : 'Já estava desligada.'));
+  });
+
+  $('aplicarPorLivre').addEventListener('click', () => {
+    const valor = Number($('novoPorLivre').value);
+    pedir({
+      url: '/robos/por-livre', method: 'POST', corpo: { valor }, botoes: ['aplicarPorLivre'], saida: 'situacaoPorLivre',
+      emAndamento: 'Aplicando…', sucesso: (r) => 'Agora: ' + r.porLivre + ' robôs por livre.',
+    });
   });
 
   atualizar();

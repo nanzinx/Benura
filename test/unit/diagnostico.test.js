@@ -169,5 +169,10 @@ test('linha do tempo da URA: uma linha só quando o número de livres muda', () 
   svc.registrarMudancaDeLivres(1, 7);
   svc.ultimosLivres = 1;
   svc.registrarMudancaDeLivres(1, 7);
-  assert.deepEqual(linhas, ['URA: livres 2→1 | humanos 2 | robôs ligados 14 (alvo 7)']);
+  assert.deepEqual(linhas, ['URA: livres 2→1 | humanos 2 | robôs ligados 14 (alvo 7) | livres: 201']);
+
+  // Com o que a Argus informa de cada livre (para analisar um callback com alguém "livre no painel").
+  svc.statusUra.set('201', { classe: Classe.LIVRE, detalhe: { grupo: 7, origem: 'Receptivo' }, emCarencia: true });
+  svc.registrarMudancaDeLivres(0, 0);
+  assert.match(linhas.at(-1), /\| livres: 201 \(grupo 7, Receptivo, carência\)$/);
 });

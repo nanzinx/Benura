@@ -49,8 +49,8 @@ class RodizioService {
    *        quem pode subir do Ativo para a URA (sem: todos)
    * @param {import('./ura-cheia').UraCheia} [deps.uraCheia]
    *        modo "todos na URA" pedido pela supervisão
-   * @param {import('./ajuste-por-callback').AjustePorCallback} [deps.ajuste]
-   *        robôs por livre que baixam a cada callback (sem: sempre ROBOS_POR_LIVRE)
+   * @param {import('./ajuste-robos').AjusteRobos} [deps.ajuste]
+   *        robôs por livre que baixam no callback e sobem com a URA passiva (sem: sempre ROBOS_POR_LIVRE)
    */
   constructor({
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
@@ -76,6 +76,12 @@ class RodizioService {
     this.ultimoAlinhamento = new Map();
     /** ramal → desde quando está na lista da URA, mas logado em outro grupo */
     this.foraDoGrupoDesde = new Map();
+    /** ramais movidos para a URA cuja telefonia ainda não foi vista no grupo da URA */
+    this.aguardandoTroca = new Set();
+    /** ramal → quando a telefonia passou para a URA (a carência conta daqui) */
+    this.trocouEm = new Map();
+    /** Último atendimento de alguém da URA (derivação): mede a URA passiva. */
+    this.ultimoAtendimentoUraEm = Date.now();
     /** ramais do Ativo que atenderam uma ligação desde que ficaram online */
     this.atenderamNoAtivo = new Set();
     /** ramais com transferência em andamento */
@@ -251,6 +257,7 @@ class RodizioService {
 
     this.movidos[ramal] = { origemGrupoId: grupoOrigem, entrouEm: Date.now() };
     this.ramaisUra.add(ramal);
+    this.aguardandoTroca.add(ramal);
     // Ainda não conta como livre: a discadora só troca a telefonia de grupo depois
     // (quando a pessoa fica livre, com atraso). A próxima leitura diz se já trocou.
     this.statusUra.set(ramal, { classe: Classe.OUTRO, ts: Date.now() });
@@ -271,6 +278,7 @@ class RodizioService {
     const ociosos = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
     this.prepararSaidaDoUltimoLivre(ramais, agora);
     await this.avaliarRobos();
+    this.verificarPassividade(agora);
 
     this.avisarSeSemWebhook();
     await mapearComLimite(ociosos, this.cfg.concorrencia, (ramal) => this.devolverAoAtivo(ramal));
@@ -317,7 +325,11 @@ class RodizioService {
     // Tempo ocioso: conta desde que ficou Livre; qualquer outro status zera.
     const agora = Date.now();
     const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? agora) : undefined;
-    this.statusUra.set(ramal, { classe, ts: agora, livreDesde });
+    const offlineDesde = classe === Classe.OFFLINE ? (anterior?.offlineDesde ?? agora) : undefined;
+    const emCarencia = agora - (this.trocouEm.get(ramal) ?? -Infinity) < (this.cfg.carenciaTrocaMs ?? 0);
+    const detalhe = lido.status ? { grupo: lido.status.idGrupo ?? null, origem: lido.status.origemDerivacao ?? null } : null;
+    if (classe === Classe.ATENDIMENTO && anterior?.classe !== Classe.ATENDIMENTO) this.ultimoAtendimentoUraEm = agora;
+    this.statusUra.set(ramal, { classe, ts: agora, livreDesde, offlineDesde, emCarencia, detalhe });
   }
 
   /**
@@ -335,6 +347,7 @@ class RodizioService {
     const logado = Boolean(status) && classe !== Classe.OFFLINE && status.idGrupo != null;
     const emOutroGrupo = logado && Number(status.idGrupo) !== Number(this.cfg.grupoUraId);
     if (!emOutroGrupo) {
+      if (logado) this.registrarTrocaParaUra(ramal, agora);
       this.esquecerGrupoLogado(ramal, logado);
       return false;
     }
@@ -367,6 +380,18 @@ class RodizioService {
       .finally(() => this.alinhandoLogin.delete(ramal));
   }
 
+  /**
+   * A telefonia acabou de passar para a URA (era de outro grupo, ou a pessoa
+   * acabou de ser movida): a carência (CARENCIA_TROCA_GRUPO_MS) começa agora.
+   */
+  registrarTrocaParaUra(ramal, agora) {
+    if (!this.foraDoGrupoDesde.has(ramal) && !this.aguardandoTroca.has(ramal)) return;
+    this.aguardandoTroca.delete(ramal);
+    this.trocouEm.set(ramal, agora);
+    const carencia = this.cfg.carenciaTrocaMs ?? 0;
+    if (carencia > 0) this.log.info(`Ramal ${ramal}: telefonia na URA; conta como livre para os robôs em ${Math.round(carencia / 1000)} s.`);
+  }
+
   esquecerGrupoLogado(ramal, logadoNaUra) {
     this.foraDoGrupoDesde.delete(ramal);
     if (this.logadosEmOutroGrupo.delete(ramal) && logadoNaUra) this.log.info(`Ramal ${ramal} agora está logado no grupo da URA.`);
@@ -377,6 +402,7 @@ class RodizioService {
     if (!info || this.emTransferencia.has(ramal)) return false;
     return deveVoltarAoAtivo({
       classe: info.classe, livreDesde: info.livreDesde, agora, ociosoMs: this.cfg.tempoNaUraMs, movido: this.movidos[ramal],
+      offlineDesde: info.offlineDesde, offlineMs: this.cfg.offlineVoltaAposMs,
     });
   }
 
@@ -415,6 +441,8 @@ class RodizioService {
     delete this.movidos[ramal];
     this.ramaisUra.delete(ramal);
     this.statusUra.delete(ramal);
+    this.aguardandoTroca.delete(ramal);
+    this.trocouEm.delete(ramal);
     if (this.emUraCheia()) this.naoLevarNaUraCheia.add(ramal); // sobe de novo ao atender no Ativo
     this.vigiarNoAtivo(ramal, destino);
     this.salvar();
@@ -499,7 +527,24 @@ class RodizioService {
     if (livres === this.ultimosLivres) return;
     const humanos = [...this.ramaisUra].filter((r) => this.statusUra.has(r) && this.statusUra.get(r).classe !== Classe.OFFLINE).length;
     const { ligados } = this.robos.situacao(this.ramaisRobos.length);
-    this.log.info(`URA: livres ${this.ultimosLivres ?? '?'}→${livres} | humanos ${humanos} | robôs ligados ${ligados ?? '?'} (alvo ${alvo})`);
+    this.log.info(`URA: livres ${this.ultimosLivres ?? '?'}→${livres} | humanos ${humanos} | robôs ligados ${ligados ?? '?'} (alvo ${alvo})`
+      + `${this.descreverLivres()}`);
+  }
+
+  /**
+   * Quem está Livre na URA e como a Argus o vê (grupo logado, origem da
+   * derivação, carência): para entender um callback com gente "livre no painel".
+   */
+  descreverLivres() {
+    const livres = [...this.ramaisUra].filter((r) => this.statusUra.get(r)?.classe === Classe.LIVRE);
+    if (!livres.length) return '';
+    const descrever = (r) => {
+      const { detalhe, emCarencia } = this.statusUra.get(r);
+      const partes = [detalhe?.grupo != null ? `grupo ${detalhe.grupo}` : null, detalhe?.origem, emCarencia ? 'carência' : null]
+        .filter(Boolean);
+      return partes.length ? `${r} (${partes.join(', ')})` : r;
+    };
+    return ` | livres: ${livres.map(descrever).join('; ')}`;
   }
 
   // ───────────────────────────── Webhook ─────────────────────────────
@@ -515,6 +560,7 @@ class RodizioService {
       return;
     }
     this.statusUra.set(ramal, { classe: Classe.ATENDIMENTO, ts: Date.now(), doWebhook: true });
+    this.ultimoAtendimentoUraEm = Date.now();
     this.log.debug(`webhook: ${ramal} em atendimento na URA`);
     this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após webhook: ${e.message}`));
   }
@@ -526,7 +572,7 @@ class RodizioService {
    */
   registrarCallback(callback) {
     const { ligados } = this.robos.situacao(this.ramaisRobos.length);
-    const situacao = `${this.ultimosLivres ?? '?'} livre(s) na URA e ${ligados ?? '?'} robô(s) ligado(s)`;
+    const situacao = `${this.ultimosLivres ?? '?'} livre(s) na URA e ${ligados ?? '?'} robô(s) ligado(s)${this.descreverLivres()}`;
     if (!this.ajuste) {
       this.log.aviso(`Callback (${callback.motivo}) com ${situacao}.`);
       return;
@@ -535,7 +581,31 @@ class RodizioService {
     if (baixou) this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após callback: ${e.message}`));
   }
 
-  /** Robôs por livre agora (ajustado pelos callbacks, se ligado). */
+  /**
+   * URA passiva: há livre, os robôs já estão todos no alvo e ninguém da URA
+   * atende há ROBOS_PASSIVA_APOS_MIN. Sobe os robôs por livre (até o máximo).
+   * Não vale no modo manual dos robôs nem quando o último livre está saindo.
+   */
+  verificarPassividade(agora = Date.now()) {
+    if (!this.ajuste || !(this.ultimosLivres > 0) || agora < this.manualAte || this.ultimoLivreSaindo()) return;
+    const { ligados, alvo } = this.robos.resumo();
+    if (!ligados || ligados < alvo) return;
+    const semDerivacaoMs = agora - this.ultimoAtendimentoUraEm;
+    if (semDerivacaoMs < (this.cfg.passivaMs ?? Infinity)) return;
+    const situacao = `${Math.floor(semDerivacaoMs / 60_000)} min sem derivação com ${this.ultimosLivres} livre(s) e ${ligados} robô(s)`;
+    if (this.ajuste.subirPorPassividade(agora, situacao)) {
+      this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após subir o ajuste: ${e.message}`));
+    }
+  }
+
+  /** POST /robos/por-livre: a supervisão ajusta na hora. @returns {object} resumo do ajuste */
+  definirRobosPorLivre(valor) {
+    this.ajuste.definir(valor);
+    this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após o ajuste manual: ${e.message}`));
+    return this.ajuste.resumo();
+  }
+
+  /** Robôs por livre agora (ajustado pelos callbacks, pela URA passiva ou à mão). */
   porLivreAgora(agora = Date.now()) {
     return this.ajuste ? this.ajuste.atual(agora) : this.cfg.robosPorLivre;
   }
