@@ -70,10 +70,22 @@ function minutoDoDia(texto) {
 
 const formatarMinuto = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
-/** Campo de data/hora da ligação (o primeiro que parece uma). */
-const horaDaLigacao = (ligacao) => {
+/** Texto da data/hora da ligação (o primeiro campo que parece uma); null se não houver. */
+const textoDaHora = (ligacao) => {
   const campo = Object.keys(ligacao).find((c) => /data.*hora|hora.*liga|datahora/i.test(c)) || Object.keys(ligacao).find((c) => /data|hora/i.test(c));
-  return campo ? minutoDoDia(ligacao[campo]) : null;
+  return campo ? ligacao[campo] : null;
+};
+
+const horaDaLigacao = (ligacao) => {
+  const texto = textoDaHora(ligacao);
+  return texto == null ? null : minutoDoDia(texto);
+};
+
+/** Duração da ligação em segundos (tempoSegundos ou o primeiro campo de tempo/duração numérico); null se não houver. */
+const duracaoDaLigacao = (ligacao) => {
+  const campo = ['tempoSegundos', ...Object.keys(ligacao).filter((c) => /tempo|dura/i.test(c))]
+    .find((c) => Number.isFinite(Number(ligacao[c])) && ligacao[c] !== '' && ligacao[c] != null);
+  return campo ? Number(ligacao[campo]) : null;
 };
 
 /**
@@ -147,4 +159,5 @@ const minutosDesdeMeiaNoite = (hora) => {
 
 module.exports = {
   semDadosDeCliente, resumirLigacoes, minutosDesdeMeiaNoite, ehDeCliente, tipoDaLigacao, linhaDoTempo, minutoDoDia, conferirUra,
+  textoDaHora, duracaoDaLigacao,
 };

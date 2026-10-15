@@ -217,14 +217,15 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - Cada linha `URA: livres a→b` traz também quem está livre e como a Argus o vê: `livres: 2266423 (grupo 7, Receptivo, carência)`. Num callback com alguém "livre no painel", é essa linha que mostra o que o BenURA via.
 4. **Robôs proporcionais aos livres**: ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
    Com 1 livre, 7; com 2 livres, 14; e assim por diante, até o total de robôs (ou `ROBOS_MAXIMO`). Muitos robôs para poucos livres geram callback.
+   - **Com 1 livre só**, no máximo `ROBOS_MAX_COM_1_LIVRE` (**6**) robôs, seja qual for o "por livre" do momento: dois clientes pedindo humano juntos com um livre só viram callback. `0` = sem esse teto.
    - **Ninguém livre** → todos desligados **na hora**. **Com gente livre**, a redução só acontece se a queda de livres durar `ROBOS_REDUZIR_APOS_MS` (**10 s**), para não reagir a cada piscada de status, e desliga **só os robôs que não estão em ligação**: derrubar um robô falando corta o cliente e vira callback. Os que estão em ligação saem nos ciclos seguintes, quando a ligação termina (o log mostra "N em ligação mantidos até terminar").
    - **Aumentar** espera `MIN_ROBOS_OFF_MS` (padrão **15 s**) desde a última redução e sobe **em degraus**: no máximo `ROBOS_DEGRAU` (**7**) robôs a cada `ROBOS_SUBIDA_INTERVALO_MS` (**10 s**). Religar todos de uma vez faz todos discarem juntos, as derivações chegam juntas e o excedente vira callback.
    - A URA é lida a cada `POLL_URA_MS` (**5 s**). Com **1 a `LIVRES_ALERTA` (2) livres** ela entra **em alerta** e passa a ser lida a cada `POLL_URA_ALERTA_MS` (**1 s**): o próximo atendimento pode zerar os livres com robôs ligados.
    - Robô que liga ou desliga **sem comando do BenURA** (outra cópia, script antigo, painel) gera um aviso no log e conta em `/health` (`robos.mudancasPorFora`).
    - **Modo manual**: `POST /robos/manual` `{ "minutos": 30 }` (com token) faz o BenURA parar de mexer nos robôs para a supervisão assumir pelo painel; `POST /robos/automatico` devolve.
    - **Robôs por livre se ajustam ao dia** (`ROBOS_AJUSTE_CALLBACK=1`, padrão): o `ROBOS_POR_LIVRE` (7) é o ponto de partida.
-     - **URA passiva**: com gente livre, os robôs já todos no alvo e ninguém da URA atendendo há `ROBOS_PASSIVA_APOS_MIN` (**2 min**), sobe `ROBOS_AJUSTE_DEGRAU` (**2**) robôs por livre, no máximo um degrau a cada esse tempo, até `ROBOS_POR_LIVRE_MAXIMO` (**15**). Log: `URA passiva (2 min sem derivação com 1 livre(s) e 7 robô(s)): robôs por livre 7→9.`
-     - **Callback** (webhook **encerramento de URA, tipo 5**, com "abandonou a fila" ou "time-out na fila"): desce o mesmo degrau, até `ROBOS_POR_LIVRE_MINIMO` (**4**), no máximo um a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**); o mesmo evento reenviado conta uma vez; no modo manual dos robôs não ajusta. Precisa do webhook configurado na Argus (`POST /webhook?token=…`). O log traz a situação no instante: `Callback (abandonou a fila) com 1 livre(s) na URA e 7 robô(s) ligado(s) | livres: …: robôs por livre 7→5.`
+     - **URA passiva**: com **2 ou mais** livres (com 1, manda o teto acima), os robôs já todos no alvo e ninguém da URA atendendo há `ROBOS_PASSIVA_APOS_MIN` (**2 min**), sobe `ROBOS_AJUSTE_DEGRAU` (**2**) robôs por livre, no máximo um degrau a cada esse tempo, até `ROBOS_POR_LIVRE_MAXIMO` (**15**). Log: `URA passiva (2 min sem derivação com 2 livre(s) e 14 robô(s)): robôs por livre 7→9.`
+     - **Callback**: desce o mesmo degrau, até `ROBOS_POR_LIVRE_MINIMO` (**4**), no máximo um a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**); o mesmo callback conta uma vez; no modo manual dos robôs não ajusta. O BenURA fica sabendo do callback de dois jeitos: pelo **relatório de ligações da Argus** (vigia de callbacks, abaixo, sem configurar nada) e pelo webhook **encerramento de URA, tipo 5** ("abandonou a fila" ou "time-out na fila"), se estiver configurado na Argus (`POST /webhook?token=…`). Os dois usam o `idLigacao`: não conta em dobro. O log traz a situação no instante: `Callback (abandonou a fila) com 1 livre(s) na URA e 7 robô(s) ligado(s) | livres: …: robôs por livre 7→5.`
      - Abaixo do `ROBOS_POR_LIVRE`, sem callback por `ROBOS_RECUPERAR_APOS_MIN` (**15 min**), sobe 1 de volta.
      - **Ajuste manual**: na página `/ura` (campo "Robôs por livre") ou `POST /robos/por-livre { "valor": 12 }` (com token). Vale na hora, entre o mínimo e o máximo; o automático continua a partir dele.
      - Fica gravado em `RODIZIO_AJUSTE_FILE`: reiniciar no mesmo dia retoma o valor; no dia seguinte começa do `ROBOS_POR_LIVRE`. O `/health` mostra `ajusteRobos: { porLivre, base, piso, maximo, degrau, callbacks, ultimoCallback, ultimaSubida, ajustadoAMao }`.
@@ -237,10 +238,21 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
 ### Diagnóstico de callbacks
 Para descobrir **quando** e **por que** os robôs geram callback:
 
-1. **Linha do tempo no log do rodízio.** A cada mudança no número de livres, o log mostra uma linha:
+1. **Raio-x automático (vigia de callbacks).** A cada `CALLBACKS_VERIFICAR_SEG` (**60 s**), enquanto há robô ligado, o rodízio lê o relatório de ligações dos robôs na Argus (só leitura, vale também em `DRY_RUN`). Para cada callback novo, grava uma linha com o que a URA tinha naquela hora (o rodízio guarda uma "foto" da URA a cada ciclo, dos últimos 15 min) e a provável causa:
+   ```
+   08:43:20 [AVISO] [rodizio] CALLBACK 08:42:18 Oper Virtual 11, 34 s | livre ainda na carência da troca de grupo (telefonia recém-trocada) | às 08:42:40: livres 2266423 Jamily (grupo 7, telefonia na URA há 59 s, movido pelo BenURA às 08:41:04, carência) | robôs 7/7
+   ```
+   As causas possíveis:
+   - **livre ainda na carência da troca de grupo**: só havia livre com a telefonia recém-trocada;
+   - **derivações juntas**: o(s) livre(s) atenderam outra ligação e a fila ficou sem ninguém;
+   - **a URA ficou sem livre** durante a ligação (saída por ocioso, pausa, offline);
+   - **INVISÍVEL**: havia livre com a telefonia na URA durante toda a ligação. É o caso que precisa ser levado à Argus;
+   - **sem histórico**: o BenURA estava desligado ou acabou de reiniciar.
+
+   Essas linhas ficam em `logs/AAAA-MM-DD/callbacks.txt` (veja **Logs** abaixo). Se houver mais de uma campanha ativa, informe a dos robôs em `CAMPANHA_ROBOS_ID`. Sem dado de cliente.
+2. **Linha do tempo no log do rodízio.** A cada mudança no número de livres, o log mostra uma linha:
    `URA: livres 2→1 | humanos 3 | robôs ligados 14 (alvo 7)`.
-   Rodando pelo PM2, o log fica em `logs/rodizio.out.log`.
-2. **Relatório dos robôs, só leitura:**
+3. **Relatório dos robôs, só leitura:**
    ```bash
    npm run diagnostico:callbacks                    # hoje, desde a meia-noite
    npm run diagnostico:callbacks -- --minutos 120   # só os últimos 120 min
@@ -250,14 +262,34 @@ Para descobrir **quando** e **por que** os robôs geram callback:
    - a linha do tempo de 15 em 15 min: derivou (`ATENDIMENTO`), callback (`OPER. VIRTUAL - ABANDONO EM FILA`, que é o "Gerou Callback" do painel) e sem agente (do discador);
    - cada callback com hora e robô;
    - **"Quem está na URA agora":** em que grupo cada pessoa da URA está **logada na telefonia** (status do operador, só leitura). `ATENCAO: LOGADO EM OUTRO GRUPO` quer dizer que a pessoa aparece na URA, mas a derivação dos robôs não chega nela.
-   Também grava o resultado em `logs/diagnostico-callbacks-AAAA-MM-DD.json`. CPF, telefone, nome do cliente e lead são descartados antes de imprimir ou gravar.
+   Também grava o resultado em `logs/diagnostico-callbacks-AAAA-MM-DD.json` e o que imprimiu em `logs/AAAA-MM-DD/diagnostico-callbacks.txt`. CPF, telefone, nome do cliente e lead são descartados antes de imprimir ou gravar.
 
-3. **Aviso no rodízio:** quem está no grupo da URA mas logado na telefonia em outro grupo gera um aviso no log (uma vez por ramal) e aparece em `uraLogadosEmOutroGrupo` no `/health`. Com `DRY_RUN=1` o rodízio só avisa e registra `[DRY_RUN] Relogaria ...`.
+4. **Aviso no rodízio:** quem está no grupo da URA mas logado na telefonia em outro grupo gera um aviso no log (uma vez por ramal) e aparece em `uraLogadosEmOutroGrupo` no `/health`. Com `DRY_RUN=1` o rodízio só avisa e registra `[DRY_RUN] Relogaria ...`.
 
 Compare a hora de cada callback com a linha do tempo daquele minuto.
 
+### Logs
+Tudo o que cada serviço escreve vai também para arquivos de texto, **uma pasta por dia**, com a **hora de Brasília** em cada linha:
+
+```
+logs/2026-10-15/
+  rodizio.txt                  tudo do rodízio e dos robôs
+  roteador.txt                 tudo do roteador
+  rotinas.txt                  fim de expediente
+  atualizador.txt              deploys
+  avisos.txt                   só AVISO e ERRO, de todos os serviços
+  callbacks.txt                o raio-x de cada callback
+  diagnostico-callbacks.txt    cada execução de npm run diagnostico:callbacks
+  conferir-supervisores.txt    cada execução de npm run conferir:supervisores
+```
+
+- Abra no VS Code ou no Bloco de Notas (ex.: `code logs\2026-10-15\avisos.txt`). Não precisa de `Select-String`.
+- Pastas com mais de `LOGS_DIAS` (**30**) dias são apagadas sozinhas. `LOGS_DIR` muda a pasta; `LOGS_ARQUIVOS=0` desliga.
+- Token da Argus e `WEBHOOK_TOKEN` nunca vão para os arquivos (viram `***` se aparecerem).
+- Os arquivos do PM2 (`logs/*.out.log` e `logs/*.err.log`) continuam existindo.
+
 ### Testes de comportamento
-`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em **27 cenários**: ida, volta, robôs proporcionais, webhook, correções e retorno da fila.
+`npm run test:cenarios` sobe uma Argus falsa e roda o rodízio de verdade em **42 cenários**: ida, volta, robôs proporcionais, teto com 1 livre, vigia de callbacks, webhook, correções e retorno da fila.
 A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js`. Foi assim que a
 refatoração foi comparada com o script original.
 

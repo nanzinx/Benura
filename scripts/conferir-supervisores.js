@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { carregarConfig } = require('../src/config');
 const { criarLogger } = require('../src/utils/logger');
+const { ativarLogsEmArquivo } = require('../src/utils/logs-em-arquivo');
 const { ArgusClient } = require('../src/integrations/argus/argus.client');
 const { DiretorioOperadores } = require('../src/integrations/argus/diretorio-operadores.service');
 const { resolverFixos } = require('../src/integrations/argus/fixos');
@@ -57,6 +58,8 @@ function imprimir({ supervisores, semSupervisor, gruposAtivos }) {
 
 async function main() {
   const cfg = carregarConfig();
+  // A saída também fica em logs/AAAA-MM-DD/conferir-supervisores.txt (uma seção por execução).
+  ativarLogsEmArquivo(cfg, 'conferir-supervisores', { cabecalho: 'npm run conferir:supervisores' });
   const log = criarLogger({ debug: cfg.debug, escopo: 'conferir-supervisores' });
   const client = new ArgusClient(cfg.argus, log.filho('argus'));
   const diretorio = new DiretorioOperadores({

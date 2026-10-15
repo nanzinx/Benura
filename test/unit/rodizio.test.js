@@ -76,6 +76,17 @@ test('alvoDeRobos: livre ainda na carência da troca de grupo não liga robô', 
   assert.equal(alvoDeRobos({ ramaisUra: ['201'], status: status(false), agora, total: 58, cfg }).alvo, 7);
 });
 
+test('alvoDeRobos: com 1 livre só, no máximo maxComUmLivre; com 2, volta ao proporcional', () => {
+  const agora = 100_000;
+  const st = (m) => new Map(Object.entries(m).map(([r, c]) => [r, { classe: c === 'livre' ? Classe.LIVRE : Classe.ATENDIMENTO, ts: agora }]));
+  const cfg = { porLivre: 15, maxComUmLivre: 6 };
+  assert.deepEqual(alvoDeRobos({ ramaisUra: ['1', '2'], status: st({ 1: 'livre', 2: 'atendendo' }), agora, total: 58, cfg }),
+    { alvo: 6, livres: 1, motivo: '1 livre na URA: até 6 robôs' });
+  assert.equal(alvoDeRobos({ ramaisUra: ['1', '2'], status: st({ 1: 'livre', 2: 'livre' }), agora, total: 58, cfg }).alvo, 30);
+  assert.equal(alvoDeRobos({ ramaisUra: ['1'], status: st({ 1: 'livre' }), agora, total: 58, cfg: { porLivre: 4, maxComUmLivre: 6 } }).alvo, 4, 'abaixo do teto, não muda');
+  assert.equal(alvoDeRobos({ ramaisUra: ['1'], status: st({ 1: 'livre' }), agora, total: 58, cfg: { porLivre: 15, maxComUmLivre: 0 } }).alvo, 15, '0 = sem teto');
+});
+
 test('decidirRobos: robôs proporcionais aos livres; reduzir é imediato, aumentar espera', () => {
   const agora = 100_000;
   const st = (pares) => new Map(Object.entries(pares).map(([r, classe]) => [r, { classe, ts: agora }]));

@@ -28,6 +28,8 @@ function criarArgusFake({ grupos, status, usuarios = [], atrasoTrocaMs = 300 }) 
     usuarios: structuredClone(usuarios),
     chamadas: [],
     leads: [],
+    /** relatório de ligações detalhadas (vigia de callbacks) */
+    ligacoes: [],
     responderComStatusHttp: null, // ex.: 403 para simular token inválido
     /** ramal → idGrupo em que a telefonia diz que ele está logado (padrão: o grupo da lista) */
     grupoLogado: {},
@@ -51,6 +53,9 @@ function criarArgusFake({ grupos, status, usuarios = [], atrasoTrocaMs = 300 }) 
   const comandos = {
     listargrupos: () => ({ codStatus: 1, grupos: estado.grupos }),
     listarusuarios: () => ({ codStatus: 1, usuarios: estado.usuarios }),
+    listarcampanhas: () => ({ codStatus: 1, campanhas: [{ idCampanha: 1, campanhaDesc: 'ROBOS', ativo: true }] }),
+    // /report/ligacoesdetalhadas: uma página só
+    ligacoesdetalhadas: () => ({ codStatus: 1, ligacoesDetalhadas: estado.ligacoes, endOfTable: true }),
 
     statusoperador: ({ ramal }) => {
       aplicarTrocaPendente(ramal);

@@ -117,6 +117,8 @@ function carregarConfig(overrides = {}) {
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
+      // Com 1 livre só na URA, no máximo estes robôs (dois clientes juntos = callback). 0 = sem teto.
+      robosMaxComUmLivre: envNum('ROBOS_MAX_COM_1_LIVRE', 6),
       // Cada callback (cliente desistiu da fila: webhook tipo 5) baixa um degrau de robôs
       // por livre, até o mínimo; sem callback por ROBOS_RECUPERAR_APOS_MIN, sobe um de volta.
       ajusteCallback: envBool('ROBOS_AJUSTE_CALLBACK', true),
@@ -130,6 +132,11 @@ function carregarConfig(overrides = {}) {
       intervaloAjusteMs: envNum('ROBOS_AJUSTE_INTERVALO_S', 60) * 1000,
       // Ajuste gravado para um reinício no mesmo dia retomar o degrau em que estava.
       arquivoAjuste: env('RODIZIO_AJUSTE_FILE', path.join(RAIZ, 'state-ajuste-robos.json')),
+      // Vigia de callbacks: lê o relatório de ligações dos robôs a cada N s (só leitura) e grava o
+      // raio-x de cada callback em logs/AAAA-MM-DD/callbacks.txt. Não depende do webhook. 0 = desligado.
+      callbacksVerificarMs: envNum('CALLBACKS_VERIFICAR_SEG', 60) * 1000,
+      // Campanha dos robôs para o relatório; vazio = a única campanha ativa.
+      idCampanhaRobos: envNum('CAMPANHA_ROBOS_ID', 0),
       // Minutos ocioso (Livre) seguidos na URA antes de voltar ao Ativo. Atender zera a contagem.
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
       // A regra do ocioso vale sempre. Quando o último livre da URA está a este tempo de
@@ -210,6 +217,13 @@ function carregarConfig(overrides = {}) {
       // Protege /webhook/venda e /recarregar. Vazio = sem autenticação.
       tokenAdmin: env('WEBHOOK_TOKEN', ''),
       limiteCorpoBytes: envNum('HTTP_LIMITE_CORPO', 64 * 1024),
+    },
+
+    // --- Logs em arquivos de texto (logs/AAAA-MM-DD/<serviço>.txt, avisos.txt, callbacks.txt) ---
+    logs: {
+      arquivos: envBool('LOGS_ARQUIVOS', true),
+      pasta: env('LOGS_DIR', path.join(RAIZ, 'logs')),
+      dias: envNum('LOGS_DIAS', 30), // pastas mais antigas são apagadas; 0 = guarda tudo
     },
 
     // Simula Carrossel e Argus em memória (desenvolvimento, sem rede).
