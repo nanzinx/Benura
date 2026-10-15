@@ -6,6 +6,7 @@
 
 const { carregarConfig, validarConfig } = require('./config');
 const { criarLogger } = require('./utils/logger');
+const { ativarLogsEmArquivo } = require('./utils/logs-em-arquivo');
 const { dataLocal } = require('./utils/datas');
 const { formatarReais } = require('./utils/moeda');
 const { CarrosselClient } = require('./integrations/carrossel/carrossel.client');
@@ -131,6 +132,7 @@ async function aquecerArgus({ diretorio, discadora, log }) {
 async function iniciar() {
   const app = criarApp();
   const { cfg, log, roteamento, agendador, servidor } = app;
+  ativarLogsEmArquivo(cfg, 'roteador');
 
   exigirConfigValida(cfg, log);
   const trava = adquirirTravaOuEncerrar(cfg.arquivoTrava, log);

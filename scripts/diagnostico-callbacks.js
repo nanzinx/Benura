@@ -19,9 +19,11 @@ const fs = require('fs');
 const path = require('path');
 const { carregarConfig } = require('../src/config');
 const { criarLogger } = require('../src/utils/logger');
+const { ativarLogsEmArquivo } = require('../src/utils/logs-em-arquivo');
 const { ArgusClient } = require('../src/integrations/argus/argus.client');
 const { resumirLigacoes, minutosDesdeMeiaNoite, conferirUra } = require('../src/domain/diagnostico-callbacks');
 const { mapearComLimite } = require('../src/utils/concorrencia');
+const { escolherCampanha } = require('../src/integrations/argus/campanha');
 const { dataLocal, horaLocal } = require('../src/utils/datas');
 
 /** --nome valor → { nome: valor } */
@@ -31,15 +33,6 @@ function lerArgumentos(argv) {
     if (argv[i].startsWith('--')) args[argv[i].slice(2)] = argv[i + 1];
   }
   return args;
-}
-
-/** A campanha pedida, ou a única ativa. @throws {Error} se houver mais de uma e nenhuma foi escolhida */
-async function escolherCampanha(client, pedida) {
-  if (pedida) return Number(pedida);
-  const ativas = (await client.listarCampanhas()).filter((c) => c.ativo !== false);
-  if (ativas.length === 1) return ativas[0].idCampanha;
-  const lista = ativas.map((c) => `${c.idCampanha} (${c.campanhaDesc})`).join(', ');
-  throw new Error(`Há ${ativas.length} campanhas ativas: ${lista}. Escolha uma com --campanha <id>.`);
 }
 
 /**
@@ -118,6 +111,8 @@ function imprimirLinhaDoTempo(linhas) {
 
 async function main() {
   const cfg = carregarConfig();
+  // A saída também fica em logs/AAAA-MM-DD/diagnostico-callbacks.txt (uma seção por execução).
+  ativarLogsEmArquivo(cfg, 'diagnostico-callbacks', { cabecalho: 'npm run diagnostico:callbacks' });
   const args = lerArgumentos(process.argv.slice(2));
   const client = new ArgusClient(cfg.argus, criarLogger({ debug: cfg.debug, escopo: 'diagnostico' }));
   const minutos = Number(args.minutos) || minutosDesdeMeiaNoite(horaLocal(cfg.agenda.fusoHorario));

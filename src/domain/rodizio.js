@@ -135,6 +135,10 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
   if (!livres) return nenhum('livre(s) na URA ainda na carência da troca de grupo');
 
   const alvo = Math.min(total, livres * cfg.porLivre, cfg.maximo || Infinity);
+  // Com 1 livre só, dois clientes pedindo humano juntos viram callback: menos robôs.
+  if (livres === 1 && cfg.maxComUmLivre > 0 && alvo > cfg.maxComUmLivre) {
+    return { alvo: cfg.maxComUmLivre, livres, motivo: `1 livre na URA: até ${cfg.maxComUmLivre} robôs` };
+  }
   return { alvo, livres, motivo: `${livres} livre(s) na URA × ${cfg.porLivre}` };
 }
 
@@ -260,7 +264,9 @@ function interpretarCallback(evento) {
   if (evento?.idTipoWebhook !== 5) return null;
   const motivo = CONCLUSOES_CALLBACK[evento.idConclusaoDerivacao ?? evento.FidConclusaoDerivacao];
   if (!motivo) return null;
-  const partes = [evento.idLigacao, evento.telefone, evento.dataInicioUra].filter((p) => p != null && p !== '');
+  // Com o idLigacao, a chave é a mesma do relatório (vigia-callbacks): o mesmo callback não conta duas vezes.
+  if (evento.idLigacao != null && evento.idLigacao !== '') return { motivo, chave: `ligacao:${evento.idLigacao}` };
+  const partes = [evento.telefone, evento.dataInicioUra].filter((p) => p != null && p !== '');
   return { motivo, chave: partes.length ? partes.join('|') : null };
 }
 

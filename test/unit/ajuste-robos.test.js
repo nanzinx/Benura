@@ -108,7 +108,7 @@ test('ajuste: reiniciar no mesmo dia retoma o valor; em outro dia começa do .en
   assert.equal(outroDia.atual(0), 7);
 });
 
-test('rodízio: URA passiva só com livre, robôs no alvo e ninguém atendendo; não no modo manual', () => {
+test('rodízio: URA passiva só com 2+ livres, robôs no alvo e ninguém atendendo; não no modo manual', () => {
   const subidas = [];
   const robos = { ligados: 7, alvo: 7 };
   const svc = new RodizioService({
@@ -116,19 +116,21 @@ test('rodízio: URA passiva só com livre, robôs no alvo e ninguém atendendo; 
     robos: { resumo: () => robos, situacao: () => robos },
     ajuste: { subirPorPassividade: (agora, situacao) => { subidas.push(situacao); return false; } },
   });
-  svc.ultimosLivres = 1;
+  svc.ultimosLivres = 2;
   svc.ultimoAtendimentoUraEm = 0;
   svc.verificarPassividade(1 * MIN);
   assert.equal(subidas.length, 0, 'menos de 2 min sem derivação');
   svc.verificarPassividade(2 * MIN);
-  assert.match(subidas[0], /2 min sem derivação com 1 livre\(s\) e 7 robô\(s\)/);
+  assert.match(subidas[0], /2 min sem derivação com 2 livre\(s\) e 7 robô\(s\)/);
 
   robos.ligados = 3; // ainda subindo em degraus
   svc.verificarPassividade(3 * MIN);
   robos.ligados = 7;
   svc.ultimosLivres = 0;
   svc.verificarPassividade(3 * MIN);
-  svc.ultimosLivres = 1;
+  svc.ultimosLivres = 1; // com 1 livre manda o ROBOS_MAX_COM_1_LIVRE
+  svc.verificarPassividade(3 * MIN);
+  svc.ultimosLivres = 2;
   svc.manualAte = 10 * MIN;
   svc.verificarPassividade(3 * MIN);
   assert.equal(subidas.length, 1);

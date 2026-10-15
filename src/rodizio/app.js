@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { carregarConfig, validarConfig } = require('../config');
 const { criarLogger } = require('../utils/logger');
+const { ativarLogsEmArquivo } = require('../utils/logs-em-arquivo');
 const { ArgusClient } = require('../integrations/argus/argus.client');
 const { criarServidor } = require('../http/server');
 const { executarPeriodicamente } = require('../utils/periodico');
@@ -20,6 +21,7 @@ const { ElegiveisUra } = require('./elegiveis-ura');
 const { resolverFixos } = require('../integrations/argus/fixos');
 const { UraCheia } = require('./ura-cheia');
 const { AjusteRobos } = require('./ajuste-robos');
+const { VigiaCallbacks } = require('./vigia-callbacks');
 const { dataLocal } = require('../utils/datas');
 const { DiretorioOperadores } = require('../integrations/argus/diretorio-operadores.service');
 const { criarRotasDoRodizio } = require('./controllers');
@@ -36,6 +38,7 @@ const configDoRodizio = (cfg) => ({
   alinharLogin: cfg.argus.alinharLogin,
   esperaLoginMs: cfg.argus.esperaLoginMs,
   alinharAposMs: cfg.argus.alinharAposMs,
+  fusoHorario: cfg.agenda.fusoHorario,
 });
 
 /** Monta as dependências (sem efeitos colaterais: nada é iniciado aqui). */
@@ -62,7 +65,13 @@ function montarRodizio(overrides) {
     uraCheia: new UraCheia({ arquivo: cfgRodizio.arquivoUraCheia, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
-  return { cfg, cfgRodizio, log, rodizio, retornoFila };
+  const vigia = cfgRodizio.callbacksVerificarMs > 0 && cfgRodizio.gruposRobosIds.length ? new VigiaCallbacks({
+    client,
+    rodizio,
+    cfg: { gruposRobosIds: cfgRodizio.gruposRobosIds, idCampanha: cfgRodizio.idCampanhaRobos || undefined, fuso: cfg.agenda.fusoHorario },
+    logger: log.filho('callbacks'),
+  }) : null;
+  return { cfg, cfgRodizio, log, rodizio, retornoFila, vigia };
 }
 
 /** Lista do dia do roteador; sem ela, só os fixos (resolvidos pelo diretório da Argus). */
@@ -116,7 +125,7 @@ function exigirConfigValida(cfg, log) {
 }
 
 /** Os três ciclos do rodízio, cada um sem sobreposição. */
-function iniciarCiclos({ rodizio, cfgRodizio, log }) {
+function iniciarCiclos({ rodizio, cfgRodizio, log, vigia }) {
   const ciclo = (nome, intervaloMs, tarefa) => executarPeriodicamente({
     nome, intervaloMs, tarefa, logger: log, alertaLentoMs: Math.max(5000, cfgRodizio.pollUraMs * 2, cfgRodizio.pollAtivoMs * 2),
   });
@@ -124,6 +133,7 @@ function iniciarCiclos({ rodizio, cfgRodizio, log }) {
     grupos: ciclo('atualizarGrupos', cfgRodizio.refreshGruposMs, () => rodizio.atualizarGrupos()),
     ativo: ciclo('cicloAtivo', cfgRodizio.pollAtivoMs, () => rodizio.cicloAtivo()),
     ura: ciclo('cicloUra', () => rodizio.intervaloUraMs(), () => rodizio.cicloUra()),
+    ...(vigia ? { callbacks: ciclo('vigiaCallbacks', cfgRodizio.callbacksVerificarMs, () => vigia.verificar()) } : {}),
   };
 }
 
@@ -159,6 +169,7 @@ function logarInicio({ cfg, cfgRodizio, log }) {
 async function iniciarRodizio() {
   const app = montarRodizio();
   const { cfg, cfgRodizio, log, rodizio, retornoFila } = app;
+  ativarLogsEmArquivo(cfg, 'rodizio');
 
   exigirConfigValida(cfg, log);
   const trava = adquirirTravaOuEncerrar(cfgRodizio.arquivoTrava, log);

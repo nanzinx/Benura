@@ -93,11 +93,14 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       CARENCIA_TROCA_GRUPO_MS: '0', // os cenários de carência ligam a sua
       OFFLINE_VOLTA_APOS_MS: '0',
       ROBOS_PASSIVA_APOS_MIN: '60', // os cenários de URA passiva ligam a sua
+      ROBOS_MAX_COM_1_LIVRE: '0', // o cenário de 1 livre liga o seu
+      CALLBACKS_VERIFICAR_SEG: '0', // o cenário do vigia de callbacks liga o seu
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
       RODIZIO_PORT: String(porta),
       STATE_FILE: path.join(pasta, 'state-vendas.json'),
+      LOGS_DIR: path.join(pasta, 'logs'),
       RODIZIO_STATE_FILE: path.join(pasta, 'state.json'),
       RODIZIO_LOCK_FILE: path.join(pasta, 'argus.lock'),
       RODIZIO_URA_CHEIA_FILE: path.join(pasta, 'state-ura-cheia.json'),
@@ -429,9 +432,9 @@ const CENARIOS = {
   async 'Robôs: URA passiva sobe os robôs por livre; a supervisão ajusta na /ura'(r) {
     const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
     const ajuste = async () => (await (await fetch(`${r.base}/health`)).json()).ajusteRobos;
-    await aguardar(() => ligados().length === 2, { descricao: '1 livre × 2 = 2 robôs' });
+    await aguardar(() => ligados().length === 4, { descricao: '2 livres × 2 = 4 robôs' });
     // Ninguém da URA atende: depois de ROBOS_PASSIVA_APOS_MIN (~3 s), sobe 2 por livre.
-    await aguardar(() => ligados().length === 4, { timeoutMs: 10_000, descricao: 'URA passiva: 2 → 4 robôs' });
+    await aguardar(() => ligados().length === 8, { timeoutMs: 10_000, descricao: 'URA passiva: 4 → 8 robôs' });
     if (!r.saida.join('').includes('URA passiva (')) throw new Error('não registrou a subida no log');
     if ((await ajuste()).porLivre !== 4) throw new Error('ajuste não subiu para 4');
 
@@ -443,7 +446,51 @@ const CENARIOS = {
     if ((await definir(3, '')).status !== 401) throw new Error('ajustou sem token');
     const resposta = await (await definir(3)).json();
     if (resposta.porLivre !== 3) throw new Error(`ajuste manual: ${JSON.stringify(resposta)}`);
-    await aguardar(() => ligados().length === 3, { descricao: 'ajuste manual: 3 robôs' });
+    await aguardar(() => ligados().length === 6, { descricao: 'ajuste manual: 2 livres × 3 = 6 robôs' });
+  },
+
+  async 'Robôs: com 1 livre só, no máximo ROBOS_MAX_COM_1_LIVRE; a URA passiva não sobe'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
+    await aguardar(() => ligados().length === 3, { descricao: '1 livre: até 3 robôs (não 5)' });
+    // Com ROBOS_PASSIVA_APOS_MIN curto, 1 livre parado não sobe o "por livre".
+    await new Promise((ok) => setTimeout(ok, 5000));
+    const health = await (await fetch(`${r.base}/health`)).json();
+    if (ligados().length !== 3) throw new Error(`robôs ligados: ${ligados().length}`);
+    if (health.ajusteRobos.porLivre !== 5) throw new Error(`por livre mudou: ${health.ajusteRobos.porLivre}`);
+    if (r.saida.join('').includes('URA passiva (')) throw new Error('subiu por passividade com 1 livre');
+    if (health.robos.maxComUmLivre !== 3) throw new Error('o /health não mostra o teto com 1 livre');
+  },
+
+  async 'Vigia de callbacks: callback no relatório da Argus (sem webhook) → raio-x em callbacks.txt e ajuste desce'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
+    await aguardar(() => ligados().length === 8, { descricao: '2 livres × 4 = 8 robôs' });
+    await aguardar(() => r.chamadas('ligacoesdetalhadas').length > 0, { descricao: 'primeira leitura do relatório' });
+
+    // Hora local (como o relatório traz), 5 s atrás: o raio-x usa as fotos da URA desse intervalo.
+    const local = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).format(new Date(Date.now() - 5000)).replace(' ', 'T');
+    r.argus.estado.ligacoes.push({
+      idLigacao: 77, usuarioOperador: 'Oper Virtual 1', dataHoraLigacao: local, resultadoLigacao: 'OPER. VIRTUAL - ABANDONO EM FILA',
+      tempoSegundos: 4, dddTelefone: '11999990000', nomeCliente: 'CLIENTE TESTE',
+    });
+    await aguardar(() => ligados().length === 4, { timeoutMs: 8000, descricao: 'callback: 4 → 2 por livre = 4 robôs' });
+    const linha = r.saida.join('').split('\n').find((l) => l.includes('CALLBACK '));
+    if (!linha || !/INVISÍVEL/.test(linha) || !/robôs 8\/8/.test(linha)) throw new Error(`raio-x: ${linha}`);
+
+    const pastaDoDia = fs.readdirSync(path.join(r.pasta, 'logs')).find((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+    const arquivo = (nome) => fs.readFileSync(path.join(r.pasta, 'logs', pastaDoDia, nome), 'utf8');
+    await aguardar(() => { try { return arquivo('callbacks.txt').includes('CALLBACK'); } catch { return false; } }, { descricao: 'callbacks.txt' });
+    const tudo = arquivo('rodizio.txt');
+    if (!/^\d{2}:\d{2}:\d{2} \[INFO\]/m.test(tudo)) throw new Error('rodizio.txt sem a hora local');
+    if (!arquivo('avisos.txt').includes('CALLBACK')) throw new Error('avisos.txt sem o callback');
+    if (/CLIENTE TESTE|11999990000/.test(tudo + arquivo('callbacks.txt'))) throw new Error('dado de cliente no log');
+    if (tudo.includes(TOKEN)) throw new Error('token no log');
+
+    // Lido de novo no próximo ciclo: não conta duas vezes.
+    await esperar(1500);
+    const ajuste = (await (await fetch(`${r.base}/health`)).json()).ajusteRobos;
+    if (ajuste.callbacks !== 1 || ajuste.porLivre !== 2) throw new Error(`ajuste ${JSON.stringify(ajuste)}`);
   },
 
   async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {
@@ -722,13 +769,36 @@ const VARIACOES = {
   'Robôs: URA passiva sobe os robôs por livre; a supervisão ajusta na /ura': {
     grupos: [
       { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: {
+      ROBOS_POR_LIVRE: '2', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_POR_LIVRE_MAXIMO: '4', ROBOS_PASSIVA_APOS_MIN: '0.05',
+      ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
+    },
+  },
+  'Vigia de callbacks: callback no relatório da Argus (sem webhook) → raio-x em callbacks.txt e ajuste desce': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: {
+      ROBOS_POR_LIVRE: '4', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_AJUSTE_DEGRAU: '2', ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
+      CALLBACKS_VERIFICAR_SEG: '0.5',
+    },
+  },
+  'Robôs: com 1 livre só, no máximo ROBOS_MAX_COM_1_LIVRE; a URA passiva não sobe': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
       { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200'] },
       { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
     ],
     status: { 100: 'em atendimento', 200: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
     env: {
-      ROBOS_POR_LIVRE: '2', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_POR_LIVRE_MAXIMO: '4', ROBOS_PASSIVA_APOS_MIN: '0.05',
-      ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
+      ROBOS_POR_LIVRE: '5', ROBOS_MAX_COM_1_LIVRE: '3', ROBOS_PASSIVA_APOS_MIN: '0.03', ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
     },
   },
   'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina': {

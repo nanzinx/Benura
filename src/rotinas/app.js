@@ -14,6 +14,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { carregarConfig, validarConfig } = require('../config');
 const { criarLogger } = require('../utils/logger');
+const { ativarLogsEmArquivo } = require('../utils/logs-em-arquivo');
 const { executarPeriodicamente } = require('../utils/periodico');
 const { adquirirTravaOuEncerrar } = require('../utils/trava-processo');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
@@ -105,6 +106,7 @@ async function executarAgora({ log, fimExpediente }, { forcar }) {
 async function iniciarRotinas(argv = process.argv.slice(2)) {
   const opcoes = lerOpcoes(argv);
   const app = montarRotinas();
+  ativarLogsEmArquivo(app.cfg, 'rotinas');
   exigirConfigValida(app.cfg, app.log);
   if (!opcoes.agora) return executarContinuamente(app);
   return executarAgora(app, opcoes);

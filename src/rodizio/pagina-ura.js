@@ -103,6 +103,7 @@ const PAGINA_URA = `<!doctype html>
       const a = h.ajusteRobos || {};
       $('porLivre').textContent = a.porLivre ?? '?';
       $('porLivreInfo').textContent = 'Começa em ' + (a.base ?? '?') + ' · mínimo ' + (a.piso ?? '?') + ' · máximo ' + (a.maximo ?? '?')
+        + (h.robos?.maxComUmLivre ? ' · com 1 livre: até ' + h.robos.maxComUmLivre : '')
         + (a.ajustadoAMao ? ' · ajustado à mão às ' + hora(a.ajustadoAMao) : '')
         + (a.automatico === false ? ' · automático desligado' : '');
     } catch (e) {

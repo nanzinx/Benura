@@ -12,6 +12,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { carregarConfig, validarConfig } = require('../config');
 const { criarLogger } = require('../utils/logger');
+const { ativarLogsEmArquivo } = require('../utils/logs-em-arquivo');
 const { horaLocal, diaDaSemanaLocal } = require('../utils/datas');
 const { executarPeriodicamente } = require('../utils/periodico');
 const { adquirirTravaOuEncerrar } = require('../utils/trava-processo');
@@ -108,6 +109,7 @@ async function executarContinuamente(app) {
 async function iniciarAtualizador(argv = process.argv.slice(2)) {
   const opcoes = lerOpcoes(argv);
   const app = montarAtualizador();
+  ativarLogsEmArquivo(app.cfg, 'atualizador');
   exigirConfigValida(app.cfg, app.log);
   if (!opcoes.umaVez) return executarContinuamente(app);
 

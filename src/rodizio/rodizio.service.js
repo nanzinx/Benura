@@ -26,8 +26,11 @@ const {
 } = require('../domain/rodizio');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
+const { raioXDoCallback, horaNoFuso } = require('../domain/raio-x-callback');
 const { mapearComLimite } = require('../utils/concorrencia');
 
+/** Quanto tempo de fotos da URA o raio-x dos callbacks guarda (o relatório chega com até alguns minutos de atraso). */
+const FOTOS_MS = 15 * 60_000;
 /** No máximo uma tentativa de relogar o mesmo ramal nesse intervalo (fora as logo após mover). */
 const INTERVALO_ALINHAMENTO_MS = 60_000;
 
@@ -101,6 +104,8 @@ class RodizioService {
     this.excessoDesde = null;
     /** Último livre da URA prestes a sair por ociosidade (robôs param de discar): { ramal, desde } | null. */
     this.ultimoSaindo = null;
+    /** Fotos da URA dos últimos FOTOS_MS (raio-x de cada callback: raio-x-callback.js). */
+    this.fotos = [];
     this.iniciadoEm = Date.now();
     this.ultimoWebhookEm = 0;
     this.ultimoAvisoSemWebhookEm = 0;
@@ -278,6 +283,7 @@ class RodizioService {
     const ociosos = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
     this.prepararSaidaDoUltimoLivre(ramais, agora);
     await this.avaliarRobos();
+    this.registrarFoto(Date.now());
     this.verificarPassividade(agora);
 
     this.avisarSeSemWebhook();
@@ -327,7 +333,9 @@ class RodizioService {
     const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? agora) : undefined;
     const offlineDesde = classe === Classe.OFFLINE ? (anterior?.offlineDesde ?? agora) : undefined;
     const emCarencia = agora - (this.trocouEm.get(ramal) ?? -Infinity) < (this.cfg.carenciaTrocaMs ?? 0);
-    const detalhe = lido.status ? { grupo: lido.status.idGrupo ?? null, origem: lido.status.origemDerivacao ?? null } : null;
+    const detalhe = lido.status
+      ? { grupo: lido.status.idGrupo ?? null, origem: lido.status.origemDerivacao ?? null, nome: lido.status.nome ?? null }
+      : null;
     if (classe === Classe.ATENDIMENTO && anterior?.classe !== Classe.ATENDIMENTO) this.ultimoAtendimentoUraEm = agora;
     this.statusUra.set(ramal, { classe, ts: agora, livreDesde, offlineDesde, emCarencia, detalhe });
   }
@@ -507,6 +515,7 @@ class RodizioService {
         intervaloSubidaMs: this.cfg.intervaloSubidaMs,
         porLivre: this.porLivreAgora(agora),
         maximo: this.cfg.robosMaximo,
+        maxComUmLivre: this.cfg.robosMaxComUmLivre,
         // Com poll lento, o status "envelhece" entre ciclos: não pode virar "sem visibilidade".
         validadeStatusMs: Math.max(VALIDADE_STATUS_MS, this.cfg.pollUraMs * 2 + 1000),
       },
@@ -569,10 +578,10 @@ class RodizioService {
    * O cliente pediu um humano e desistiu na fila (webhook de encerramento de URA).
    * Registra com a situação da URA naquele instante e, com o ajuste ligado,
    * baixa um degrau de robôs por livre e reavalia os robôs na hora.
+   * @param {{ motivo: string, chave: string|null }} callback
+   * @param {string} [situacao] - padrão: a URA agora (webhook, na hora do callback)
    */
-  registrarCallback(callback) {
-    const { ligados } = this.robos.situacao(this.ramaisRobos.length);
-    const situacao = `${this.ultimosLivres ?? '?'} livre(s) na URA e ${ligados ?? '?'} robô(s) ligado(s)${this.descreverLivres()}`;
+  registrarCallback(callback, situacao = this.situacaoAgora()) {
     if (!this.ajuste) {
       this.log.aviso(`Callback (${callback.motivo}) com ${situacao}.`);
       return;
@@ -581,13 +590,62 @@ class RodizioService {
     if (baixou) this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após callback: ${e.message}`));
   }
 
+  situacaoAgora() {
+    const { ligados } = this.robos.situacao(this.ramaisRobos.length);
+    return `${this.ultimosLivres ?? '?'} livre(s) na URA e ${ligados ?? '?'} robô(s) ligado(s)${this.descreverLivres()}`;
+  }
+
+  // ───────────────────────────── Raio-x dos callbacks ─────────────────────────────
+
+  /** Foto da URA deste ciclo (só dados do operador). Guarda os últimos FOTOS_MS. */
+  registrarFoto(agora) {
+    const ura = [...this.ramaisUra].filter((r) => this.statusUra.has(r)).map((ramal) => {
+      const { classe, emCarencia, detalhe } = this.statusUra.get(ramal);
+      return {
+        ramal,
+        nome: detalhe?.nome ?? null,
+        classe,
+        grupo: detalhe?.grupo ?? null,
+        emCarencia: Boolean(emCarencia),
+        trocouEm: this.trocouEm.get(ramal) ?? null,
+        movidoEm: this.movidos[ramal]?.entrouEm ?? null,
+      };
+    });
+    const { ligados, alvo } = this.robos.resumo();
+    this.fotos.push({ ts: agora, robos: { ligados: ligados ?? null, alvo: alvo ?? null }, ura });
+    while (this.fotos.length && agora - this.fotos[0].ts > FOTOS_MS) this.fotos.shift();
+  }
+
+  /** Houve robô ligado em alguma foto de `janelaMs` para cá? (o vigia de callbacks só lê nesse caso) */
+  teveRoboLigado(agora, janelaMs) {
+    return this.fotos.some((f) => f.ts >= agora - janelaMs && f.robos.ligados > 0)
+      || Boolean(this.robos.situacao(this.ramaisRobos.length).ligados);
+  }
+
+  /**
+   * Callback achado no relatório da Argus (vigia-callbacks.js): grava o raio-x da
+   * URA na hora da ligação (linha "CALLBACK", vai para callbacks.txt) e desce o ajuste.
+   * @param {{ motivo: string, chave: string|null, inicio: number|null, fim: number|null, robo: string|null }} c
+   */
+  registrarCallbackDoRelatorio({ motivo, chave, inicio, fim, robo }) {
+    const fuso = this.cfg.fusoHorario ?? 'America/Sao_Paulo';
+    const raioX = inicio == null
+      ? { linha: `CALLBACK (hora não veio no relatório) ${robo ?? ''} | sem raio-x` }
+      : raioXDoCallback({ fotos: this.fotos, inicio, fim: fim ?? inicio, grupoUraId: this.cfg.grupoUraId, fuso, robo });
+    this.log.aviso(raioX.linha);
+    const quando = inicio == null ? '' : ` às ${horaNoFuso(inicio, fuso)}`;
+    this.registrarCallback({ motivo, chave }, `relatório da Argus${quando}`);
+  }
+
   /**
    * URA passiva: há livre, os robôs já estão todos no alvo e ninguém da URA
    * atende há ROBOS_PASSIVA_APOS_MIN. Sobe os robôs por livre (até o máximo).
    * Não vale no modo manual dos robôs nem quando o último livre está saindo.
    */
   verificarPassividade(agora = Date.now()) {
-    if (!this.ajuste || !(this.ultimosLivres > 0) || agora < this.manualAte || this.ultimoLivreSaindo()) return;
+    // Com 1 livre o teto ROBOS_MAX_COM_1_LIVRE manda: subir o "por livre" ali só viraria uma
+    // rajada quando chegasse o segundo livre.
+    if (!this.ajuste || !(this.ultimosLivres > 1) || agora < this.manualAte || this.ultimoLivreSaindo()) return;
     const { ligados, alvo } = this.robos.resumo();
     if (!ligados || ligados < alvo) return;
     const semDerivacaoMs = agora - this.ultimoAtendimentoUraEm;
@@ -692,6 +750,7 @@ class RodizioService {
         ...this.robos.resumo(),
         total: this.ramaisRobos.length,
         porLivre: this.porLivreAgora(),
+        maxComUmLivre: this.cfg.robosMaxComUmLivre || null,
         manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,
       },
       intervaloUraMs: this.intervaloUraMs(),
