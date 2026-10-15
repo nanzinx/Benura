@@ -74,11 +74,15 @@ function elegiveisDoEstado(estado, hoje) {
 }
 
 /**
- * Regra 2: ocioso (Livre) há `ociosoMs` seguidos, ou movido pelo rodízio que ficou offline.
- * @param {{ classe: string, livreDesde?: number, agora: number, ociosoMs: number, movido?: object }} entrada
+ * Regra 2: ocioso (Livre) há `ociosoMs` seguidos, ou movido pelo rodízio que ficou offline
+ * por `offlineMs` seguidos.
+ * @param {{ classe: string, livreDesde?: number, agora: number, ociosoMs: number, movido?: object,
+ *           offlineDesde?: number, offlineMs?: number }} entrada
  */
-function deveVoltarAoAtivo({ classe, livreDesde, agora, ociosoMs, movido }) {
-  if (classe === Classe.OFFLINE) return Boolean(movido);
+function deveVoltarAoAtivo({ classe, livreDesde, agora, ociosoMs, movido, offlineDesde, offlineMs = 0 }) {
+  // Movido que fica offline volta, mas só se continuar offline: logo depois da
+  // transferência (ou de um relogin) o status pisca "deslogado" por alguns segundos.
+  if (classe === Classe.OFFLINE) return Boolean(movido) && agora - (offlineDesde ?? agora) >= offlineMs;
   return classe === Classe.LIVRE && Number.isFinite(livreDesde) && agora - livreDesde >= ociosoMs;
 }
 
@@ -123,8 +127,12 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
   const humanos = ramaisUra.filter((r) => status.get(r).classe !== Classe.OFFLINE);
   if (!humanos.length) return nenhum('URA vazia ou com todos offline');
 
-  const livres = humanos.filter((r) => status.get(r).classe === Classe.LIVRE).length;
-  if (!livres) return nenhum('nenhum humano livre na URA');
+  // Quem acabou de passar a telefonia para a URA ainda não recebe derivação com
+  // certeza (visto em 15/10: callback 37 s depois da troca): só conta após a carência.
+  const livresTodos = humanos.filter((r) => status.get(r).classe === Classe.LIVRE);
+  const livres = livresTodos.filter((r) => !status.get(r).emCarencia).length;
+  if (!livresTodos.length) return nenhum('nenhum humano livre na URA');
+  if (!livres) return nenhum('livre(s) na URA ainda na carência da troca de grupo');
 
   const alvo = Math.min(total, livres * cfg.porLivre, cfg.maximo || Infinity);
   return { alvo, livres, motivo: `${livres} livre(s) na URA × ${cfg.porLivre}` };

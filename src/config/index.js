@@ -129,8 +129,14 @@ function carregarConfig(overrides = {}) {
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
       // A regra do ocioso vale sempre. Quando o último livre da URA está a este tempo de
       // sair, os robôs param de discar para os que estão em ligação terminarem antes. 0 = não prepara.
-      // (SEGURAR_ULTIMO_LIVRE_MS, do .env antigo, vale como antecedência.)
-      prepararSaidaMs: envNum('PREPARAR_SAIDA_ULTIMO_LIVRE_MS', envNum('SEGURAR_ULTIMO_LIVRE_MS', 90_000)),
+      // (SEGURAR_ULTIMO_LIVRE_MS, do .env antigo, não vale mais: era 90 s, demais com poucos na URA.)
+      prepararSaidaMs: envNum('PREPARAR_SAIDA_ULTIMO_LIVRE_MS', 30_000),
+      // Quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta
+      // como livre para os robôs depois deste tempo (15/10: callback 37 s depois da troca).
+      carenciaTrocaMs: envNum('CARENCIA_TROCA_GRUPO_MS', 60_000),
+      // Movido que fica offline só volta ao Ativo se continuar offline por este tempo
+      // (durante a troca ou um relogin o status pisca "deslogado").
+      offlineVoltaAposMs: envNum('OFFLINE_VOLTA_APOS_MS', 60_000),
       // Só sobe do Ativo para a URA quem o roteador pôs na URA hoje (meta de ontem, venda
       // hoje ou fixo), lido do STATE_FILE do roteador. Sem a lista do dia, gira todos.
       soElegiveis: envBool('RODIZIO_SO_ELEGIVEIS', true),

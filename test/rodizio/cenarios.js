@@ -90,6 +90,8 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ALINHAR_LOGIN_APOS_MS: '1000',
       PREPARAR_SAIDA_ULTIMO_LIVRE_MS: '0', // cada cenário de último livre liga o seu
       RODIZIO_SO_ELEGIVEIS: '0', // os cenários de elegíveis ligam o filtro
+      CARENCIA_TROCA_GRUPO_MS: '0', // os cenários de carência ligam a sua
+      OFFLINE_VOLTA_APOS_MS: '0',
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -334,15 +336,36 @@ const CENARIOS = {
     if (segundos < 4.5) throw new Error(`voltou ${segundos.toFixed(1)} s depois do atendimento; deveria contar 6 s de novo`);
   },
 
-  async 'URA: movido que fica offline volta imediatamente'(r) {
+  async 'URA: movido que pisca offline não volta; offline que continua volta depois de OFFLINE_VOLTA_APOS_MS'(r) {
     r.argus.definirStatus('101', 'em atendimento');
     await esperar(1000);
     r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
     await aguardar(() => r.argus.estado.grupoLogado['101'] === undefined, { descricao: 'a discadora trocar o 101 para a URA' });
     await esperar(500);
-    r.argus.definirStatus('101', null);
-    await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 3000, descricao: '101 offline → Ativo' });
+    r.argus.definirStatus('101', null); // pisca "deslogado" (troca de grupo, relogin)
+    await esperar(1000);
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(2500);
+    if (r.transferencias().includes('101→1')) throw new Error('devolveu ao Ativo por um offline passageiro');
+
+    r.argus.definirStatus('101', null); // agora fica offline
+    const desde = Date.now();
+    await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 6000, descricao: '101 offline → Ativo' });
+    if (Date.now() - desde < 1800) throw new Error('voltou antes de OFFLINE_VOLTA_APOS_MS');
+  },
+
+  async 'Robôs: quem acabou de trocar a telefonia para a URA só liga robô depois da carência'(r) {
+    const robosLigados = () => r.chamadas('logaroperadorvirtual').length;
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
+    await aguardar(() => r.saida.join('').includes('Ramal 101: telefonia na URA'), { descricao: 'registrar a troca' });
+    const trocou = Date.now();
+    await aguardar(() => robosLigados() > 0, { timeoutMs: 8000, descricao: 'ligar robô depois da carência' });
+    if (Date.now() - trocou < 2500) throw new Error('ligou robô dentro da carência');
+    if (!/livres: 101 \(grupo 2/.test(r.saida.join(''))) throw new Error('a linha do tempo não mostrou como a Argus via o livre');
   },
 
   async 'Ativo: quem ficou offline perde o histórico de atendimento'(r) {
@@ -614,6 +637,12 @@ const URA_VAZIA_ROBOS_DESLIGADOS = {
 };
 
 const VARIACOES = {
+  'URA: movido que pisca offline não volta; offline que continua volta depois de OFFLINE_VOLTA_APOS_MS': {
+    env: { OFFLINE_VOLTA_APOS_MS: '2000', TEMPO_MIN: '1' },
+  },
+  'Robôs: quem acabou de trocar a telefonia para a URA só liga robô depois da carência': {
+    ...URA_VAZIA_ROBOS_DESLIGADOS, env: { CARENCIA_TROCA_GRUPO_MS: '3000' },
+  },
   'Rodízio: quem vai para a URA só conta como livre (e liga robô) depois que a discadora troca a telefonia': {
     ...URA_VAZIA_ROBOS_DESLIGADOS, atrasoTrocaMs: 1500, env: { ALINHAR_LOGIN_APOS_MS: '5000' },
   },
