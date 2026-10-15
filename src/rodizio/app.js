@@ -19,7 +19,7 @@ const { RodizioService } = require('./rodizio.service');
 const { ElegiveisUra } = require('./elegiveis-ura');
 const { resolverFixos } = require('../integrations/argus/fixos');
 const { UraCheia } = require('./ura-cheia');
-const { AjustePorCallback } = require('./ajuste-por-callback');
+const { AjusteRobos } = require('./ajuste-robos');
 const { dataLocal } = require('../utils/datas');
 const { DiretorioOperadores } = require('../integrations/argus/diretorio-operadores.service');
 const { criarRotasDoRodizio } = require('./controllers');
@@ -74,17 +74,23 @@ function montarElegiveis(cfg, diretorio, logger) {
   return new ElegiveisUra({ arquivo: cfg.rodizio.arquivoVendas, fusoHorario: cfg.agenda.fusoHorario, logger, fixos });
 }
 
-/** Robôs por livre ajustados pelos callbacks (ROBOS_AJUSTE_CALLBACK). */
+/**
+ * Robôs por livre que se ajustam ao dia: descem no callback e sobem com a URA passiva
+ * (ROBOS_AJUSTE_CALLBACK liga o automático); a supervisão também ajusta na página /ura.
+ */
 function montarAjuste(c, fusoHorario, logger) {
-  if (!c.ajusteCallback) return null;
   const cfg = {
     base: c.robosPorLivre,
     piso: Math.min(c.porLivreMinimo, c.robosPorLivre),
+    maximo: Math.max(c.porLivreMaximo, c.robosPorLivre),
+    degrau: c.degrauAjuste,
     recuperarAposMs: c.recuperarAposMs,
     intervaloMinMs: c.intervaloAjusteMs,
+    passivaMs: c.passivaMs,
+    automatico: c.ajusteCallback,
   };
   const repositorio = new ArquivoDeEstado({ arquivo: c.arquivoAjuste, logger });
-  return new AjustePorCallback({ cfg, logger, repositorio, hoje: () => dataLocal(fusoHorario) });
+  return new AjusteRobos({ cfg, logger, repositorio, hoje: () => dataLocal(fusoHorario) });
 }
 
 /** Retorno de quem desistiu da fila: recebe os mesmos webhooks do rodízio. */
@@ -146,7 +152,7 @@ function montarServidor({ cfg, log, rodizio, retornoFila }, ciclos) {
 function logarInicio({ cfg, cfgRodizio, log }) {
   const retorno = cfg.retornoFila.ativo ? `ligado (origem ${cfg.retornoFila.origem})` : 'desligado';
   log.info(`Rodízio iniciado | HTTP na porta ${cfgRodizio.porta} (GET /health, GET /ura, POST /webhook, POST /robos/manual, POST /robos/automatico) | `
-    + `TEMPO_MIN=${cfgRodizio.tempoNaUraMs / 60_000} | URA=${cfgRodizio.grupoUraId} | robôs=grupos ${cfgRodizio.gruposRobosIds.join(',')} (${cfgRodizio.robosPorLivre} por livre${cfgRodizio.ajusteCallback ? `, mín. ${cfgRodizio.porLivreMinimo} com callbacks` : ''}) | `
+    + `TEMPO_MIN=${cfgRodizio.tempoNaUraMs / 60_000} | URA=${cfgRodizio.grupoUraId} | robôs=grupos ${cfgRodizio.gruposRobosIds.join(',')} (${cfgRodizio.robosPorLivre} por livre${cfgRodizio.ajusteCallback ? `, de ${cfgRodizio.porLivreMinimo} a ${cfgRodizio.porLivreMaximo} conforme a URA` : ''}) | `
     + `Ativo=${cfgRodizio.gruposAtivosIds.join(',')} | sobem à URA: ${cfgRodizio.soElegiveis ? 'só elegíveis' : 'todos'} | retorno da fila: ${retorno}${cfgRodizio.dryRun ? ' | DRY_RUN' : ''}`);
 }
 

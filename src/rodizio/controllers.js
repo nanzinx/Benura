@@ -72,7 +72,14 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
     return { status: 200, corpo: { manualAte: null } };
   }
 
-  /** GET /ura — página para ligar/desligar a URA cheia. */
+  /** POST /robos/por-livre { valor } — a supervisão ajusta os robôs por livre na hora. */
+  async function robosPorLivre({ corpo }) {
+    const valor = Number(corpo?.valor);
+    if (!Number.isFinite(valor) || valor < 1 || valor > 100) return { status: 400, corpo: { erro: 'valor deve ser um número entre 1 e 100' } };
+    return { status: 200, corpo: rodizio.definirRobosPorLivre(valor) };
+  }
+
+  /** GET /ura — página para ligar/desligar a URA cheia e ajustar os robôs por livre. */
   async function paginaUra() {
     return { status: 200, html: PAGINA_URA };
   }
@@ -95,6 +102,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
     { metodo: 'POST', caminho: '/webhook', handler: webhook, protegida: true, prefixo: true },
     { metodo: 'POST', caminho: '/robos/manual', handler: robosManual, protegida: true },
     { metodo: 'POST', caminho: '/robos/automatico', handler: robosAutomatico, protegida: true },
+    { metodo: 'POST', caminho: '/robos/por-livre', handler: robosPorLivre, protegida: true },
   ];
 }
 

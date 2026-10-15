@@ -121,6 +121,11 @@ function carregarConfig(overrides = {}) {
       // por livre, até o mínimo; sem callback por ROBOS_RECUPERAR_APOS_MIN, sobe um de volta.
       ajusteCallback: envBool('ROBOS_AJUSTE_CALLBACK', true),
       porLivreMinimo: envNum('ROBOS_POR_LIVRE_MINIMO', 4),
+      // URA passiva (livres parados, robôs no alvo, ninguém atendendo por este tempo): sobe
+      // ROBOS_AJUSTE_DEGRAU robôs por livre, até o máximo. O callback desce o mesmo degrau.
+      porLivreMaximo: envNum('ROBOS_POR_LIVRE_MAXIMO', 15),
+      degrauAjuste: envNum('ROBOS_AJUSTE_DEGRAU', 2),
+      passivaMs: envNum('ROBOS_PASSIVA_APOS_MIN', 2) * 60_000,
       recuperarAposMs: envNum('ROBOS_RECUPERAR_APOS_MIN', 15) * 60_000,
       intervaloAjusteMs: envNum('ROBOS_AJUSTE_INTERVALO_S', 60) * 1000,
       // Ajuste gravado para um reinício no mesmo dia retomar o degrau em que estava.

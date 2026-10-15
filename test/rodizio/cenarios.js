@@ -92,6 +92,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_SO_ELEGIVEIS: '0', // os cenários de elegíveis ligam o filtro
       CARENCIA_TROCA_GRUPO_MS: '0', // os cenários de carência ligam a sua
       OFFLINE_VOLTA_APOS_MS: '0',
+      ROBOS_PASSIVA_APOS_MIN: '60', // os cenários de URA passiva ligam a sua
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -425,6 +426,26 @@ const CENARIOS = {
     if ((await ajuste()).porLivre !== 3) throw new Error('não voltou a 3 por livre');
   },
 
+  async 'Robôs: URA passiva sobe os robôs por livre; a supervisão ajusta na /ura'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
+    const ajuste = async () => (await (await fetch(`${r.base}/health`)).json()).ajusteRobos;
+    await aguardar(() => ligados().length === 2, { descricao: '1 livre × 2 = 2 robôs' });
+    // Ninguém da URA atende: depois de ROBOS_PASSIVA_APOS_MIN (~3 s), sobe 2 por livre.
+    await aguardar(() => ligados().length === 4, { timeoutMs: 10_000, descricao: 'URA passiva: 2 → 4 robôs' });
+    if (!r.saida.join('').includes('URA passiva (')) throw new Error('não registrou a subida no log');
+    if ((await ajuste()).porLivre !== 4) throw new Error('ajuste não subiu para 4');
+
+    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Robôs por livre')) throw new Error('a /ura não mostra os robôs por livre');
+    const definir = (valor, token = TOKEN) => fetch(`${r.base}/robos/por-livre`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ valor }),
+    });
+    if ((await definir(3, '')).status !== 401) throw new Error('ajustou sem token');
+    const resposta = await (await definir(3)).json();
+    if (resposta.porLivre !== 3) throw new Error(`ajuste manual: ${JSON.stringify(resposta)}`);
+    await aguardar(() => ligados().length === 3, { descricao: 'ajuste manual: 3 robôs' });
+  },
+
   async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {
     const post = (rota, corpo = {}) => fetch(`${r.base}${rota}?token=${TOKEN}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
@@ -695,6 +716,19 @@ const VARIACOES = {
     },
     env: {
       ROBOS_POR_LIVRE: '3', ROBOS_DEGRAU: '10', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_RECUPERAR_APOS_MIN: '0.08', TEMPO_MIN: '5',
+      ROBOS_AJUSTE_DEGRAU: '1',
+    },
+  },
+  'Robôs: URA passiva sobe os robôs por livre; a supervisão ajusta na /ura': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: {
+      ROBOS_POR_LIVRE: '2', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_POR_LIVRE_MAXIMO: '4', ROBOS_PASSIVA_APOS_MIN: '0.05',
+      ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
     },
   },
   'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina': {
