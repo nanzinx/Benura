@@ -105,3 +105,18 @@ test('vigia: relatório fora do ar avisa uma vez e não derruba o ciclo', async 
   assert.equal(avisos.length, 1);
   assert.match(avisos[0], /HTTP 500/);
 });
+
+test('vigia: reinício logo depois de um callback — a 1ª leitura entrega o que começou depois de o BenURA subir', async () => {
+  const ligacao = (id, hora) => ({ idLigacao: id, dataHoraLigacao: `2026-10-15T${hora}`, resultadoLigacao: 'OPER. VIRTUAL - ABANDONO EM FILA', tempoSegundos: 30 });
+  const entregues = [];
+  const vigia = new VigiaCallbacks({
+    client: { listarCampanhas: async () => [{ idCampanha: 3 }], ligacoesDetalhadas: async () => [ligacao(1, '09:44:00'), ligacao(2, '09:46:56')] },
+    rodizio: { iniciadoEm: T('09:46:30'), teveRoboLigado: () => true, registrarCallbackDoRelatorio: (c) => entregues.push(c) },
+    cfg: { gruposRobosIds: [6], fuso: FUSO },
+    logger: loggerNulo,
+  });
+  await vigia.verificar();
+  assert.deepEqual(entregues.map((c) => c.chave), ['ligacao:2'], 'o de antes de subir não conta; o de depois sim');
+  await vigia.verificar();
+  assert.equal(entregues.length, 1, 'não repete');
+});

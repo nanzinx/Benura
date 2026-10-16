@@ -645,7 +645,8 @@ class RodizioService {
   verificarPassividade(agora = Date.now()) {
     // Com 1 livre o teto ROBOS_MAX_COM_1_LIVRE manda: subir o "por livre" ali só viraria uma
     // rajada quando chegasse o segundo livre.
-    if (!this.ajuste || !(this.ultimosLivres > 1) || agora < this.manualAte || this.ultimoLivreSaindo()) return;
+    // Em DRY_RUN os robôs não discam de verdade: sem derivação, a URA sempre pareceria passiva.
+    if (!this.ajuste || this.cfg.dryRun || !(this.ultimosLivres > 1) || agora < this.manualAte || this.ultimoLivreSaindo()) return;
     const { ligados, alvo } = this.robos.resumo();
     if (!ligados || ligados < alvo) return;
     const semDerivacaoMs = agora - this.ultimoAtendimentoUraEm;

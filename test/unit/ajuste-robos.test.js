@@ -108,7 +108,7 @@ test('ajuste: reiniciar no mesmo dia retoma o valor; em outro dia começa do .en
   assert.equal(outroDia.atual(0), 7);
 });
 
-test('rodízio: URA passiva só com 2+ livres, robôs no alvo e ninguém atendendo; não no modo manual', () => {
+test('rodízio: URA passiva só com 2+ livres, robôs no alvo e ninguém atendendo; não no modo manual nem em DRY_RUN', () => {
   const subidas = [];
   const robos = { ligados: 7, alvo: 7 };
   const svc = new RodizioService({
@@ -132,6 +132,9 @@ test('rodízio: URA passiva só com 2+ livres, robôs no alvo e ninguém atenden
   svc.verificarPassividade(3 * MIN);
   svc.ultimosLivres = 2;
   svc.manualAte = 10 * MIN;
+  svc.verificarPassividade(3 * MIN);
+  svc.manualAte = 0;
+  svc.cfg.dryRun = true; // robôs não discam de verdade: nunca há derivação
   svc.verificarPassividade(3 * MIN);
   assert.equal(subidas.length, 1);
 });

@@ -224,7 +224,7 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - Robô que liga ou desliga **sem comando do BenURA** (outra cópia, script antigo, painel) gera um aviso no log e conta em `/health` (`robos.mudancasPorFora`).
    - **Modo manual**: `POST /robos/manual` `{ "minutos": 30 }` (com token) faz o BenURA parar de mexer nos robôs para a supervisão assumir pelo painel; `POST /robos/automatico` devolve.
    - **Robôs por livre se ajustam ao dia** (`ROBOS_AJUSTE_CALLBACK=1`, padrão): o `ROBOS_POR_LIVRE` (7) é o ponto de partida.
-     - **URA passiva**: com **2 ou mais** livres (com 1, manda o teto acima), os robôs já todos no alvo e ninguém da URA atendendo há `ROBOS_PASSIVA_APOS_MIN` (**2 min**), sobe `ROBOS_AJUSTE_DEGRAU` (**2**) robôs por livre, no máximo um degrau a cada esse tempo, até `ROBOS_POR_LIVRE_MAXIMO` (**15**). Log: `URA passiva (2 min sem derivação com 2 livre(s) e 14 robô(s)): robôs por livre 7→9.`
+     - **URA passiva**: fora do `DRY_RUN` (nele os robôs não discam de verdade, então nunca há derivação) e com **2 ou mais** livres (com 1, manda o teto acima), os robôs já todos no alvo e ninguém da URA atendendo há `ROBOS_PASSIVA_APOS_MIN` (**2 min**), sobe `ROBOS_AJUSTE_DEGRAU` (**2**) robôs por livre, no máximo um degrau a cada esse tempo, até `ROBOS_POR_LIVRE_MAXIMO` (**15**). Log: `URA passiva (2 min sem derivação com 2 livre(s) e 14 robô(s)): robôs por livre 7→9.`
      - **Callback**: desce o mesmo degrau, até `ROBOS_POR_LIVRE_MINIMO` (**4**), no máximo um a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**); o mesmo callback conta uma vez; no modo manual dos robôs não ajusta. O BenURA fica sabendo do callback de dois jeitos: pelo **relatório de ligações da Argus** (vigia de callbacks, abaixo, sem configurar nada) e pelo webhook **encerramento de URA, tipo 5** ("abandonou a fila" ou "time-out na fila"), se estiver configurado na Argus (`POST /webhook?token=…`). Os dois usam o `idLigacao`: não conta em dobro. O log traz a situação no instante: `Callback (abandonou a fila) com 1 livre(s) na URA e 7 robô(s) ligado(s) | livres: …: robôs por livre 7→5.`
      - Abaixo do `ROBOS_POR_LIVRE`, sem callback por `ROBOS_RECUPERAR_APOS_MIN` (**15 min**), sobe 1 de volta.
      - **Ajuste manual**: na página `/ura` (campo "Robôs por livre") ou `POST /robos/por-livre { "valor": 12 }` (com token). Vale na hora, entre o mínimo e o máximo; o automático continua a partir dele.
@@ -249,7 +249,7 @@ Para descobrir **quando** e **por que** os robôs geram callback:
    - **INVISÍVEL**: havia livre com a telefonia na URA durante toda a ligação. É o caso que precisa ser levado à Argus;
    - **sem histórico**: o BenURA estava desligado ou acabou de reiniciar.
 
-   Essas linhas ficam em `logs/AAAA-MM-DD/callbacks.txt` (veja **Logs** abaixo). Se houver mais de uma campanha ativa, informe a dos robôs em `CAMPANHA_ROBOS_ID`. Sem dado de cliente.
+   Depois de um reinício, a primeira leitura só ignora os callbacks de ligações que começaram antes de o BenURA subir. Essas linhas ficam em `logs/AAAA-MM-DD/callbacks.txt` (veja **Logs** abaixo). Se houver mais de uma campanha ativa, informe a dos robôs em `CAMPANHA_ROBOS_ID`. Sem dado de cliente.
 2. **Linha do tempo no log do rodízio.** A cada mudança no número de livres, o log mostra uma linha:
    `URA: livres 2→1 | humanos 3 | robôs ligados 14 (alvo 7)`.
 3. **Relatório dos robôs, só leitura:**
