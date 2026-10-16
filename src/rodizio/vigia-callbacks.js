@@ -9,8 +9,9 @@
  * o rodízio, que faz o raio-x da URA naquela hora (callbacks.txt) e desce o ajuste.
  *
  * Só lê enquanto houve robô ligado nos últimos 10 min (sem robô, não há callback).
- * A primeira leitura só marca o que já existia: o callback de antes de o BenURA
- * subir não é dele.
+ * Na primeira leitura, o callback de ligação que começou antes de o BenURA subir
+ * só é marcado (não é dele e não há fotos da URA daquela hora); o que começou
+ * depois é entregue normalmente (ex.: reinício logo após um callback).
  */
 
 const { semDadosDeCliente, tipoDaLigacao, textoDaHora, duracaoDaLigacao } = require('../domain/diagnostico-callbacks');
@@ -26,7 +27,7 @@ class VigiaCallbacks {
   /**
    * @param {object} deps
    * @param {{ ligacoesDetalhadas: Function, listarCampanhas: Function }} deps.client
-   * @param {{ teveRoboLigado(agora: number, janelaMs: number): boolean, registrarCallbackDoRelatorio(c: object): void }} deps.rodizio
+   * @param {{ iniciadoEm: number, teveRoboLigado(agora: number, janelaMs: number): boolean, registrarCallbackDoRelatorio(c: object): void }} deps.rodizio
    * @param {{ gruposRobosIds: number[], idCampanha?: number, janelaMin?: number, fuso: string }} deps.cfg
    * @param {object} deps.logger
    */
@@ -53,12 +54,18 @@ class VigiaCallbacks {
 
     for (const [id, quando] of this.vistas) if (agora - quando > LEMBRAR_MS) this.vistas.delete(id);
     const novos = ligacoes.map(semDadosDeCliente).filter((l) => tipoDaLigacao(l) === 'callback' && this.marcarNova(l, agora));
-    if (this.primeiraLeitura) {
-      this.primeiraLeitura = false;
-      if (novos.length) this.log.info(`Vigia de callbacks: ${novos.length} callback(s) de antes de o BenURA começar a vigiar (não contam).`);
-      return;
+    const entregar = this.primeiraLeitura ? novos.filter((l) => this.depoisDoInicio(l)) : novos;
+    if (this.primeiraLeitura && novos.length > entregar.length) {
+      this.log.info(`Vigia de callbacks: ${novos.length - entregar.length} callback(s) de antes de o BenURA subir (não contam).`);
     }
-    for (const ligacao of novos) this.entregar(ligacao);
+    this.primeiraLeitura = false;
+    for (const ligacao of entregar) this.entregar(ligacao);
+  }
+
+  /** A ligação começou depois de o BenURA subir? (sem hora no relatório, não dá para saber: não conta) */
+  depoisDoInicio(ligacao) {
+    const inicio = instanteLocal(textoDaHora(ligacao), this.cfg.fuso);
+    return inicio != null && inicio >= (this.rodizio.iniciadoEm ?? Infinity);
   }
 
   async lerLigacoes() {
