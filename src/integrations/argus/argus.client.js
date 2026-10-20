@@ -245,14 +245,18 @@ class ArgusClient {
   /**
    * Ligações detalhadas (doc 5.1), seguindo a paginação até o fim.
    * @param {{ idCampanha: number, idGrupoUsuario?: number, ultimosMinutos?: number }} filtro
+   * @param {{ maxPaginas?: number, aoReceber?: (pagina: object[]) => void }} [opcoes] - com aoReceber, devolve []
    * @returns {Promise<object[]>}
    */
-  async ligacoesDetalhadas(filtro, { maxPaginas = 20 } = {}) {
+  async ligacoesDetalhadas(filtro, { maxPaginas = 20, aoReceber = null } = {}) {
     const ligacoes = [];
     let ultimoId = null;
     for (let pagina = 0; pagina < maxPaginas; pagina++) {
       const r = await this.relatorio('ligacoesdetalhadas', ultimoId ? { ...filtro, ultimoId } : filtro);
-      ligacoes.push(...(Array.isArray(r.ligacoesDetalhadas) ? r.ligacoesDetalhadas : []));
+      const itens = Array.isArray(r.ligacoesDetalhadas) ? r.ligacoesDetalhadas : [];
+      // aoReceber: processa página a página, sem juntar tudo na memória (histórico de vários dias).
+      if (aoReceber) aoReceber(itens);
+      else ligacoes.push(...itens);
       if (r.endOfTable || !r.idProxPagina) return ligacoes;
       ultimoId = r.idProxPagina;
     }

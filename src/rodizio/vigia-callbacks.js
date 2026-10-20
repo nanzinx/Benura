@@ -31,8 +31,8 @@ class VigiaCallbacks {
    * @param {{ gruposRobosIds: number[], idCampanha?: number, janelaMin?: number, fuso: string }} deps.cfg
    * @param {object} deps.logger
    */
-  constructor({ client, rodizio, cfg, logger }) {
-    Object.assign(this, { client, rodizio, cfg: { janelaMin: 5, ...cfg }, log: logger });
+  constructor({ client, rodizio, cfg, logger, perfis = null }) {
+    Object.assign(this, { client, rodizio, cfg: { janelaMin: 5, ...cfg }, log: logger, perfis });
     /** idLigacao → quando foi vista */
     this.vistas = new Map();
     this.primeiraLeitura = true;
@@ -53,6 +53,7 @@ class VigiaCallbacks {
     this.falhando = false;
 
     for (const [id, quando] of this.vistas) if (agora - quando > LEMBRAR_MS) this.vistas.delete(id);
+    this.contarNosPerfis(ligacoes, agora);
     const novos = ligacoes.map(semDadosDeCliente).filter((l) => tipoDaLigacao(l) === 'callback' && this.marcarNova(l, agora));
     const entregar = this.primeiraLeitura ? novos.filter((l) => this.depoisDoInicio(l)) : novos;
     if (this.primeiraLeitura && novos.length > entregar.length) {
@@ -60,6 +61,13 @@ class VigiaCallbacks {
     }
     this.primeiraLeitura = false;
     for (const ligacao of entregar) this.entregar(ligacao);
+  }
+
+  /** Perfis de clientes: cada ligação final conta (na 1ª leitura, só as de depois de o BenURA subir: senão um reinício contaria em dobro). */
+  contarNosPerfis(ligacoes, agora) {
+    if (!this.perfis) return;
+    for (const l of ligacoes) if (!this.primeiraLeitura || this.depoisDoInicio(l)) this.perfis.registrarLigacao(l, agora);
+    this.perfis.manter(agora);
   }
 
   /** A ligação começou depois de o BenURA subir? (sem hora no relatório, não dá para saber: não conta) */

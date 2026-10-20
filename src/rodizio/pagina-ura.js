@@ -41,6 +41,11 @@ const PAGINA_URA = `<!doctype html>
   <h1>URA cheia</h1>
   <p class="sub">Quando pedirem todo mundo na URA, e para ajustar os robôs por livre. O BenURA continua cuidando dos robôs (proporcionais aos livres), da telefonia e da regra do ocioso.</p>
 
+  <div class="faixa" id="faixaRisco" hidden>
+    <div>CLIENTE DE RISCO EM LIGAÇÃO COM ROBÔ</div>
+    <ul id="listaAlertas" style="font-weight:400"></ul>
+  </div>
+
   <div class="faixa" id="faixaPanico" hidden>PÂNICO ATIVO: a URA está com 1 livre ou menos e os robôs estão sendo desligados.</div>
 
   <div class="cartao" id="cartaoPanico" hidden>
@@ -55,6 +60,26 @@ const PAGINA_URA = `<!doctype html>
       <button id="desligarPanico" class="secundario">Desligar pânico</button>
       <span id="situacaoPanico"></span>
     </div>
+  </div>
+
+  <div class="cartao" id="cartaoRisco" hidden>
+    <div class="estado">Clientes de risco</div>
+    <p class="sub" id="riscoInfo"></p>
+    <ul>
+      <li>Cliente de risco: gerou callback ou atende muito o robô nos últimos dias. Quando um robô estiver falando com ele, aparece um aviso aqui no topo, com som e notificação.</li>
+      <li>Com "desligar robôs" ligado, o BenURA também desliga na hora os robôs que não estão em ligação, para o livre ficar para esse cliente.</li>
+    </ul>
+    <div class="linha">
+      <button id="notificar" class="secundario">Ativar notificações</button>
+      <span id="situacaoNotificar"></span>
+    </div>
+    <div class="linha">
+      Desligar robôs com cliente de risco: <b id="desligaRisco">–</b>
+      <button id="ligarRisco" class="perigo">Ligar</button>
+      <button id="desligarRisco" class="secundario">Desligar</button>
+      <span id="situacaoRisco"></span>
+    </div>
+    <details style="margin-top:12px"><summary>Os 20 clientes de maior risco</summary><ul id="topRisco"></ul></details>
   </div>
 
   <div class="cartao">
@@ -191,8 +216,66 @@ const PAGINA_URA = `<!doctype html>
     });
   });
 
+  // ── Clientes de risco ──
+  const alertados = new Set();
+  const tituloOriginal = document.title;
+  function bipe() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.35, 0.7].forEach((t) => {
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.3, ctx.currentTime + t); g.gain.setValueAtTime(0, ctx.currentTime + t + 0.2);
+        o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.25);
+      });
+    } catch {}
+  }
+  function avisar(a) {
+    const texto = (a.robo || 'Robô') + ' com ' + a.mascara + ' (' + a.motivos.join(', ') + ')';
+    bipe();
+    try { if (window.Notification && Notification.permission === 'granted') new Notification('Cliente de risco em ligação', { body: texto }); } catch {}
+  }
+  function item(texto) { const li = document.createElement('li'); li.textContent = texto; return li; }
+  async function verAlertas() {
+    try {
+      const r = await (await fetch('/alertas')).json();
+      $('cartaoRisco').hidden = !r.ativo;
+      if (!r.ativo) return;
+      $('desligaRisco').textContent = r.desligaRobos.ligado ? 'ligado' : 'desligado';
+      $('riscoInfo').textContent = (r.perfis.clientes || 0) + ' cliente(s) com perfil, ' + (r.perfis.risco || 0) + ' de risco'
+        + (r.perfis.historicoAte ? ' · histórico até ' + r.perfis.historicoAte : ' · sem histórico (npm run perfis:montar)');
+      const lista = $('listaAlertas');
+      lista.replaceChildren(...r.alertas.map((a) => item(hora(a.inicio) + ' · ' + (a.robo || 'robô') + ' · ' + a.mascara + ' · ' + a.motivos.join(', '))));
+      $('faixaRisco').hidden = !r.alertas.length;
+      document.title = r.alertas.length ? '⚠ Cliente de risco · BenURA' : tituloOriginal;
+      r.alertas.filter((a) => !alertados.has(a.id)).forEach((a) => { alertados.add(a.id); avisar(a); });
+    } catch {}
+  }
+  async function verTopRisco() {
+    try {
+      const r = await (await fetch('/perfis/risco')).json();
+      $('topRisco').replaceChildren(...r.clientes.map((c) => item(c.mascara + ' · ' + c.callbacks + ' callback(s) · atendeu ' + c.atendeu + ' vez(es)'
+        + (c.ultimoDia ? ' · último dia ' + c.ultimoDia : ''))));
+    } catch {}
+  }
+  $('notificar').addEventListener('click', async () => {
+    if (!window.Notification) { $('situacaoNotificar').textContent = 'Este navegador não tem notificações.'; return; }
+    const p = await Notification.requestPermission();
+    $('situacaoNotificar').textContent = p === 'granted' ? 'Notificações ativadas.' : 'Notificações bloqueadas (abra por http://localhost:3000/ura).';
+    bipe();
+  });
+  const desligaRisco = (method, emAndamento, sucesso) => pedir({
+    url: '/risco/desligar', method, botoes: ['ligarRisco', 'desligarRisco'], saida: 'situacaoRisco', emAndamento, sucesso,
+  });
+  $('ligarRisco').addEventListener('click', () => desligaRisco('POST', 'Ligando…', (r) => (r.mudou ? 'Ligado.' : 'Já estava ligado.')));
+  $('desligarRisco').addEventListener('click', () => desligaRisco('DELETE', 'Desligando…', (r) => (r.mudou ? 'Desligado.' : 'Já estava desligado.')));
+
   atualizar();
+  verAlertas();
+  verTopRisco();
   setInterval(atualizar, 5000);
+  setInterval(verAlertas, 2000);
+  setInterval(verTopRisco, 60000);
 </script>
 </body>
 </html>

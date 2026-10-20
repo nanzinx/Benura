@@ -281,6 +281,25 @@ Para descobrir **quando** e **por que** os robôs geram callback:
 
 Compare a hora de cada callback com a linha do tempo daquele minuto.
 
+### Perfis de clientes e cliente de risco
+O BenURA monta um perfil de cada telefone das bases da URA a partir do relatório de ligações dos robôs (só leitura):
+- **Atendeu:** o cliente falou com o robô (`ATENDIMENTO` ou `OPER. VIRTUAL…`).
+- **Callback:** abandono em fila.
+- **De risco:** `PERFIL_RISCO_CALLBACKS` callback(s) (**1**) ou atendeu `PERFIL_RISCO_ATENDE` vezes (**3**) nos últimos `PERFIS_DIAS` (**30**). Zero desliga o critério.
+
+**Privacidade:** não se guarda o telefone. A chave do perfil é um HMAC do número com um segredo local (`PERFIS_SEGREDO`, ou o arquivo `perfis-segredo.key`, criado sozinho e fora do git). Para mostrar na tela, guarda-se só a versão mascarada, como `(11) 9****-1594`. Nada de nome, CPF ou lead.
+
+**De onde vêm os dados:**
+- **Ao vivo:** o vigia de callbacks (`CALLBACKS_VERIFICAR_SEG`) conta cada ligação final em `state-perfis-clientes.json`.
+- **Histórico:** `npm run perfis:montar -- --dias 7` lê os dias anteriores e grava `state-perfis-historico.json`. Pode rodar com o BenURA ligado, que relê sozinho e soma sem contar o mesmo dia duas vezes. Para vários dias, leva alguns minutos.
+
+**Cliente de risco em ligação:** a cada `PERFIS_VIGIA_SEG` (**10 s**), com robô ligado, o BenURA lê as ligações "em curso" do último minuto. Se o telefone for de risco:
+- registra no log `CLIENTE DE RISCO em ligação: Oper Virtual 7 com (11) 9****-1594 (2 callback(s))`, que vai para `avisos.txt`;
+- mostra uma faixa no topo da página `/ura`, com bipe, título piscando e notificação do navegador. Clique em "Ativar notificações", com a página aberta em `http://localhost:3000/ura`;
+- se o interruptor **"Desligar robôs com cliente de risco"** estiver ligado (página `/ura` ou `POST`/`DELETE /risco/desligar`; padrão `RISCO_DESLIGA_ROBOS=false`), desliga na hora os robôs que não estão em ligação, para o livre ficar para esse cliente.
+
+As rotas `GET /alertas` e `GET /perfis/risco` (os 20 de maior risco) mostram só o telefone mascarado. `PERFIS_ATIVO=0` desliga tudo isso.
+
 ### Logs
 Tudo o que cada serviço escreve vai também para arquivos de texto, **uma pasta por dia**, com a **hora de Brasília** em cada linha:
 

@@ -714,6 +714,12 @@ class RodizioService {
     }
   }
 
+  /** Vigia de clientes de risco (interruptor ligado): para de discar sem derrubar quem está em ligação. */
+  async desligarPorClienteDeRisco(motivo) {
+    if (this.emModoManual()) return undefined;
+    return this.robos.encerrarSemDerrubar(motivo);
+  }
+
   /** POST/DELETE /panico. @returns {{ ligado: boolean, desde: string|null, mudou: boolean }} */
   definirPanico(ligado) {
     const mudou = this.panico.definir(ligado);

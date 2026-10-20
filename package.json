@@ -26,7 +26,8 @@
     "atualizador:agora": "node atualizador.js --uma-vez",
     "rotinas:agora": "node rotinas.js --agora",
     "diagnostico:callbacks": "node scripts/diagnostico-callbacks.js",
-    "conferir:supervisores": "node scripts/conferir-supervisores.js"
+    "conferir:supervisores": "node scripts/conferir-supervisores.js",
+    "perfis:montar": "node scripts/perfis-montar.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5"

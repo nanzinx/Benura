@@ -17,7 +17,7 @@ const { PAGINA_URA } = require('./pagina-ura');
  * @param {{ ultimoCicloUra(): number, ultimoCicloAtivo(): number }} deps.ciclos
  * @param {object} deps.logger
  */
-function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
+function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logger }) {
   async function health() {
     return {
       status: 200,
@@ -104,8 +104,33 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
     return { status: 200, corpo: rodizio.definirPanico(false) };
   }
 
+  /** GET /alertas — clientes de risco falando com um robô agora (telefone mascarado). */
+  async function alertas() {
+    if (!risco) return { status: 200, corpo: { ativo: false, alertas: [] } };
+    return {
+      status: 200,
+      corpo: { ativo: true, alertas: risco.vigia.listar(), desligaRobos: risco.desligaRobos.resumo(), perfis: risco.perfis.resumo() },
+    };
+  }
+
+  /** GET /perfis/risco — os clientes de risco (mais callbacks primeiro), telefone mascarado. */
+  async function perfisDeRisco() {
+    return { status: 200, corpo: { clientes: risco ? risco.perfis.maisArriscados(20) : [] } };
+  }
+
+  /** POST/DELETE /risco/desligar — desligar (ou não) os robôs quando um cliente de risco estiver em ligação. */
+  const definirDesligaRobos = (ligado) => async () => {
+    if (!risco) return { status: 404, corpo: { erro: 'perfis de clientes desligados (PERFIS_ATIVO=0)' } };
+    const mudou = risco.desligaRobos.definir(ligado);
+    return { status: 200, corpo: { ...risco.desligaRobos.resumo(), mudou } };
+  };
+
   return [
     { metodo: 'GET', caminho: '/health', handler: health },
+    { metodo: 'GET', caminho: '/alertas', handler: alertas },
+    { metodo: 'GET', caminho: '/perfis/risco', handler: perfisDeRisco },
+    { metodo: 'POST', caminho: '/risco/desligar', handler: definirDesligaRobos(true), protegida: true },
+    { metodo: 'DELETE', caminho: '/risco/desligar', handler: definirDesligaRobos(false), protegida: true },
     { metodo: 'POST', caminho: '/panico', handler: ligarPanico, protegida: true },
     { metodo: 'DELETE', caminho: '/panico', handler: desligarPanico, protegida: true },
     { metodo: 'GET', caminho: '/ura', handler: paginaUra },

@@ -141,6 +141,22 @@ function carregarConfig(overrides = {}) {
       // Vigia de callbacks: lê o relatório de ligações dos robôs a cada N s (só leitura) e grava o
       // raio-x de cada callback em logs/AAAA-MM-DD/callbacks.txt. Não depende do webhook. 0 = desligado.
       callbacksVerificarMs: envNum('CALLBACKS_VERIFICAR_SEG', 60) * 1000,
+      // Perfis de clientes das bases da URA (telefone guardado só como HMAC) e alerta de cliente de
+      // risco falando com um robô. Os perfis se alimentam do vigia de callbacks (CALLBACKS_VERIFICAR_SEG).
+      perfis: {
+        ativo: envBool('PERFIS_ATIVO', true),
+        arquivo: env('PERFIS_FILE', path.join(RAIZ, 'state-perfis-clientes.json')),
+        arquivoHistorico: env('PERFIS_HISTORICO_FILE', path.join(RAIZ, 'state-perfis-historico.json')),
+        arquivoSegredo: env('PERFIS_SEGREDO_FILE', path.join(RAIZ, 'perfis-segredo.key')),
+        segredo: env('PERFIS_SEGREDO', ''),
+        dias: envNum('PERFIS_DIAS', 30),
+        // Cliente de risco: tantos callbacks (abandono em fila) ou atendeu o robô tantas vezes nos PERFIS_DIAS. 0 = não usa.
+        minCallbacks: envNum('PERFIL_RISCO_CALLBACKS', 1),
+        minAtendeu: envNum('PERFIL_RISCO_ATENDE', 3),
+        vigiaMs: envNum('PERFIS_VIGIA_SEG', 10) * 1000,
+        arquivoDesliga: env('RODIZIO_RISCO_FILE', path.join(RAIZ, 'state-risco.json')),
+        desligaPadrao: envBool('RISCO_DESLIGA_ROBOS', false),
+      },
       // Campanha dos robôs para o relatório; vazio = a única campanha ativa.
       idCampanhaRobos: envNum('CAMPANHA_ROBOS_ID', 0),
       // Minutos ocioso (Livre) seguidos na URA antes de voltar ao Ativo. Atender zera a contagem.

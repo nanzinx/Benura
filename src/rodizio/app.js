@@ -23,6 +23,8 @@ const { UraCheia } = require('./ura-cheia');
 const { Interruptor } = require('./interruptor');
 const { AjusteRobos } = require('./ajuste-robos');
 const { VigiaCallbacks } = require('./vigia-callbacks');
+const { VigiaRisco } = require('./vigia-risco');
+const { PerfisClientes } = require('./perfis-clientes');
 const { dataLocal } = require('../utils/datas');
 const { DiretorioOperadores } = require('../integrations/argus/diretorio-operadores.service');
 const { criarRotasDoRodizio } = require('./controllers');
@@ -69,13 +71,25 @@ function montarRodizio(overrides) {
     }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
-  const vigia = cfgRodizio.callbacksVerificarMs > 0 && cfgRodizio.gruposRobosIds.length ? new VigiaCallbacks({
-    client,
-    rodizio,
-    cfg: { gruposRobosIds: cfgRodizio.gruposRobosIds, idCampanha: cfgRodizio.idCampanhaRobos || undefined, fuso: cfg.agenda.fusoHorario },
-    logger: log.filho('callbacks'),
+  const comRobos = cfgRodizio.gruposRobosIds.length > 0;
+  const cfgVigias = { gruposRobosIds: cfgRodizio.gruposRobosIds, idCampanha: cfgRodizio.idCampanhaRobos || undefined, fuso: cfg.agenda.fusoHorario };
+  const risco = comRobos && cfgRodizio.perfis.ativo ? montarRisco({ cfgRodizio, cfgVigias, client, rodizio, log }) : null;
+  const vigia = cfgRodizio.callbacksVerificarMs > 0 && comRobos ? new VigiaCallbacks({
+    client, rodizio, cfg: cfgVigias, logger: log.filho('callbacks'), perfis: risco?.perfis ?? null,
   }) : null;
-  return { cfg, cfgRodizio, log, rodizio, retornoFila, vigia };
+  return { cfg, cfgRodizio, log, rodizio, retornoFila, vigia, risco };
+}
+
+/** Perfis de clientes + vigia de cliente de risco em ligação + interruptor "desligar robôs". */
+function montarRisco({ cfgRodizio, cfgVigias, client, rodizio, log }) {
+  const p = cfgRodizio.perfis;
+  const logger = log.filho('perfis');
+  const perfis = new PerfisClientes({ cfg: { ...p, fuso: cfgVigias.fuso }, logger });
+  const desligaRobos = new Interruptor({
+    nome: 'Desligar robôs com cliente de risco', arquivo: p.arquivoDesliga, padrao: p.desligaPadrao, logger,
+  });
+  const vigia = new VigiaRisco({ client, rodizio, perfis, desligaRobos, cfg: cfgVigias, logger });
+  return { perfis, desligaRobos, vigia };
 }
 
 /** Lista do dia do roteador; sem ela, só os fixos (resolvidos pelo diretório da Argus). */
@@ -129,7 +143,7 @@ function exigirConfigValida(cfg, log) {
 }
 
 /** Os três ciclos do rodízio, cada um sem sobreposição. */
-function iniciarCiclos({ rodizio, cfgRodizio, log, vigia }) {
+function iniciarCiclos({ rodizio, cfgRodizio, log, vigia, risco }) {
   const ciclo = (nome, intervaloMs, tarefa) => executarPeriodicamente({
     nome, intervaloMs, tarefa, logger: log, alertaLentoMs: Math.max(5000, cfgRodizio.pollUraMs * 2, cfgRodizio.pollAtivoMs * 2),
   });
@@ -138,6 +152,7 @@ function iniciarCiclos({ rodizio, cfgRodizio, log, vigia }) {
     ativo: ciclo('cicloAtivo', cfgRodizio.pollAtivoMs, () => rodizio.cicloAtivo()),
     ura: ciclo('cicloUra', () => rodizio.intervaloUraMs(), () => rodizio.cicloUra()),
     ...(vigia ? { callbacks: ciclo('vigiaCallbacks', cfgRodizio.callbacksVerificarMs, () => vigia.verificar()) } : {}),
+    ...(risco && cfgRodizio.perfis.vigiaMs > 0 ? { risco: ciclo('vigiaRisco', cfgRodizio.perfis.vigiaMs, () => risco.vigia.verificar()) } : {}),
   };
 }
 
@@ -150,11 +165,12 @@ async function lerGruposIniciais(rodizio, log) {
   }
 }
 
-function montarServidor({ cfg, log, rodizio, retornoFila }, ciclos) {
+function montarServidor({ cfg, log, rodizio, retornoFila, risco }, ciclos) {
   return criarServidor({
     rotas: criarRotasDoRodizio({
       rodizio,
       retornoFila,
+      risco,
       ciclos: { ultimoCicloUra: () => ciclos.ura.ultimaExecucao(), ultimoCicloAtivo: () => ciclos.ativo.ultimaExecucao() },
       logger: log,
     }),
@@ -183,6 +199,8 @@ async function iniciarRodizio() {
   const trava = adquirirTravaOuEncerrar(cfgRodizio.arquivoTrava, log);
   rodizio.inicializar();
   retornoFila.inicializar();
+  app.risco?.perfis.carregar();
+  app.risco?.desligaRobos.carregar();
   await lerGruposIniciais(rodizio, log);
 
   const ciclos = iniciarCiclos(app);
@@ -196,6 +214,7 @@ async function iniciarRodizio() {
       () => Promise.all(Object.values(ciclos).map((c) => c.parar())),
       () => fecharServidor(servidor),
       () => rodizio.salvar(),
+      () => app.risco?.perfis.salvar(),
       () => retornoFila.aguardar(),
       () => trava.liberar(),
     ],

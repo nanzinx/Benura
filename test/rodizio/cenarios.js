@@ -38,7 +38,7 @@ const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 async function aguardar(condicao, { timeoutMs = 8000, descricao = 'condição' } = {}) {
   const limite = Date.now() + timeoutMs;
   while (Date.now() < limite) {
-    if (condicao()) return;
+    if (await condicao()) return;
     await esperar(100);
   }
   throw new Error(`Tempo esgotado esperando: ${descricao}`);
@@ -96,6 +96,11 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ROBOS_MAX_COM_1_LIVRE: '0', // o cenário de 1 livre liga o seu
       CALLBACKS_VERIFICAR_SEG: '0', // o cenário do vigia de callbacks liga o seu
       ROBOS_MODO: 'automatico', // os cenários do modo pânico ligam o seu
+      PERFIS_VIGIA_SEG: '0', // o cenário de cliente de risco liga o seu
+      PERFIS_FILE: path.join(pasta, 'state-perfis-clientes.json'),
+      PERFIS_HISTORICO_FILE: path.join(pasta, 'state-perfis-historico.json'),
+      PERFIS_SEGREDO_FILE: path.join(pasta, 'perfis-segredo.key'),
+      RODIZIO_RISCO_FILE: path.join(pasta, 'state-risco.json'),
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -533,6 +538,28 @@ const CENARIOS = {
     await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'pânico religado: robôs desligados' });
   },
 
+  async 'Cliente de risco: callback vira perfil; "em curso" com esse cliente alerta na /alertas e desliga os robôs'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x] && r.argus.estado.status[x] !== 'Deslogado');
+    await aguardar(() => r.chamadas('ligacoesdetalhadas').length > 0, { descricao: 'primeira leitura do relatório' });
+    const local = (ms) => new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).format(new Date(Date.now() - ms)).replace(' ', 'T');
+    const cliente = { dddTelefone: '11980821594', nomeCliente: 'CLIENTE TESTE', usuarioOperador: 'Oper Virtual 7' };
+    r.argus.estado.ligacoes.push({ ...cliente, idLigacao: 1, dataHoraLigacao: local(3000), resultadoLigacao: 'OPER. VIRTUAL - ABANDONO EM FILA', tempoSegundos: 2 });
+    await aguardar(async () => (await (await fetch(`${r.base}/perfis/risco`)).json()).clientes.length === 1, { timeoutMs: 8000, descricao: 'perfil de risco' });
+    if (ligados().length !== 10) throw new Error('mexeu nos robôs antes do cliente de risco ligar');
+
+    r.argus.estado.ligacoes.push({ ...cliente, idLigacao: 2, dataHoraLigacao: local(1000), resultadoLigacao: 'LIGAÇÃO EM CURSO', tempoSegundos: 0 });
+    await aguardar(async () => (await (await fetch(`${r.base}/alertas`)).json()).alertas.length === 1, { timeoutMs: 8000, descricao: 'alerta' });
+    const { alertas } = await (await fetch(`${r.base}/alertas`)).json();
+    if (alertas[0].mascara !== '(11) 9****-1594' || JSON.stringify(alertas).includes('98082')) throw new Error(`alerta: ${JSON.stringify(alertas)}`);
+    await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'robôs desligados pelo cliente de risco' });
+    if (!r.saida.join('').includes('CLIENTE DE RISCO em ligação')) throw new Error('não registrou no log');
+    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Clientes de risco')) throw new Error('a /ura não mostra os clientes de risco');
+    const gravado = fs.existsSync(path.join(r.pasta, 'state-perfis-clientes.json')) ? fs.readFileSync(path.join(r.pasta, 'state-perfis-clientes.json'), 'utf8') : '';
+    if (/98082|CLIENTE TESTE/.test(gravado)) throw new Error('telefone ou nome no arquivo de perfis');
+  },
+
   async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {
     const post = (rota, corpo = {}) => fetch(`${r.base}${rota}?token=${TOKEN}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
@@ -816,6 +843,17 @@ const VARIACOES = {
     env: {
       ROBOS_POR_LIVRE: '2', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_POR_LIVRE_MAXIMO: '4', ROBOS_PASSIVA_APOS_MIN: '0.05',
       ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
+    },
+  },
+  'Cliente de risco: callback vira perfil; "em curso" com esse cliente alerta na /alertas e desliga os robôs': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: {
+      ROBOS_MODO: 'panico', TEMPO_MIN: '5', CALLBACKS_VERIFICAR_SEG: '0.5', PERFIS_VIGIA_SEG: '0.5', RISCO_DESLIGA_ROBOS: '1',
     },
   },
   'Pânico: com 1 livre, desliga os robôs que a supervisão ligou; com 2, não mexe; nunca liga': {
