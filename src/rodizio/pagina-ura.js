@@ -46,13 +46,19 @@ const PAGINA_URA = `<!doctype html>
     <ul id="listaAlertas" style="font-weight:400"></ul>
   </div>
 
-  <div class="faixa" id="faixaPanico" hidden>PÂNICO ATIVO: a URA está com 1 livre ou menos e os robôs estão sendo desligados.</div>
+  <div class="faixa" id="faixaPanico" hidden>PÂNICO ATIVO: <span id="motivoPanico">os robôs estão sendo desligados</span>.</div>
 
   <div class="cartao" id="cartaoPanico" hidden>
     <div class="estado">Pânico dos robôs: <span id="panico">–</span></div>
     <ul>
       <li>Quem liga os robôs é a supervisão, pelo painel da Argus. O BenURA nunca liga robôs.</li>
-      <li>Com o pânico ligado, sempre que a URA ficar com <b>1 livre ou menos</b>, o BenURA desliga os robôs na hora. Com 1 livre, os que estão em ligação terminam a chamada antes; com nenhum livre, desliga todos.</li>
+      <li>Com o pânico ligado:
+        <ul>
+          <li><b>Nenhum livre</b>: desliga todos os robôs na hora, inclusive os em ligação.</li>
+          <li><b>1 livre</b>: os robôs seguem até <b id="antesDeSair">60 s</b> antes de ele sair por ociosidade; aí os parados desligam e os em ligação terminam a chamada antes.</li>
+          <li><b>1 livre fixo</b> (equipe do Robson, nunca sai da URA): desliga os parados na hora, a não ser que a URA esteja passiva hoje.</li>
+        </ul>
+      </li>
       <li>Desligado, o BenURA não mexe nos robôs.</li>
     </ul>
     <div class="linha">
@@ -60,6 +66,13 @@ const PAGINA_URA = `<!doctype html>
       <button id="desligarPanico" class="secundario">Desligar pânico</button>
       <span id="situacaoPanico"></span>
     </div>
+    <div class="linha">
+      URA passiva hoje: <b id="uraPassiva">–</b>
+      <button id="ligarPassiva">Ligar</button>
+      <button id="desligarPassiva" class="secundario">Desligar</button>
+      <span id="situacaoPassiva"></span>
+    </div>
+    <p class="sub">Ligada, com só um fixo livre os robôs seguem até ele atender (aí sobra nenhum livre e desligam todos). Vale até desligar ou virar o dia.</p>
   </div>
 
   <div class="cartao" id="cartaoRisco" hidden>
@@ -149,6 +162,11 @@ const PAGINA_URA = `<!doctype html>
       $('panico').textContent = p.ligado ? 'ligado' : 'desligado';
       $('panico').className = p.ligado ? 'ligada' : 'desligada';
       $('faixaPanico').hidden = !p.ativoAgora;
+      $('motivoPanico').textContent = (p.motivo || 'os robôs estão sendo desligados').replace(/^PÂNICO: /, '');
+      $('antesDeSair').textContent = Math.round((p.antesDeSairMs ?? 60000) / 1000) + ' s';
+      const passiva = p.uraPassiva || {};
+      $('uraPassiva').textContent = passiva.ligado ? 'ligada desde ' + hora(passiva.desde) : 'desligada';
+      $('uraPassiva').className = passiva.ligado ? 'ligada' : 'desligada';
       const a = h.ajusteRobos || {};
       $('porLivre').textContent = a.porLivre ?? '?';
       $('porLivreInfo').textContent = 'Começa em ' + (a.base ?? '?') + ' · mínimo ' + (a.piso ?? '?') + ' · máximo ' + (a.maximo ?? '?')
@@ -206,6 +224,16 @@ const PAGINA_URA = `<!doctype html>
   $('desligarPanico').addEventListener('click', () => {
     if (!confirm('Desligar o pânico? O BenURA deixa de desligar os robôs com 1 livre ou menos.')) return;
     panico('DELETE', 'Desligando…', (r) => (r.mudou ? 'Pânico desligado.' : 'Já estava desligado.'));
+  });
+
+  const uraPassiva = (method, emAndamento, sucesso) => pedir({
+    url: '/ura/passiva', method, botoes: ['ligarPassiva', 'desligarPassiva'], saida: 'situacaoPassiva', emAndamento, sucesso,
+  });
+  $('ligarPassiva').addEventListener('click', () => {
+    uraPassiva('POST', 'Ligando…', (r) => (r.mudou ? 'URA passiva hoje: com um fixo livre, os robôs seguem até ele atender.' : 'Já estava ligada.'));
+  });
+  $('desligarPassiva').addEventListener('click', () => {
+    uraPassiva('DELETE', 'Desligando…', (r) => (r.mudou ? 'URA passiva desligada.' : 'Já estava desligada.'));
   });
 
   $('aplicarPorLivre').addEventListener('click', () => {

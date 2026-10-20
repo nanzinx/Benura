@@ -112,6 +112,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_URA_CHEIA_FILE: path.join(pasta, 'state-ura-cheia.json'),
       RODIZIO_AJUSTE_FILE: path.join(pasta, 'state-ajuste-robos.json'),
       RODIZIO_PANICO_FILE: path.join(pasta, 'state-panico.json'),
+      RODIZIO_URA_PASSIVA_FILE: path.join(pasta, 'state-ura-passiva.json'),
       ARGUS_PAUSA_FILE: path.join(pasta, 'argus-pausa.json'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
       RETORNO_LOG_FILE: path.join(pasta, 'logs', 'retorno-fila.jsonl'),
@@ -532,6 +533,38 @@ const CENARIOS = {
     if (ligados().length !== 10) throw new Error('com 2 livres o BenURA desligou robôs');
   },
 
+  async 'Pânico: 1 livre comum — os robôs seguem até perto de ele sair por ociosidade, e então param'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x] && r.argus.estado.status[x] !== 'Deslogado');
+    await esperar(1500); // 200 livre há ~1,5 s; sai com 6 s (TEMPO_MIN) e o pânico age 3 s antes
+    if (ligados().length !== 10) throw new Error(`desligou os robôs longe da saída do livre: ${ligados().length}`);
+    await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'perto da saída: robôs desligados' });
+    if (!r.saida.join('').includes('PÂNICO: 1 livre na URA (200) e ele sai por ociosidade em até 3 s')) throw new Error('log sem o motivo');
+    if (r.transferencias().some((t) => t.startsWith('200→'))) throw new Error('o 200 saiu antes de os robôs pararem');
+    if (r.chamadas('logaroperadorvirtual').length) throw new Error('o BenURA ligou robô no modo pânico');
+  },
+
+  async 'Pânico: 1 fixo livre — com a URA passiva hoje os robôs seguem até ele atender; sem ela, param na hora'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x] && r.argus.estado.status[x] !== 'Deslogado');
+    const passiva = (method, token = TOKEN) => fetch(`${r.base}/ura/passiva`, { method, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if ((await passiva('POST', '')).status !== 401) throw new Error('ligou a URA passiva sem token');
+    const resposta = await (await passiva('POST')).json();
+    if (resposta.ligado !== true || !resposta.mudou) throw new Error(`POST /ura/passiva: ${JSON.stringify(resposta)}`);
+    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('URA passiva hoje')) throw new Error('a /ura não mostra a URA passiva');
+
+    r.argus.definirStatus('201', 'em atendimento'); // sobra o 200, fixo
+    await esperar(2500);
+    if (ligados().length !== 10) throw new Error(`fixo livre e URA passiva: o BenURA desligou robôs (${ligados().length})`);
+    r.argus.definirStatus('200', 'em atendimento'); // atendeu: 0 livre
+    await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'fixo atendeu: robôs desligados' });
+
+    await passiva('DELETE');
+    r.argus.definirStatus('200', 'livre');
+    await esperar(1000);
+    for (const x of ROBOS_10) r.argus.definirStatus(x, 'livre'); // a supervisão religa
+    await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'sem URA passiva: fixo sozinho desliga os robôs' });
+    if (!r.saida.join('').includes('PÂNICO: 1 livre na URA (200, fixo) e a URA não está passiva hoje')) throw new Error('log sem o motivo do fixo');
+  },
+
   async 'Pânico: interruptor desligado na /ura — o BenURA não desliga os robôs'(r) {
     const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x] && r.argus.estado.status[x] !== 'Deslogado');
     const pedir = (method, token = TOKEN) => fetch(`${r.base}/panico`, { method, headers: token ? { Authorization: `Bearer ${token}` } : {} });
@@ -874,7 +907,26 @@ const VARIACOES = {
       { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
     ],
     status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
-    env: { ROBOS_MODO: 'panico', TEMPO_MIN: '5' },
+    // Antecedência maior que o TEMPO_MIN: com 1 livre comum, o pânico age na hora.
+    env: { ROBOS_MODO: 'panico', TEMPO_MIN: '5', PANICO_ANTES_DE_SAIR_MS: '600000' },
+  },
+  'Pânico: 1 livre comum — os robôs seguem até perto de ele sair por ociosidade, e então param': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', 201: 'em atendimento', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: { ROBOS_MODO: 'panico', TEMPO_MIN: '0.1', PANICO_ANTES_DE_SAIR_MS: '3000' },
+  },
+  'Pânico: 1 fixo livre — com a URA passiva hoje os robôs seguem até ele atender; sem ela, param na hora': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: { ROBOS_MODO: 'panico', TEMPO_MIN: '5', OPERADORES_FIXOS_URA: '200' },
   },
   'Pânico: interruptor desligado na /ura — o BenURA não desliga os robôs': {
     grupos: [
@@ -883,7 +935,8 @@ const VARIACOES = {
       { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
     ],
     status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
-    env: { ROBOS_MODO: 'panico', TEMPO_MIN: '5' },
+    // Antecedência maior que o TEMPO_MIN: com 1 livre comum, o pânico age na hora.
+    env: { ROBOS_MODO: 'panico', TEMPO_MIN: '5', PANICO_ANTES_DE_SAIR_MS: '600000' },
   },
   'Vigia de callbacks: callback no relatório da Argus (sem webhook) → raio-x em callbacks.txt e ajuste desce': {
     grupos: [

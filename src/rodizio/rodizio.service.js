@@ -22,7 +22,7 @@
 
 const {
   Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, ultimoLivreQueSai,
-  decidirRobos, alvoDeRobos, reconciliarMovidos, VALIDADE_STATUS_MS,
+  decidirRobos, alvoDeRobos, livresUteis, reconciliarMovidos, VALIDADE_STATUS_MS,
 } = require('../domain/rodizio');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
@@ -54,12 +54,17 @@ class RodizioService {
    *        modo "todos na URA" pedido pela supervisão
    * @param {import('./ajuste-robos').AjusteRobos} [deps.ajuste]
    *        robôs por livre que baixam no callback e sobem com a URA passiva (sem: sempre ROBOS_POR_LIVRE)
+   * @param {import('./interruptor').Interruptor} [deps.panico] - pânico dos robôs (ROBOS_MODO=panico)
+   * @param {import('./interruptor').Interruptor} [deps.uraPassiva]
+   *        "URA passiva hoje": com 1 fixo livre, os robôs seguem até ele atender
    */
   constructor({
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
-    panico = null, fixos = null,
+    panico = null, uraPassiva = null, fixos = null,
   }) {
-    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, fixos });
+    Object.assign(this, {
+      client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, uraPassiva, fixos,
+    });
     /** Fixos na URA de vez (FIXOS_PERMANENTES_URA): a regra do ocioso não vale para eles. */
     this.permanentes = new Set();
     /** ramais sem grupo do Ativo identificável (aviso uma vez por ramal) */
@@ -107,8 +112,9 @@ class RodizioService {
     this.excessoDesde = null;
     /** Último livre da URA prestes a sair por ociosidade (robôs param de discar): { ramal, desde } | null. */
     this.ultimoSaindo = null;
-    /** Modo pânico: desde quando a URA está com 1 livre ou menos e os robôs são desligados (null = não está). */
+    /** Modo pânico: desde quando o BenURA está desligando os robôs (null = não está) e por quê (log e /health). */
     this.panicoDesde = null;
+    this.panicoMotivo = null;
     /** Fotos da URA dos últimos FOTOS_MS (raio-x de cada callback: raio-x-callback.js). */
     this.fotos = [];
     this.iniciadoEm = Date.now();
@@ -146,6 +152,7 @@ class RodizioService {
     this.uraCheia?.carregar();
     this.ajuste?.carregar();
     this.panico?.carregar();
+    this.uraPassiva?.carregar();
     return this;
   }
 
@@ -561,12 +568,15 @@ class RodizioService {
   }
 
   /**
-   * Modo pânico: o BenURA nunca liga robôs. Com o interruptor ligado e a URA com
-   * 1 livre ou menos (mesma contagem dos robôs proporcionais: carência, outro
-   * grupo e status sem resposta não contam), desliga os robôs na hora:
-   *  - 1 livre: os parados; os em ligação terminam a chamada e saem depois
-   *    (derrubar corta o cliente);
-   *  - 0 livre: todos, inclusive os em ligação (não há quem receba a derivação).
+   * Modo pânico: o BenURA nunca liga robôs. Com o interruptor ligado, conta os
+   * livres da URA (mesma contagem dos robôs proporcionais: carência, outro grupo
+   * e status sem resposta não contam) e desliga os robôs quando:
+   *  - 0 livre: todos, inclusive os em ligação (não há quem receba a derivação);
+   *  - 1 livre comum que sai por ociosidade em até PANICO_ANTES_DE_SAIR_MS: os
+   *    parados; os em ligação terminam a chamada enquanto ele ainda está na URA;
+   *  - 1 livre fixo (nunca sai), se a URA não estiver passiva hoje: os parados.
+   *    Com a URA passiva, os robôs seguem até ele atender (aí sobra 0 livre).
+   * O vigia de clientes de risco desliga à parte, com o interruptor dele.
    */
   async aplicarPanico() {
     const agora = Date.now();
@@ -580,27 +590,43 @@ class RodizioService {
     this.registrarMudancaDeLivres(livres, null);
     this.ultimosLivres = livres;
 
-    const ativo = Boolean(this.panico?.ligado()) && livres <= 1;
-    if (!ativo) return this.encerrarPanico(livres);
-    if (!this.panicoDesde) await this.entrarEmPanico(livres, agora);
+    const motivo = this.panico?.ligado() ? this.motivoDoPanico(livres, agora) : null;
+    if (!motivo) return this.encerrarPanico(livres);
+    if (motivo !== this.panicoMotivo) await this.entrarEmPanico(motivo, livres, agora);
 
-    const motivo = `PÂNICO: ${livres} livre(s) na URA`;
     const ligados = [...(this.robos.ligados || [])];
     if (!ligados.length) return undefined;
     if (livres === 0) return this.robos.desligar(ligados, motivo);
     return this.robos.encerrarSemDerrubar(motivo);
   }
 
-  async entrarEmPanico(livres, agora) {
-    this.panicoDesde = agora;
-    this.log.aviso(`PÂNICO: ${livres} livre(s) na URA — desligando os robôs (os em ligação terminam antes).`);
+  /** Por que desligar os robôs agora. @returns {string|null} null = os robôs seguem */
+  motivoDoPanico(livres, agora) {
+    if (livres === 0) return 'PÂNICO: 0 livre na URA';
+    if (livres > 1) return null;
+    const [ramal] = livresUteis([...this.ramaisUra], this.statusUra);
+    if (!ramal) return null;
+    if (this.permanentes.has(String(ramal))) {
+      return this.uraPassiva?.ligado() ? null : `PÂNICO: 1 livre na URA (${ramal}, fixo) e a URA não está passiva hoje`;
+    }
+    const antesMs = this.cfg.panicoAntesDeSairMs ?? 0;
+    if (!this.deveDevolver(ramal, agora + antesMs)) return null;
+    return `PÂNICO: 1 livre na URA (${ramal}) e ele sai por ociosidade em até ${Math.round(antesMs / 1000)} s`;
+  }
+
+  async entrarEmPanico(motivo, livres, agora) {
+    const comecou = !this.panicoDesde;
+    this.panicoDesde ??= agora;
+    this.panicoMotivo = motivo;
+    this.log.aviso(`${motivo} — desligando os robôs${livres ? ' (os em ligação terminam antes)' : ''}.`);
     // Pega os robôs que a supervisão ligou desde a última leitura (a cada REFRESH_GRUPOS_MS).
-    if (this.ramaisRobos.length) await this.robos.sincronizar(this.ramaisRobos);
+    if (comecou && this.ramaisRobos.length) await this.robos.sincronizar(this.ramaisRobos);
   }
 
   encerrarPanico(livres) {
     if (!this.panicoDesde) return;
     this.panicoDesde = null;
+    this.panicoMotivo = null;
     const porque = this.panico?.ligado() ? `${livres} livre(s) na URA` : 'interruptor desligado';
     this.log.info(`PÂNICO encerrado (${porque}): a supervisão pode religar os robôs pelo painel.`);
   }
@@ -747,6 +773,13 @@ class RodizioService {
     return { ...this.panico.resumo(), mudou };
   }
 
+  /** POST/DELETE /ura/passiva (vale só hoje). @returns {{ ligado: boolean, desde: string|null, mudou: boolean }} */
+  definirUraPassiva(ligado) {
+    const mudou = this.uraPassiva.definir(ligado);
+    this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após mudar a URA passiva: ${e.message}`));
+    return { ...this.uraPassiva.resumo(), mudou };
+  }
+
   /** POST /robos/por-livre: a supervisão ajusta na hora. @returns {object} resumo do ajuste */
   definirRobosPorLivre(valor) {
     this.ajuste.definir(valor);
@@ -856,6 +889,9 @@ class RodizioService {
         modo: this.emModoPanico(),
         ...(this.panico ? this.panico.resumo() : { ligado: false, desde: null }),
         ativoAgora: this.panicoDesde ? new Date(this.panicoDesde).toISOString() : null,
+        motivo: this.panicoMotivo,
+        antesDeSairMs: this.cfg.panicoAntesDeSairMs ?? 0,
+        uraPassiva: this.uraPassiva ? this.uraPassiva.resumo() : { ligado: false, desde: null },
       },
       ajusteRobos: this.ajuste ? this.ajuste.resumo() : null,
       dryRun: Boolean(this.cfg.dryRun),

@@ -104,6 +104,16 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     return { status: 200, corpo: rodizio.definirPanico(false) };
   }
 
+  /** POST /ura/passiva — URA passiva hoje: com 1 fixo livre, os robôs seguem até ele atender. */
+  async function ligarUraPassiva() {
+    return { status: 200, corpo: rodizio.definirUraPassiva(true) };
+  }
+
+  /** DELETE /ura/passiva — 1 fixo livre volta a desligar os robôs parados na hora. */
+  async function desligarUraPassiva() {
+    return { status: 200, corpo: rodizio.definirUraPassiva(false) };
+  }
+
   /** GET /alertas — clientes de risco falando com um robô agora (telefone mascarado). */
   async function alertas() {
     if (!risco) return { status: 200, corpo: { ativo: false, alertas: [] } };
@@ -133,6 +143,8 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     { metodo: 'DELETE', caminho: '/risco/desligar', handler: definirDesligaRobos(false), protegida: true },
     { metodo: 'POST', caminho: '/panico', handler: ligarPanico, protegida: true },
     { metodo: 'DELETE', caminho: '/panico', handler: desligarPanico, protegida: true },
+    { metodo: 'POST', caminho: '/ura/passiva', handler: ligarUraPassiva, protegida: true },
+    { metodo: 'DELETE', caminho: '/ura/passiva', handler: desligarUraPassiva, protegida: true },
     { metodo: 'GET', caminho: '/ura', handler: paginaUra },
     { metodo: 'POST', caminho: '/ura/cheia', handler: ligarUraCheia, protegida: true },
     { metodo: 'DELETE', caminho: '/ura/cheia', handler: desligarUraCheia, protegida: true },

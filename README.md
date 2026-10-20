@@ -217,11 +217,22 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - **Carência depois da troca**: quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta como livre para os robôs depois de `CARENCIA_TROCA_GRUPO_MS` (**60 s**). Em 15/10 uma operadora já Livre e logada na URA não recebeu a derivação de um robô que discou 37 s depois da troca, e virou callback. A regra do ocioso não muda (o tempo livre conta normalmente).
    - Cada linha `URA: livres a→b` traz também quem está livre e como a Argus o vê: `livres: 2266423 (grupo 7, Receptivo, carência)`. Num callback com alguém "livre no painel", é essa linha que mostra o que o BenURA via.
 4. **Robôs: modo pânico (`ROBOS_MODO=panico`, o padrão)**: a supervisão liga os robôs pelo painel da Argus e o BenURA **nunca liga robôs**.
-   - Com o pânico ligado (interruptor na página `/ura`, ou `POST`/`DELETE /panico` com token), sempre que a URA ficar com **1 livre ou menos**, o BenURA desliga os robôs na hora. Usa a mesma contagem de livres do modo automático: carência da troca de grupo, telefonia em outro grupo e status sem resposta não contam.
-     - **1 livre:** desliga os robôs parados. Os que estão em ligação terminam a chamada e saem em seguida, porque derrubar corta o cliente.
-     - **Nenhum livre:** desliga todos, inclusive os em ligação.
+   - Com o pânico ligado (interruptor na página `/ura`, ou `POST`/`DELETE /panico` com token), o BenURA olha os livres da URA. Usa a mesma contagem do modo automático: carência da troca de grupo, telefonia em outro grupo e status sem resposta não contam.
+
+     | Livres na URA | Situação | O que o BenURA faz |
+     | --- | --- | --- |
+     | 0 | qualquer | Desliga todos os robôs, inclusive os em ligação |
+     | 1, comum | falta mais de `PANICO_ANTES_DE_SAIR_MS` (**60 s**) para ele sair por ociosidade | Nada: os robôs seguem |
+     | 1, comum | ele sai em até 60 s | Desliga os parados; os em ligação terminam a chamada enquanto ele ainda está na URA |
+     | 1, fixo | "URA passiva hoje" desligada | Desliga os parados na hora (o fixo nunca sai, então não há "antes de sair") |
+     | 1, fixo | "URA passiva hoje" ligada | Nada: os robôs seguem até ele atender; aí sobra 0 livre e vale a 1ª linha |
+     | 2 ou mais | qualquer | Nada |
+
+     - **URA passiva hoje:** interruptor na `/ura` (`POST`/`DELETE /ura/passiva`, com token), para os dias em que a URA não está agressiva. Vale só no dia (`RODIZIO_URA_PASSIVA_FILE`): na virada do dia volta a desligado.
+     - **Cliente de risco** (interruptor dele ligado) continua desligando os robôs parados em qualquer linha da tabela.
+     - **Risco aceito:** numa URA agressiva com 1 livre comum, os robôs seguem discando até 60 s antes da saída dele, e pode haver callback.
    - Ao entrar no pânico, relê na Argus quais robôs estão ligados. Robôs religados à mão durante o pânico são desligados na próxima leitura de grupos (`REFRESH_GRUPOS_MS`, 30 s).
-   - Log: `PÂNICO: 1 livre(s) na URA — desligando os robôs` e `PÂNICO encerrado`. O `/health` mostra `panico: { modo, ligado, desde, ativoAgora }`.
+   - Log com o motivo, ex.: `PÂNICO: 1 livre na URA (2266267) e ele sai por ociosidade em até 60 s — desligando os robôs`, `PÂNICO: 0 livre na URA` e `PÂNICO encerrado`. O `/health` mostra `panico: { modo, ligado, desde, ativoAgora, motivo, antesDeSairMs, uraPassiva }`; a faixa vermelha da `/ura` mostra o motivo.
    - **O que não roda no modo pânico:** robôs proporcionais, teto com 1 livre, ajuste por callback, URA passiva e preparação da saída do último livre (o pânico já cobre esse caso).
    - **O que continua:** o rodízio Ativo ↔ URA, o raio-x dos callbacks e os logs.
    - A escolha do interruptor fica gravada em `RODIZIO_PANICO_FILE`. Sem escolha, vale `PANICO_PADRAO` (ligado).

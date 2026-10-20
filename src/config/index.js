@@ -120,6 +120,10 @@ function carregarConfig(overrides = {}) {
       robosModo: env('ROBOS_MODO', 'panico').toLowerCase() === 'automatico' ? 'automatico' : 'panico',
       arquivoPanico: env('RODIZIO_PANICO_FILE', path.join(RAIZ, 'state-panico.json')),
       panicoPadrao: envBool('PANICO_PADRAO', true),
+      // Pânico com 1 livre comum: os robôs só param quando ele está a isso de sair por ociosidade.
+      panicoAntesDeSairMs: envNum('PANICO_ANTES_DE_SAIR_MS', 60_000),
+      // "URA passiva hoje" (interruptor na /ura, vale só no dia): com 1 fixo livre, os robôs seguem até ele atender.
+      arquivoUraPassiva: env('RODIZIO_URA_PASSIVA_FILE', path.join(RAIZ, 'state-ura-passiva.json')),
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs

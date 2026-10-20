@@ -72,6 +72,9 @@ function montarRodizio(overrides) {
     panico: new Interruptor({
       nome: 'Pânico dos robôs', arquivo: cfgRodizio.arquivoPanico, padrao: cfgRodizio.panicoPadrao, logger: log.filho('robos'),
     }),
+    uraPassiva: new Interruptor({
+      nome: 'URA passiva hoje', arquivo: cfgRodizio.arquivoUraPassiva, padrao: false, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('robos'),
+    }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
   const comRobos = cfgRodizio.gruposRobosIds.length > 0;
