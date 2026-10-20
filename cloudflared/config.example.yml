@@ -1,0 +1,12 @@
+# Cloudflare Tunnel do painel da supervisão: https://benura.benconsig.com.br → este PC.
+# Copie para C:\Users\<usuário>\.cloudflared\config.yml (ou ~/.cloudflared/config.yml),
+# troque <ID-DO-TUNEL> e <USUÁRIO>, e rode "cloudflared service install" (README: Painel).
+# Nada aqui é segredo; o arquivo de credenciais (<ID-DO-TUNEL>.json) NUNCA vai para o git.
+tunnel: <ID-DO-TUNEL>
+credentials-file: C:\Users\<USUÁRIO>\.cloudflared\<ID-DO-TUNEL>.json
+
+ingress:
+  # Só o painel vai para a internet. Roteador, rodízio e rotinas continuam só no localhost.
+  - hostname: benura.benconsig.com.br
+    service: http://localhost:3010
+  - service: http_status:404

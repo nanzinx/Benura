@@ -30,6 +30,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 - [🚦 Roteador de Vendas](#roteador)
 - [🔄 Rodízio Ativo ↔ URA e robôs](#rodizio)
 - [📲 Retorno de quem desistiu da fila](#retorno-da-fila)
+- [🖥️ Painel da supervisão](#painel)
 - [🌙 Fim de expediente limpo](#fim-de-expediente)
 - [🛡️ Conflitos e proteções](#conflitos)
 - [🧰 Rodando com PM2](#pm2)
@@ -43,6 +44,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 | `roteador-vendas.js` | `benura-roteador` | 3001 | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
 | `argus-automacao.js` | `benura-rodizio` | 3000 | Rodízio Ativo ↔ URA por atendimento, liga/desliga os robôs da URA e faz o **retorno de quem desistiu da fila** |
 | `rotinas.js` | `benura-rotinas` | 3003 | Rotinas diárias: **fim de expediente limpo** |
+| `painel.js` | `benura-painel` | 3010 | **Painel da supervisão**: controles da URA, esteira manual, saúde dos serviços e o dia da URA |
 | `atualizador.js` | `benura-atualizador` | 3002 | Deploy automático na máquina de produção, fora do expediente |
 
 ```mermaid
@@ -217,11 +219,22 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - **Carência depois da troca**: quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta como livre para os robôs depois de `CARENCIA_TROCA_GRUPO_MS` (**60 s**). Em 15/10 uma operadora já Livre e logada na URA não recebeu a derivação de um robô que discou 37 s depois da troca, e virou callback. A regra do ocioso não muda (o tempo livre conta normalmente).
    - Cada linha `URA: livres a→b` traz também quem está livre e como a Argus o vê: `livres: 2266423 (grupo 7, Receptivo, carência)`. Num callback com alguém "livre no painel", é essa linha que mostra o que o BenURA via.
 4. **Robôs: modo pânico (`ROBOS_MODO=panico`, o padrão)**: a supervisão liga os robôs pelo painel da Argus e o BenURA **nunca liga robôs**.
-   - Com o pânico ligado (interruptor na página `/ura`, ou `POST`/`DELETE /panico` com token), sempre que a URA ficar com **1 livre ou menos**, o BenURA desliga os robôs na hora. Usa a mesma contagem de livres do modo automático: carência da troca de grupo, telefonia em outro grupo e status sem resposta não contam.
-     - **1 livre:** desliga os robôs parados. Os que estão em ligação terminam a chamada e saem em seguida, porque derrubar corta o cliente.
-     - **Nenhum livre:** desliga todos, inclusive os em ligação.
+   - Com o pânico ligado (interruptor na página `/ura`, ou `POST`/`DELETE /panico` com token), o BenURA olha os livres da URA. Usa a mesma contagem do modo automático: carência da troca de grupo, telefonia em outro grupo e status sem resposta não contam.
+
+     | Livres na URA | Situação | O que o BenURA faz |
+     | --- | --- | --- |
+     | 0 | qualquer | Desliga todos os robôs, inclusive os em ligação |
+     | 1, comum | falta mais de `PANICO_ANTES_DE_SAIR_MS` (**60 s**) para ele sair por ociosidade | Nada: os robôs seguem |
+     | 1, comum | ele sai em até 60 s | Desliga os parados; os em ligação terminam a chamada enquanto ele ainda está na URA |
+     | 1, fixo | "URA passiva hoje" desligada | Desliga os parados na hora (o fixo nunca sai, então não há "antes de sair") |
+     | 1, fixo | "URA passiva hoje" ligada | Nada: os robôs seguem até ele atender; aí sobra 0 livre e vale a 1ª linha |
+     | 2 ou mais | qualquer | Nada |
+
+     - **URA passiva hoje:** interruptor na `/ura` (`POST`/`DELETE /ura/passiva`, com token), para os dias em que a URA não está agressiva. Vale só no dia (`RODIZIO_URA_PASSIVA_FILE`): na virada do dia volta a desligado.
+     - **Cliente de risco** (interruptor dele ligado) continua desligando os robôs parados em qualquer linha da tabela.
+     - **Risco aceito:** numa URA agressiva com 1 livre comum, os robôs seguem discando até 60 s antes da saída dele, e pode haver callback.
    - Ao entrar no pânico, relê na Argus quais robôs estão ligados. Robôs religados à mão durante o pânico são desligados na próxima leitura de grupos (`REFRESH_GRUPOS_MS`, 30 s).
-   - Log: `PÂNICO: 1 livre(s) na URA — desligando os robôs` e `PÂNICO encerrado`. O `/health` mostra `panico: { modo, ligado, desde, ativoAgora }`.
+   - Log com o motivo, ex.: `PÂNICO: 1 livre na URA (2266267) e ele sai por ociosidade em até 60 s — desligando os robôs`, `PÂNICO: 0 livre na URA` e `PÂNICO encerrado`. O `/health` mostra `panico: { modo, ligado, desde, ativoAgora, motivo, antesDeSairMs, uraPassiva }`; a faixa vermelha da `/ura` mostra o motivo.
    - **O que não roda no modo pânico:** robôs proporcionais, teto com 1 livre, ajuste por callback, URA passiva e preparação da saída do último livre (o pânico já cobre esse caso).
    - **O que continua:** o rodízio Ativo ↔ URA, o raio-x dos callbacks e os logs.
    - A escolha do interruptor fica gravada em `RODIZIO_PANICO_FILE`. Sem escolha, vale `PANICO_PADRAO` (ligado).
@@ -373,6 +386,52 @@ da Argus em `POST /webhook`; com esta automação ligada, o webhook **tipo 5 (En
 
 ---
 
+<a id="painel"></a>
+## 🖥️ Painel da supervisão
+
+`painel.js` · app `benura-painel` · porta `PAINEL_PORT` (**3010**) · lógica em `src/painel/`
+
+Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado pelo `localhost`:
+
+| Aba | O que tem |
+| --- | --- |
+| **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; vendas e filas do roteador |
+| **URA e robôs** | Pânico, URA passiva hoje, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
+| **Esteira manual** | Colar ou escolher o CSV da esteira quando o Carrossel cair, ver o que ela decidiu, apagar e recarregar as vendas |
+| **Serviços** | Roteador, rodízio, rotinas e atualizador no ar ou não, a Argus respondendo (ou recusando o token), DRY_RUN e os avisos do dia |
+
+As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico ativo, serviço fora do ar e token da Argus recusado.
+
+**Como ligar:**
+1. No `.env`, coloque `PAINEL_SENHA=` (8 caracteres ou mais). É a senha que a supervisão usa para entrar.
+2. `npx pm2 start ecosystem.config.js --only benura-painel` (ou `npm run pm2:iniciar`, que sobe todos).
+3. Abra `http://localhost:3010` no PC do BenURA, ou `http://<IP do PC>:3010` de outro PC da rede.
+
+**Como funciona por dentro:**
+- O painel não fala com a Argus nem com o Carrossel. Ele chama os outros serviços pelo `localhost` levando o `WEBHOOK_TOKEN`: o navegador nunca vê o token, só a senha.
+- Só passam os comandos de uma lista fechada (`src/painel/servicos.js`). Webhooks e rotas novas não passam sem entrar nela.
+- Cada comando fica no log com a hora e o endereço de quem pediu, ex.: `Painel: supervisão pediu para ligar o pânico (192.168.0.12) — ok`.
+- A sessão fica num cookie assinado (`HttpOnly`, `SameSite=Strict`) e vence em `PAINEL_SESSAO_HORAS` (12 h). Trocar a senha derruba todas as sessões.
+- 5 senhas erradas seguidas bloqueiam aquele endereço por 10 minutos.
+- O dia (gráficos, callbacks e avisos) vem dos logs em arquivo (`logs/AAAA-MM-DD/`), que não têm dado de cliente. Os telefones aparecem só mascarados.
+- Sem `PAINEL_SENHA`, o painel sobe assim mesmo e avisa na tela que ninguém consegue entrar. Assim o atualizador pode reiniciá-lo sem risco.
+
+**A interface** fica em `painel-web/`, feita com **React + TypeScript + Tailwind CSS** (Vite), Recharts nos gráficos e React Query para as atualizações:
+- **Interação:** filtros e busca nas tabelas e nos avisos, gráficos com dica ao passar o mouse e período (dia todo, 3 h, 1 h), confirmação antes dos comandos que pesam e avisos rápidos do resultado.
+- **Tela:** tema claro, escuro ou do sistema; botão **Ao vivo/Pausado**; atalhos `1`–`4` (abas) e `P` (pausa); CSV arrastado direto para a esteira.
+- **Funciona sem internet:** a fonte (Inter) e tudo mais vão junto no build. Nada vem de CDN.
+- **Build:** vai para `src/painel/publico/` e entra no git, então o PC do BenURA não compila nada (o `git pull` de sempre basta). O CI confere que o build está em dia com o código.
+- **Mudar a interface:** `npm run painel:dev` abre em `http://localhost:5173` com o painel (3010) rodando por trás; `npm run painel:build` gera o build para o commit.
+
+**Publicar em `https://benura.benconsig.com.br` (Cloudflare Tunnel + Access)**, sem abrir porta no roteador da empresa e sem expor os outros serviços:
+1. Na Cloudflare (conta onde está o `benconsig.com.br`): **Zero Trust → Networks → Tunnels → Create a tunnel** (tipo *Cloudflared*), nome `benura`.
+2. No PC do BenURA, instale o `cloudflared` (o próprio painel da Cloudflare mostra o comando para Windows) e rode o comando de instalação que ele mostra. Isso já cria o serviço do Windows.
+3. Em **Public Hostname**: subdomínio `benura`, domínio `benconsig.com.br`, serviço `http://localhost:3010`. Se preferir configurar por arquivo, o modelo é `cloudflared/config.example.yml`.
+4. Em **Zero Trust → Access → Applications → Add (Self-hosted)**: domínio `benura.benconsig.com.br`, política *Allow* com os e-mails da supervisão (login por código no e-mail).
+5. Pronto: `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois a senha do painel (BenURA). Pela Cloudflare o cookie sai com `Secure`, e o log registra o endereço real de quem acessou.
+
+---
+
 <a id="fim-de-expediente"></a>
 ## 🌙 Fim de expediente limpo
 
@@ -464,7 +523,7 @@ Estado e logs da simulação ficam em `.simulacao/`. `npx pm2 monit` abre um pai
 Usa o `.env` (copie de `.env.example`).
 
 ```bash
-npm run pm2:iniciar      # sobe o benura-roteador, o benura-rodizio e o benura-rotinas
+npm run pm2:iniciar      # sobe o benura-roteador, o benura-rodizio, o benura-rotinas e o benura-painel
 npx pm2 start ecosystem.config.js --only benura-rodizio   # só um deles
 npx pm2 logs
 npm run pm2:parar

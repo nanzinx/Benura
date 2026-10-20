@@ -101,6 +101,13 @@ function ultimoLivreQueSai({ saindo, ramaisUra, status }) {
   return ociosos[0] ?? null;
 }
 
+/**
+ * Os livres que recebem derivação: classe Livre e fora da carência da troca de grupo
+ * (a telefonia em outro grupo já chega aqui como OUTRO).
+ * @returns {string[]}
+ */
+const livresUteis = (ramaisUra, status) => ramaisUra.filter((r) => status.get(r)?.classe === Classe.LIVRE && !status.get(r).emCarencia);
+
 /** Motivo da volta, para o log. */
 const motivoDaVolta = ({ classe, livreDesde, agora }) => (classe === Classe.OFFLINE
   ? 'offline'
@@ -130,7 +137,7 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
   // Quem acabou de passar a telefonia para a URA ainda não recebe derivação com
   // certeza (visto em 15/10: callback 37 s depois da troca): só conta após a carência.
   const livresTodos = humanos.filter((r) => status.get(r).classe === Classe.LIVRE);
-  const livres = livresTodos.filter((r) => !status.get(r).emCarencia).length;
+  const livres = livresUteis(livresTodos, status).length;
   if (!livresTodos.length) return nenhum('nenhum humano livre na URA');
   if (!livres) return nenhum('livre(s) na URA ainda na carência da troca de grupo');
 
@@ -287,6 +294,7 @@ module.exports = {
   deveVoltarAoAtivo,
   motivoDaVolta,
   ultimoLivreQueSai,
+  livresUteis,
   alvoDeRobos,
   decidirRobos,
   escolherParaDesligar,

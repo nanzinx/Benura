@@ -55,3 +55,31 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:cenarios
+
+  # Interface do painel (painel-web/: React + TypeScript + Tailwind): tipos, testes
+  # e build. O build fica no git (src/painel/publico): tem de estar em dia com o código.
+  painel-web:
+    name: painel-web
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: painel-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: painel-web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx vite build
+      - name: Build no git em dia com o código
+        run: |
+          git status --porcelain -- ../src/painel/publico
+          if [ -n "$(git status --porcelain -- ../src/painel/publico)" ]; then
+            echo "::error::src/painel/publico está desatualizado: rode 'npm run painel:build' e faça commit do resultado."
+            exit 1
+          fi
