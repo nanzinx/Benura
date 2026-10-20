@@ -1,0 +1,191 @@
+'use strict';
+/**
+ * Servidor HTTP do painel (módulo nativo `http`).
+ *
+ *   GET  /                  a página (publico/index.html, com o CSS e o JS ao lado)
+ *   GET  /health            para o PM2/atualizador (sem dados)
+ *   POST /api/entrar        { senha } → cookie de sessão
+ *   POST /api/sair
+ *   GET  /api/sessao        200 com sessão, 401 sem
+ *   GET  /api/visao         saúde dos serviços + rodízio + alertas (a cada 5 s)
+ *   GET  /api/dia           linha do tempo, callbacks e avisos do dia (logs)
+ *   *    /api/rodizio/...   comandos da lista ACOES (servicos.js), levados com o token
+ *   *    /api/roteador/...
+ *
+ * Tudo em /api, menos entrar, exige sessão. Escrita exige também o cabeçalho
+ * X-Painel: 1 e a mesma origem (um site de fora não consegue mandar).
+ */
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { ACOES } = require('./servicos');
+const { tokenRecusadoRecentemente, segundosDoDia } = require('../domain/painel');
+
+const PUBLICO = path.join(__dirname, 'publico');
+const ESTATICOS = Object.freeze({
+  '/': ['index.html', 'text/html; charset=utf-8'],
+  '/painel.css': ['painel.css', 'text/css; charset=utf-8'],
+  '/painel.js': ['painel.js', 'text/javascript; charset=utf-8'],
+  '/logo.svg': ['logo.svg', 'image/svg+xml'],
+});
+const SEGURANCA = Object.freeze({
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Cache-Control': 'no-store',
+});
+const LIMITE_PADRAO_BYTES = 64 * 1024;
+/** O ciclo da URA roda a cada poucos segundos: sem ciclo há mais que isso, a Argus não está respondendo. */
+const CICLO_PARADO_MS = 90_000;
+
+class ErroPainel extends Error {
+  constructor(status, mensagem) {
+    super(mensagem);
+    this.status = status;
+  }
+}
+
+const LOCAL = /^(127\.|::1$|::ffff:127\.)/;
+/**
+ * Endereço de quem pediu. Atrás do túnel da Cloudflare (o cloudflared roda neste PC,
+ * então o pedido chega do localhost), vale o CF-Connecting-IP; de outro PC da rede,
+ * o cabeçalho é ignorado (senão daria para fugir do bloqueio de senha errada).
+ */
+function enderecoDe(req) {
+  const direto = String(req.socket.remoteAddress || '?');
+  const cloudflare = req.headers['cf-connecting-ip'];
+  return cloudflare && LOCAL.test(direto) ? String(cloudflare) : direto;
+}
+/** Chegou por HTTPS (túnel da Cloudflare)? Então o cookie vai com Secure. */
+const viaHttps = (req) => req.headers['x-forwarded-proto'] === 'https' || /https/.test(String(req.headers['cf-visitor'] || ''));
+
+async function lerCorpo(req, limiteBytes) {
+  const partes = [];
+  let tamanho = 0;
+  for await (const pedaco of req) {
+    tamanho += pedaco.length;
+    if (tamanho > limiteBytes) {
+      req.destroy();
+      throw new ErroPainel(413, 'Conteúdo grande demais');
+    }
+    partes.push(pedaco);
+  }
+  return Buffer.concat(partes).toString('utf8');
+}
+
+/** Pedido de escrita vindo da própria página (não de outro site). */
+function conferirOrigem(req) {
+  if (req.headers['x-painel'] !== '1') throw new ErroPainel(403, 'Pedido sem o cabeçalho do painel');
+  const origem = req.headers.origin;
+  if (!origem) return;
+  let host = null;
+  try {
+    host = new URL(origem).host;
+  } catch { /* "null" ou lixo: não é a página */ }
+  if (host !== req.headers.host) throw new ErroPainel(403, 'Origem não permitida');
+}
+
+/**
+ * @param {object} deps
+ * @param {import('./sessoes').Sessoes} deps.sessoes
+ * @param {import('./servicos').Servicos} deps.servicos
+ * @param {import('./dados-do-dia').DadosDoDia} deps.dados
+ * @param {{ fuso: string }} deps.cfg
+ * @param {object} deps.logger
+ * @returns {http.Server}
+ */
+function criarServidorDoPainel({ sessoes, servicos, dados, cfg, logger }) {
+  const estaticos = Object.fromEntries(Object.entries(ESTATICOS).map(([rota, [arquivo, tipo]]) => [rota, { tipo, conteudo: fs.readFileSync(path.join(PUBLICO, arquivo)) }]));
+
+  async function entrar(req) {
+    conferirOrigem(req);
+    let senha = '';
+    try {
+      senha = JSON.parse(await lerCorpo(req, 4096) || '{}').senha;
+    } catch {
+      throw new ErroPainel(400, 'JSON inválido');
+    }
+    if (!sessoes.configurada) throw new ErroPainel(503, 'A senha do painel ainda não foi configurada: coloque PAINEL_SENHA no .env do BenURA e reinicie o benura-painel.');
+    const endereco = enderecoDe(req);
+    const r = sessoes.entrar(typeof senha === 'string' ? senha : '', endereco, { seguro: viaHttps(req) });
+    if (!r.ok) {
+      logger.aviso(`Painel: senha errada (${endereco})${r.bloqueado ? ' — bloqueado por 10 min' : ''}.`);
+      throw new ErroPainel(r.bloqueado ? 429 : 401, r.bloqueado ? 'Muitas tentativas. Espere 10 minutos.' : 'Senha incorreta');
+    }
+    logger.info(`Painel: entrada da supervisão (${endereco}).`);
+    return { status: 200, corpo: { ok: true }, cookie: r.cookie };
+  }
+
+  async function visao() {
+    const [saude, alertas] = await Promise.all([servicos.saude(), servicos.chamar('rodizio', '/alertas')]);
+    const { avisos } = dados.atualizar();
+    const rodizio = saude.rodizio.dados;
+    const agora = new Date();
+    const cicloMs = rodizio?.lastLoopUra ? agora - new Date(rodizio.lastLoopUra) : null;
+    const horaLocal = new Intl.DateTimeFormat('en-GB', { timeZone: cfg.fuso, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(agora);
+    const argus = {
+      tokenRecusado: tokenRecusadoRecentemente(avisos, segundosDoDia(horaLocal)),
+      cicloUraHaSeg: cicloMs == null ? null : Math.round(cicloMs / 1000),
+      respondendo: saude.rodizio.online && cicloMs != null && cicloMs < CICLO_PARADO_MS,
+    };
+    return { status: 200, corpo: { agora: agora.toISOString(), servicos: saude, argus, alertas: alertas.status === 200 ? alertas.corpo : null } };
+  }
+
+  async function encaminhar(req, acao) {
+    if (acao.metodo !== 'GET') conferirOrigem(req);
+    const corpo = acao.metodo === 'POST' ? await lerCorpo(req, acao.limiteBytes ?? LIMITE_PADRAO_BYTES) : undefined;
+    const r = await servicos.chamar(acao.servico, acao.destino, { metodo: acao.metodo, corpo: corpo || undefined });
+    if (acao.nome) {
+      const resultado = r.status >= 200 && r.status < 300 ? 'ok' : `falhou: ${r.corpo?.erro ?? `HTTP ${r.status}`}`;
+      logger.aviso(`Painel: supervisão pediu para ${acao.nome} (${enderecoDe(req)}) — ${resultado}.`);
+    }
+    if (r.status === 0) return { status: 502, corpo: r.corpo };
+    return { status: r.status, corpo: r.corpo };
+  }
+
+  async function atender(req) {
+    const { pathname } = new URL(req.url, 'http://localhost');
+    const estatico = req.method === 'GET' && estaticos[pathname];
+    if (estatico) return { status: 200, bruto: estatico };
+    if (req.method === 'GET' && pathname === '/health') return { status: 200, corpo: { status: 'ok', uptime: Math.round(process.uptime()), senhaConfigurada: sessoes.configurada } };
+    if (req.method === 'POST' && pathname === '/api/entrar') return entrar(req);
+    if (!pathname.startsWith('/api/')) throw new ErroPainel(404, 'Página não encontrada');
+
+    if (!sessoes.validar(req)) throw new ErroPainel(401, 'Entre com a senha da supervisão');
+    if (req.method === 'POST' && pathname === '/api/sair') {
+      conferirOrigem(req);
+      return { status: 200, corpo: { ok: true }, cookie: sessoes.sair(req, { seguro: viaHttps(req) }) };
+    }
+    if (req.method === 'GET' && pathname === '/api/sessao') return { status: 200, corpo: { ok: true } };
+    if (req.method === 'GET' && pathname === '/api/visao') return visao();
+    if (req.method === 'GET' && pathname === '/api/dia') return { status: 200, corpo: dados.resumo() };
+    const acao = ACOES.find((a) => a.metodo === req.method && a.caminho === pathname);
+    if (!acao) throw new ErroPainel(404, 'Comando não encontrado');
+    return encaminhar(req, acao);
+  }
+
+  function responder(res, { status, corpo, bruto, cookie }) {
+    const headers = { ...SEGURANCA, ...(cookie ? { 'Set-Cookie': cookie } : {}) };
+    if (bruto) {
+      res.writeHead(status, { ...headers, 'Content-Type': bruto.tipo });
+      return res.end(bruto.conteudo);
+    }
+    res.writeHead(status, { ...headers, 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify(corpo ?? null));
+  }
+
+  return http.createServer(async (req, res) => {
+    try {
+      responder(res, await atender(req));
+    } catch (e) {
+      if (res.headersSent) return;
+      if (e instanceof ErroPainel) return responder(res, { status: e.status, corpo: { erro: e.message } });
+      logger.erro(`Painel: erro em ${req.method} ${req.url}:`, e);
+      return responder(res, { status: 500, corpo: { erro: 'Erro interno do painel' } });
+    }
+  });
+}
+
+module.exports = { criarServidorDoPainel };

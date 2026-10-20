@@ -25,6 +25,7 @@
     "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",
     "atualizador:agora": "node atualizador.js --uma-vez",
     "rotinas:agora": "node rotinas.js --agora",
+    "painel": "node painel.js",
     "diagnostico:callbacks": "node scripts/diagnostico-callbacks.js",
     "conferir:supervisores": "node scripts/conferir-supervisores.js",
     "perfis:montar": "node scripts/perfis-montar.js"

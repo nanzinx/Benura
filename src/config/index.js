@@ -273,7 +273,7 @@ function carregarConfig(overrides = {}) {
     diretorio: RAIZ,
     branch: env('ATUALIZADOR_BRANCH', 'main'),
     intervaloMs: envNum('ATUALIZADOR_INTERVALO_MS', 60_000),
-    apps: envLista('ATUALIZADOR_APPS', 'benura-roteador,benura-rodizio,benura-rotinas'),
+    apps: envLista('ATUALIZADOR_APPS', 'benura-roteador,benura-rodizio,benura-rotinas,benura-painel'),
     healthUrls: envLista('ATUALIZADOR_HEALTH_URLS', [cfg.http.porta, cfg.rodizio.porta, envNum('ROTINAS_PORT', 3003)]
       .map((p) => `http://localhost:${p}/health`).join(',')),
     healthTimeoutMs: envNum('ATUALIZADOR_HEALTH_TIMEOUT_MS', 30_000),
@@ -302,6 +302,25 @@ function carregarConfig(overrides = {}) {
       ignorarRamais: envLista('FIM_EXPEDIENTE_IGNORAR_RAMAIS', ''),
       arquivoLog: env('FIM_EXPEDIENTE_LOG_FILE', path.join(RAIZ, 'logs', 'fim-expediente.jsonl')),
     },
+  };
+
+  // --- Painel da supervisão (painel.js / benura-painel) ---
+  // Uma página com os controles da URA, a esteira manual, a saúde dos serviços e o dia.
+  // Fala com os outros serviços pelo localhost, levando o WEBHOOK_TOKEN: o navegador só vê a senha.
+  const local = (porta) => `http://127.0.0.1:${porta}`;
+  cfg.painel = {
+    porta: envNum('PAINEL_PORT', 3010),
+    senha: env('PAINEL_SENHA', ''),
+    segredo: env('PAINEL_SEGREDO', ''),
+    arquivoSegredo: env('PAINEL_SEGREDO_FILE', path.join(RAIZ, 'painel-segredo.key')),
+    sessaoHoras: envNum('PAINEL_SESSAO_HORAS', 12),
+    servicos: {
+      roteador: semBarraFinal(env('PAINEL_ROTEADOR_URL', local(cfg.http.porta))),
+      rodizio: semBarraFinal(env('PAINEL_RODIZIO_URL', local(cfg.rodizio.porta))),
+      rotinas: semBarraFinal(env('PAINEL_ROTINAS_URL', local(cfg.rotinas.porta))),
+      atualizador: semBarraFinal(env('PAINEL_ATUALIZADOR_URL', local(cfg.atualizador.porta))),
+    },
+    timeoutMs: envNum('PAINEL_TIMEOUT_MS', 4000),
   };
 
   // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---
@@ -333,7 +352,7 @@ function mesclarProfundo(base, extra) {
  * Problemas fatais impedem a inicialização; avisos apenas são logados.
  *
  * @param {object} cfg
- * @param {{ escopo?: 'roteador'|'rodizio'|'rotinas'|'atualizador' }} [opcoes] - qual serviço está subindo
+ * @param {{ escopo?: 'roteador'|'rodizio'|'rotinas'|'atualizador'|'painel' }} [opcoes] - qual serviço está subindo
  * @returns {{ fatais: string[], avisos: string[] }}
  */
 function validarConfig(cfg, { escopo = 'roteador' } = {}) {
@@ -363,6 +382,16 @@ function validarConfig(cfg, { escopo = 'roteador' } = {}) {
   if (escopo === 'rodizio') return validarRodizio(cfg);
   if (escopo === 'atualizador') return validarAtualizador(cfg, fatais);
   if (escopo === 'rotinas') return validarRotinas(cfg, fatais);
+  if (escopo === 'painel') return validarPainel(cfg);
+  return { fatais, avisos };
+}
+
+/** Validação do painel: só precisa da senha (ele não fala com a Argus nem com o Carrossel). */
+function validarPainel(cfg) {
+  const fatais = [];
+  const avisos = [];
+  if ((cfg.painel.senha || '').length < 8) avisos.push('PAINEL_SENHA não configurada (8 caracteres ou mais): ninguém consegue entrar no painel até colocá-la no .env.');
+  if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: os serviços aceitam os comandos do painel (e de qualquer um na rede) sem token.');
   return { fatais, avisos };
 }
 

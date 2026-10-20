@@ -687,6 +687,11 @@ const CENARIOS = {
   async 'Health responde'(r) {
     const res = await fetch(`${r.base}/health`);
     if (res.status !== 200) throw new Error(`health ${res.status}`);
+    // O painel da supervisão mostra quem está na URA a partir daqui.
+    await aguardar(async () => {
+      const { uraAgora } = await (await fetch(`${r.base}/health`)).json();
+      return uraAgora?.some((u) => u.ramal === '200' && u.classe === 'livre' && u.livreDesde && u.fixo === false);
+    }, { descricao: '/health com uraAgora (200 livre)' });
   },
 
   // ── Correções (o script original falha nestes) ──

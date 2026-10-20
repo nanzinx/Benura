@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>BenURA · Painel da supervisão</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/painel.css">
+</head>
+<body>
+
+<!-- ───────────── Entrada ───────────── -->
+<section id="telaEntrada" class="entrada" hidden>
+  <div class="entrada-marca">
+    <div class="marca marca-grande"><img src="/logo.svg" alt=""><span>Ben<b>URA</b></span></div>
+    <p class="entrada-frase">Painel da supervisão</p>
+    <ul class="entrada-lista">
+      <li>Controles da URA e dos robôs</li>
+      <li>Esteira manual quando o Carrossel cair</li>
+      <li>Saúde dos serviços e o dia da URA</li>
+    </ul>
+  </div>
+  <form id="formEntrada" class="entrada-cartao" autocomplete="off">
+    <h1>Entrar</h1>
+    <p class="suave">Use a senha da supervisão.</p>
+    <label class="campo">Senha
+      <input type="password" id="senha" required autocomplete="current-password" autofocus>
+    </label>
+    <button type="submit" class="botao primario largo" id="botaoEntrar">Entrar</button>
+    <p id="erroEntrada" class="mensagem erro" role="alert"></p>
+  </form>
+</section>
+
+<!-- ───────────── Painel ───────────── -->
+<div id="telaPainel" hidden>
+  <header class="topo">
+    <div class="topo-linha">
+      <a class="marca" href="#visao"><img src="/logo.svg" alt=""><span>Ben<b>URA</b></span></a>
+      <nav class="abas" aria-label="Seções">
+        <a href="#visao" data-aba="visao">Visão geral</a>
+        <a href="#ura" data-aba="ura">URA e robôs</a>
+        <a href="#esteira" data-aba="esteira">Esteira manual</a>
+        <a href="#servicos" data-aba="servicos">Serviços</a>
+      </nav>
+      <div class="topo-direita">
+        <span class="selo selo-amarelo" id="seloDryRun" hidden title="DRY_RUN ligado: o BenURA só simula as transferências e os robôs">Simulação</span>
+        <span class="relogio" id="relogio">--:--</span>
+        <button class="botao fantasma pequeno" id="sair">Sair</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="faixas" id="faixas" aria-live="polite"></div>
+
+  <main class="conteudo">
+
+    <!-- Visão geral -->
+    <section data-secao="visao">
+      <div class="titulo-secao">
+        <h1>Visão geral</h1>
+        <p class="suave" id="atualizadoEm">Carregando…</p>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi kpi-destaque"><span class="kpi-rotulo">Livres na URA</span><span class="kpi-valor" id="kpiLivres">–</span><span class="kpi-nota" id="kpiLivresNota"></span></div>
+        <div class="kpi"><span class="kpi-rotulo">Humanos na URA</span><span class="kpi-valor" id="kpiHumanos">–</span><span class="kpi-nota" id="kpiHumanosNota"></span></div>
+        <div class="kpi"><span class="kpi-rotulo">Robôs ligados</span><span class="kpi-valor" id="kpiRobos">–</span><span class="kpi-nota" id="kpiRobosNota"></span></div>
+        <div class="kpi"><span class="kpi-rotulo">Callbacks hoje</span><span class="kpi-valor" id="kpiCallbacks">–</span><span class="kpi-nota" id="kpiCallbacksNota"></span></div>
+        <div class="kpi"><span class="kpi-rotulo">Pânico</span><span class="kpi-valor kpi-texto" id="kpiPanico">–</span><span class="kpi-nota" id="kpiPanicoNota"></span></div>
+      </div>
+
+      <div class="grade grade-2">
+        <article class="cartao">
+          <header class="cartao-topo"><h2>Quem está na URA</h2><span class="suave" id="uraResumo"></span></header>
+          <div class="tabela-rolagem">
+            <table class="tabela" id="tabelaUra">
+              <thead><tr><th>Ramal</th><th>Operador</th><th>Status</th><th class="num">Livre há</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="vazio" id="uraVazia" hidden>Ninguém na URA agora.</p>
+        </article>
+
+        <article class="cartao">
+          <header class="cartao-topo"><h2>Callbacks de hoje</h2><span class="suave">mais recentes primeiro</span></header>
+          <ol class="lista-callbacks" id="listaCallbacks"></ol>
+          <p class="vazio" id="callbacksVazio">Nenhum callback hoje.</p>
+        </article>
+      </div>
+
+      <article class="cartao">
+        <header class="cartao-topo">
+          <h2>Livres na URA ao longo do dia</h2>
+          <div class="legenda" aria-hidden="true">
+            <span><i class="chave chave-linha"></i>Livres</span>
+            <span><i class="chave chave-callback"></i>Callback</span>
+          </div>
+        </header>
+        <div class="grafico" id="graficoLivres" role="img" aria-label="Livres na URA ao longo do dia"></div>
+      </article>
+
+      <article class="cartao">
+        <header class="cartao-topo"><h2>Robôs ligados ao longo do dia</h2></header>
+        <div class="grafico grafico-baixo" id="graficoRobos" role="img" aria-label="Robôs ligados ao longo do dia"></div>
+      </article>
+
+      <article class="cartao">
+        <header class="cartao-topo"><h2>Vendas e filas (roteador)</h2><span class="suave" id="roteadorResumo"></span></header>
+        <div class="mini-kpis">
+          <div><span class="kpi-rotulo">Na URA pelo roteador</span><b id="rotUra">–</b></div>
+          <div><span class="kpi-rotulo">No Ativo</span><b id="rotAtivo">–</b></div>
+          <div><span class="kpi-rotulo">Subiram por venda hoje</span><b id="rotSubiram">–</b></div>
+          <div><span class="kpi-rotulo">Meta diária</span><b id="rotMeta">–</b></div>
+        </div>
+        <div class="tabela-rolagem">
+          <table class="tabela" id="tabelaSubiram">
+            <thead><tr><th>Ramal</th><th>Vendedor</th><th>Equipe</th><th class="num">Venda que fez subir</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <!-- URA e robôs -->
+    <section data-secao="ura" hidden>
+      <div class="titulo-secao">
+        <h1>URA e robôs</h1>
+        <p class="suave">Quem liga os robôs é a supervisão, pelo painel da Argus. O BenURA só desliga.</p>
+      </div>
+
+      <div class="grade grade-2">
+        <article class="cartao controle" id="cartaoPanico">
+          <header class="cartao-topo"><h2>Pânico dos robôs</h2><span class="estado" id="estadoPanico">–</span></header>
+          <ul class="regras">
+            <li><b>Nenhum livre:</b> desliga todos os robôs na hora, inclusive os em ligação.</li>
+            <li><b>1 livre:</b> os robôs seguem até <b id="antesDeSair">60 s</b> antes de ele sair por ociosidade; aí os parados desligam e os em ligação terminam a chamada.</li>
+            <li><b>1 livre fixo</b> (equipe do Robson): desliga os parados na hora, a não ser que a URA esteja passiva hoje.</li>
+          </ul>
+          <p class="motivo" id="motivoPanico" hidden></p>
+          <div class="acoes">
+            <button class="botao perigo" data-comando="panico" data-metodo="POST">Ligar pânico</button>
+            <button class="botao secundario" data-comando="panico" data-metodo="DELETE" data-confirmar="Desligar o pânico? O BenURA deixa de desligar os robôs com poucos livres.">Desligar</button>
+          </div>
+          <p class="mensagem" data-saida="panico"></p>
+        </article>
+
+        <article class="cartao controle">
+          <header class="cartao-topo"><h2>URA passiva hoje</h2><span class="estado" id="estadoPassiva">–</span></header>
+          <p>Para os dias em que a URA não está agressiva. Ligada, com só um <b>fixo</b> livre os robôs seguem até ele atender; aí sobra nenhum livre e eles desligam.</p>
+          <p class="suave">Vale até desligar ou até virar o dia.</p>
+          <div class="acoes">
+            <button class="botao primario" data-comando="ura/passiva" data-metodo="POST">Ligar</button>
+            <button class="botao secundario" data-comando="ura/passiva" data-metodo="DELETE">Desligar</button>
+          </div>
+          <p class="mensagem" data-saida="ura/passiva"></p>
+        </article>
+
+        <article class="cartao controle">
+          <header class="cartao-topo"><h2>URA cheia</h2><span class="estado" id="estadoCheia">–</span></header>
+          <p>Leva <b>todos</b> os operadores do Ativo para a URA em até 5 s. A regra do ocioso continua valendo: quem fica livre o tempo todo volta ao Ativo e sobe de novo ao atender lá.</p>
+          <p class="suave">Voltar ao normal: só sobe quem é elegível (meta de ontem, venda hoje ou fixo). Vale até desligar ou virar o dia.</p>
+          <div class="acoes">
+            <button class="botao primario" data-comando="ura/cheia" data-metodo="POST" data-confirmar="Colocar todos os operadores do Ativo na URA?">Colocar todos na URA</button>
+            <button class="botao secundario" data-comando="ura/cheia" data-metodo="DELETE">Voltar ao normal</button>
+          </div>
+          <p class="mensagem" data-saida="ura/cheia"></p>
+        </article>
+
+        <article class="cartao controle" id="cartaoRisco">
+          <header class="cartao-topo"><h2>Clientes de risco</h2><span class="estado" id="estadoRisco">–</span></header>
+          <p>Cliente que gerou callback ou atende muito o robô nos últimos dias. Quando um robô fala com ele, o aviso aparece no topo, com som e notificação.</p>
+          <p class="suave" id="riscoInfo"></p>
+          <div class="acoes">
+            <button class="botao perigo" data-comando="risco/desligar" data-metodo="POST">Desligar robôs com cliente de risco</button>
+            <button class="botao secundario" data-comando="risco/desligar" data-metodo="DELETE">Só avisar</button>
+          </div>
+          <p class="mensagem" data-saida="risco/desligar"></p>
+          <div class="acoes">
+            <button class="botao fantasma" id="ativarNotificacoes">Ativar notificações e som</button>
+            <span class="suave" id="estadoNotificacoes"></span>
+          </div>
+        </article>
+      </div>
+
+      <article class="cartao">
+        <header class="cartao-topo"><h2>Os 20 clientes de maior risco</h2><span class="suave">telefone mascarado</span></header>
+        <div class="tabela-rolagem">
+          <table class="tabela" id="tabelaRisco">
+            <thead><tr><th>Telefone</th><th class="num">Callbacks</th><th class="num">Atendeu</th><th>Último dia</th><th>Motivo</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="vazio" id="riscoVazio" hidden>Nenhum cliente de risco ainda.</p>
+      </article>
+    </section>
+
+    <!-- Esteira manual -->
+    <section data-secao="esteira" hidden>
+      <div class="titulo-secao">
+        <h1>Esteira manual</h1>
+        <p class="suave">Use quando o Carrossel ou a API dele estiverem fora do ar. O roteador aplica as mesmas regras com estas vendas.</p>
+      </div>
+
+      <div class="grade grade-2-1">
+        <article class="cartao">
+          <header class="cartao-topo"><h2>Colar a esteira</h2></header>
+          <label class="arquivo">
+            <input type="file" id="arquivoEsteira" accept=".csv,.txt">
+            <span class="botao secundario">Escolher arquivo CSV</span>
+            <span class="suave" id="nomeArquivo">ou cole a tabela abaixo</span>
+          </label>
+          <textarea id="textoEsteira" spellcheck="false" placeholder="Proposta;...;Data/Hora;...;Agente;...;Valor Contrato;..."></textarea>
+          <div class="acoes">
+            <button class="botao primario" id="enviarEsteira">Enviar esteira</button>
+            <button class="botao secundario" id="limparEsteira">Apagar esteiras coladas</button>
+            <button class="botao fantasma" id="recarregarVendas" title="Refaz a carga do dia com o Carrossel (ou com a esteira colada)">Recarregar vendas</button>
+          </div>
+          <p class="mensagem" id="saidaEsteira"></p>
+        </article>
+
+        <article class="cartao">
+          <header class="cartao-topo"><h2>Como fazer</h2></header>
+          <ol class="passos">
+            <li>Na esteira, filtre <b>Etapa = Andamento</b> e o período por <b>data de cadastro</b>, do <b>dia anterior trabalhado até hoje</b>.</li>
+            <li>Exporte o CSV e escolha o arquivo, <b>ou</b> copie a tabela com o cabeçalho e cole na caixa.</li>
+            <li>Clique em <b>Enviar esteira</b>. Durante o dia, cole de novo para atualizar as vendas de hoje.</li>
+            <li>Cada colagem substitui os dias que ela contém. <b>Apagar esteiras coladas</b> tira tudo.</li>
+          </ol>
+        </article>
+      </div>
+
+      <article class="cartao" id="resultadoEsteira" hidden>
+        <header class="cartao-topo"><h2>O que a esteira decidiu</h2><span class="suave" id="resumoEsteira"></span></header>
+        <div class="grade grade-2">
+          <div>
+            <h3 id="tituloAcima">Acima da meta no dia anterior</h3>
+            <table class="tabela" id="tabelaAcima"><tbody></tbody></table>
+          </div>
+          <div>
+            <h3 id="tituloHoje">Venderam hoje</h3>
+            <table class="tabela" id="tabelaHoje"><tbody></tbody></table>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Serviços -->
+    <section data-secao="servicos" hidden>
+      <div class="titulo-secao">
+        <h1>Serviços</h1>
+        <p class="suave">O BenURA roda no PC do expediente (PM2). Fora do ar: <code>npx pm2 status</code> e <code>npx pm2 logs</code>.</p>
+      </div>
+      <div class="servicos" id="listaServicos"></div>
+      <article class="cartao">
+        <header class="cartao-topo">
+          <h2>Avisos de hoje</h2>
+          <div class="filtro" role="group" aria-label="Filtrar avisos">
+            <button class="filtro-opcao ativo" data-filtro="todos">Todos</button>
+            <button class="filtro-opcao" data-filtro="ERRO">Só erros</button>
+          </div>
+        </header>
+        <ol class="lista-avisos" id="listaAvisos"></ol>
+        <p class="vazio" id="avisosVazio">Nenhum aviso hoje.</p>
+      </article>
+    </section>
+  </main>
+
+  <footer class="rodape">BenURA · Benconsig</footer>
+  <div class="dica" id="dica" role="tooltip" hidden></div>
+</div>
+
+<script src="/painel.js"></script>
+</body>
+</html>

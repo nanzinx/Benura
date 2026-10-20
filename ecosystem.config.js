@@ -6,6 +6,7 @@
  *   benura-roteador  roteador de vendas (Carrossel → URA/Ativo)          porta PORT (3001)
  *   benura-rodizio   rodízio Ativo ↔ URA + robôs + retorno da fila       porta RODIZIO_PORT (3000)
  *   benura-rotinas   rotinas diárias (fim de expediente)                 porta ROTINAS_PORT (3003)
+ *   benura-painel    painel da supervisão (controles, esteira, saúde)    porta PAINEL_PORT (3010)
  *
  *   npm run pm2:iniciar     (ou: npx pm2 start ecosystem.config.js)
  *   npx pm2 start ecosystem.config.js --only benura-rodizio   (só um deles)
@@ -56,6 +57,13 @@ module.exports = {
       script: 'rotinas.js',
       out_file: path.join(LOGS, 'rotinas.out.log'),
       error_file: path.join(LOGS, 'rotinas.err.log'),
+    },
+    {
+      ...comum,
+      name: 'benura-painel',
+      script: 'painel.js',
+      out_file: path.join(LOGS, 'painel.out.log'),
+      error_file: path.join(LOGS, 'painel.err.log'),
     },
   ],
 };

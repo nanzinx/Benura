@@ -30,6 +30,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 - [🚦 Roteador de Vendas](#roteador)
 - [🔄 Rodízio Ativo ↔ URA e robôs](#rodizio)
 - [📲 Retorno de quem desistiu da fila](#retorno-da-fila)
+- [🖥️ Painel da supervisão](#painel)
 - [🌙 Fim de expediente limpo](#fim-de-expediente)
 - [🛡️ Conflitos e proteções](#conflitos)
 - [🧰 Rodando com PM2](#pm2)
@@ -43,6 +44,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 | `roteador-vendas.js` | `benura-roteador` | 3001 | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
 | `argus-automacao.js` | `benura-rodizio` | 3000 | Rodízio Ativo ↔ URA por atendimento, liga/desliga os robôs da URA e faz o **retorno de quem desistiu da fila** |
 | `rotinas.js` | `benura-rotinas` | 3003 | Rotinas diárias: **fim de expediente limpo** |
+| `painel.js` | `benura-painel` | 3010 | **Painel da supervisão**: controles da URA, esteira manual, saúde dos serviços e o dia da URA |
 | `atualizador.js` | `benura-atualizador` | 3002 | Deploy automático na máquina de produção, fora do expediente |
 
 ```mermaid
@@ -384,6 +386,43 @@ da Argus em `POST /webhook`; com esta automação ligada, o webhook **tipo 5 (En
 
 ---
 
+<a id="painel"></a>
+## 🖥️ Painel da supervisão
+
+`painel.js` · app `benura-painel` · porta `PAINEL_PORT` (**3010**) · lógica em `src/painel/`
+
+Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado pelo `localhost`:
+
+| Aba | O que tem |
+| --- | --- |
+| **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; vendas e filas do roteador |
+| **URA e robôs** | Pânico, URA passiva hoje, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
+| **Esteira manual** | Colar ou escolher o CSV da esteira quando o Carrossel cair, ver o que ela decidiu, apagar e recarregar as vendas |
+| **Serviços** | Roteador, rodízio, rotinas e atualizador no ar ou não, a Argus respondendo (ou recusando o token), DRY_RUN e os avisos do dia |
+
+As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico ativo, serviço fora do ar e token da Argus recusado.
+
+**Como ligar:**
+1. No `.env`, coloque `PAINEL_SENHA=` (8 caracteres ou mais). É a senha que a supervisão usa para entrar.
+2. `npx pm2 start ecosystem.config.js --only benura-painel` (ou `npm run pm2:iniciar`, que sobe todos).
+3. Abra `http://localhost:3010` no PC do BenURA, ou `http://<IP do PC>:3010` de outro PC da rede.
+
+**Como funciona por dentro:**
+- O painel não fala com a Argus nem com o Carrossel. Ele chama os outros serviços pelo `localhost` levando o `WEBHOOK_TOKEN`: o navegador nunca vê o token, só a senha.
+- Só passam os comandos de uma lista fechada (`src/painel/servicos.js`). Webhooks e rotas novas não passam sem entrar nela.
+- Cada comando fica no log com a hora e o endereço de quem pediu, ex.: `Painel: supervisão pediu para ligar o pânico (192.168.0.12) — ok`.
+- A sessão fica num cookie assinado (`HttpOnly`, `SameSite=Strict`) e vence em `PAINEL_SESSAO_HORAS` (12 h). Trocar a senha derruba todas as sessões.
+- 5 senhas erradas seguidas bloqueiam aquele endereço por 10 minutos.
+- O dia (gráficos, callbacks e avisos) vem dos logs em arquivo (`logs/AAAA-MM-DD/`), que não têm dado de cliente. Os telefones aparecem só mascarados.
+- Sem `PAINEL_SENHA`, o painel sobe assim mesmo e avisa na tela que ninguém consegue entrar. Assim o atualizador pode reiniciá-lo sem risco.
+
+**Publicar na internet (Cloudflare):** o painel já está pronto para ficar atrás de um **Cloudflare Tunnel**, sem abrir porta no roteador da empresa.
+1. Instale o `cloudflared` no PC do BenURA e crie um túnel apontando `benura.<domínio>` para `http://localhost:3010`.
+2. Na frente, coloque o **Cloudflare Access** com os e-mails da supervisão (login por código no e-mail).
+3. Pela Cloudflare o cookie sai com `Secure`, e o endereço registrado no log é o de quem acessou (`CF-Connecting-IP`).
+
+---
+
 <a id="fim-de-expediente"></a>
 ## 🌙 Fim de expediente limpo
 
@@ -475,7 +514,7 @@ Estado e logs da simulação ficam em `.simulacao/`. `npx pm2 monit` abre um pai
 Usa o `.env` (copie de `.env.example`).
 
 ```bash
-npm run pm2:iniciar      # sobe o benura-roteador, o benura-rodizio e o benura-rotinas
+npm run pm2:iniciar      # sobe o benura-roteador, o benura-rodizio, o benura-rotinas e o benura-painel
 npx pm2 start ecosystem.config.js --only benura-rodizio   # só um deles
 npx pm2 logs
 npm run pm2:parar

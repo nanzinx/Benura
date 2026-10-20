@@ -12,12 +12,11 @@
  * Guarda PERFIS_DIAS dias; quem não tem mais nenhum dia some.
  */
 
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
 const { ArquivoDeEstado } = require('../utils/persistencia-json');
 const { ArquivoJsonObservado } = require('../utils/arquivo-json');
 const { dataLocal } = require('../utils/datas');
+// Segredo do HMAC: PERFIS_SEGREDO ou um arquivo local. Sem ele não dá para voltar da chave ao telefone.
+const { obterSegredo } = require('../utils/segredo-local');
 const {
   Resultado, telefoneDaLigacao, classificarLigacao, chaveDoCliente, mascarar, somar, totais, motivosDeRisco, podar, tirarPeriodo,
 } = require('../domain/perfis-clientes');
@@ -26,22 +25,6 @@ const { textoDaHora } = require('../domain/diagnostico-callbacks');
 /** Ligações já contadas ficam lembradas por isso (o vigia relê a mesma janela a cada minuto). */
 const LEMBRAR_MS = 30 * 60_000;
 const SALVAR_A_CADA_MS = 60_000;
-
-/**
- * Segredo do HMAC: PERFIS_SEGREDO ou um arquivo local, criado na primeira vez.
- * Sem ele não dá para voltar da chave ao telefone. Nunca vai para o git.
- */
-function obterSegredo({ segredo, arquivoSegredo }) {
-  if (segredo) return segredo;
-  try {
-    return fs.readFileSync(arquivoSegredo, 'utf8').trim();
-  } catch {
-    const novo = crypto.randomBytes(32).toString('hex');
-    fs.mkdirSync(path.dirname(arquivoSegredo), { recursive: true });
-    fs.writeFileSync(arquivoSegredo, `${novo}\n`, { mode: 0o600 });
-    return novo;
-  }
-}
 
 /** Dia (AAAA-MM-DD) da ligação pela hora do relatório; sem hora, hoje. */
 function diaDaLigacao(ligacao, fuso, agora) {

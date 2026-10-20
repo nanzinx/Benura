@@ -868,6 +868,21 @@ class RodizioService {
     this.log.info('Modo manual encerrado: o BenURA volta a comandar os robôs.');
   }
 
+  /** Quem está na URA e como está (painel da supervisão). Só dados do operador. */
+  uraAgora() {
+    return [...this.ramaisUra].map((ramal) => {
+      const s = this.statusUra.get(ramal);
+      return {
+        ramal,
+        nome: s?.detalhe?.nome ?? null,
+        classe: s?.classe ?? null,
+        livreDesde: s?.livreDesde ? new Date(s.livreDesde).toISOString() : null,
+        emCarencia: Boolean(s?.emCarencia),
+        fixo: this.permanentes.has(String(ramal)),
+      };
+    });
+  }
+
   resumo() {
     return {
       robos: {
@@ -884,6 +899,7 @@ class RodizioService {
       uraLogadosEmOutroGrupo: [...this.logadosEmOutroGrupo.values()],
       elegiveisUra: this.elegiveis ? this.elegiveis.resumo() : { disponivel: false, total: null, desligado: true },
       fixosPermanentes: [...this.permanentes],
+      uraAgora: this.uraAgora(),
       uraCheia: this.uraCheia ? this.uraCheia.resumo() : { ligada: false, desde: null },
       panico: {
         modo: this.emModoPanico(),
