@@ -84,8 +84,9 @@ npm run test:cenarios    # cenários do rodízio contra uma Argus falsa
    Os demais, inclusive quem não vendeu nada, vão para o Ativo, no grupo **do próprio supervisor**.
    - **Operadores fixos** (`OPERADORES_FIXOS_URA`, ramais ou nomes separados por vírgula) começam o dia na URA **com ou sem venda**.
      Se a carga for adiada (Carrossel fora e sem esteira colada), eles vão para a URA mesmo assim.
-     Depois seguem o rodízio como todos: ociosos por `TEMPO_MIN` vão para o Ativo e voltam à URA quando atendem lá.
+     **Ficam na URA de vez** (`FIXOS_PERMANENTES_URA=true`, o padrão): a regra do ocioso não vale para eles. Deslogados seguem a regra normal. Com `FIXOS_PERMANENTES_URA=false`, seguem o rodízio como todos: ociosos por `TEMPO_MIN` vão para o Ativo e voltam à URA quando atendem lá.
    - **Equipes fixas** (`EQUIPES_FIXAS_URA`, nomes de supervisores como na Argus, separados por vírgula): toda a equipe do supervisor é tratada como fixa. Ex.: `EQUIPES_FIXAS_URA=ROBSON JUNIOR` põe a equipe do Robson na URA todo dia. O ocioso volta ao grupo do supervisor; para garantir o grupo certo, coloque-o também no `supervisores-grupos.json` (ex.: `{ "ROBSON JUNIOR": 20 }`). Nome que não bater com um supervisor da Argus gera um aviso no log.
+   - **Fora dos fixos** (`FORA_DOS_FIXOS_URA`, ramais ou nomes): quem saiu da equipe mas ainda aparece com o supervisor antigo na Argus. Quem entrou na equipe e ainda não foi trocado de supervisor na Argus vai em `OPERADORES_FIXOS_URA`. `npm run conferir:supervisores` lista os fixos com nome e ramal, para conferir.
 2. **Gatilho**: quem está no Ativo e faz qualquer venda hoje sobe para a URA e fica lá até o fim do dia.
 3. **Reset**: no dia seguinte (no fuso `FUSO_HORARIO`) o ciclo recomeça.
 
@@ -291,7 +292,7 @@ O BenURA monta um perfil de cada telefone das bases da URA a partir do relatóri
 
 **De onde vêm os dados:**
 - **Ao vivo:** o vigia de callbacks (`CALLBACKS_VERIFICAR_SEG`) conta cada ligação final em `state-perfis-clientes.json`.
-- **Histórico:** `npm run perfis:montar -- --dias 7` lê os dias anteriores e grava `state-perfis-historico.json`. Pode rodar com o BenURA ligado, que relê sozinho e soma sem contar o mesmo dia duas vezes. Para vários dias, leva alguns minutos.
+- **Histórico:** `npm run perfis:montar` lê os últimos 6 dias completos e grava `state-perfis-historico.json`. É o máximo que a Argus entrega: 7 dias por consulta, contando hoje. Com `--dias N` lê menos; pedir mais lê só os 6, com aviso. Pode rodar com o BenURA ligado, que relê sozinho e soma sem contar o mesmo dia duas vezes. Rodar de novo junta com o histórico anterior, sem perder os dias mais antigos. Os dias além dos 6 se completam com o BenURA ligado, até `PERFIS_DIAS`.
 
 **Cliente de risco em ligação:** a cada `PERFIS_VIGIA_SEG` (**10 s**), com robô ligado, o BenURA lê as ligações "em curso" do último minuto. Se o telefone for de risco:
 - registra no log `CLIENTE DE RISCO em ligação: Oper Virtual 7 com (11) 9****-1594 (2 callback(s))`, que vai para `avisos.txt`;

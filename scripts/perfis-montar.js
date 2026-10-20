@@ -4,13 +4,18 @@
  * Monta o histórico dos perfis de clientes a partir do relatório de ligações
  * detalhadas dos robôs (só leitura na Argus).
  *
- *   npm run perfis:montar                  últimos 3 dias (até ontem)
- *   npm run perfis:montar -- --dias 7      últimos 7 dias
+ *   npm run perfis:montar                  últimos 6 dias (até ontem; o máximo da Argus)
+ *   npm run perfis:montar -- --dias 3      últimos 3 dias
  *   npm run perfis:montar -- --campanha 3  escolhe a campanha (se houver mais de uma)
  *
- * Grava PERFIS_HISTORICO_FILE (state-perfis-historico.json). O benura-rodizio relê o
- * arquivo sozinho e soma com o que conta ao vivo a partir de hoje. Pode rodar com o
- * BenURA ligado. O telefone não é gravado: só o HMAC e a versão mascarada.
+ * A Argus entrega no máximo 7 dias de ligações por consulta: são 6 dias completos +
+ * o de hoje. Pedir mais lê só os 6 (com aviso). Os dias mais antigos se completam
+ * com o tempo: o BenURA conta cada ligação ao vivo, até PERFIS_DIAS.
+ *
+ * Grava PERFIS_HISTORICO_FILE (state-perfis-historico.json) juntando com o histórico
+ * anterior: rodar de novo só relê os últimos dias e não perde os mais antigos. O
+ * benura-rodizio relê o arquivo sozinho. Pode rodar com o BenURA ligado.
+ * O telefone não é gravado: só o HMAC e a versão mascarada.
  */
 
 const fs = require('fs');
@@ -23,8 +28,12 @@ const { escolherCampanha } = require('../src/integrations/argus/campanha');
 const { dataLocal } = require('../src/utils/datas');
 const { obterSegredo, diaDaLigacao } = require('../src/rodizio/perfis-clientes');
 const {
-  Resultado, classificarLigacao, telefoneDaLigacao, chaveDoCliente, mascarar, somar, podar,
+  Resultado, classificarLigacao, telefoneDaLigacao, chaveDoCliente, mascarar, somar, podar, juntarHistorico,
 } = require('../src/domain/perfis-clientes');
+const { lerJson } = require('../src/utils/arquivo-json');
+
+/** A Argus aceita no máximo 7 dias por consulta de ligações detalhadas: 6 completos + hoje. */
+const MAX_DIAS_ARGUS = 6;
 const { lerArgumentos } = require('./diagnostico-callbacks');
 const { instanteLocal } = require('../src/domain/raio-x-callback');
 
@@ -51,7 +60,12 @@ async function main() {
   const cfg = carregarConfig();
   ativarLogsEmArquivo(cfg, 'perfis-montar', { cabecalho: 'npm run perfis:montar' });
   const args = lerArgumentos(process.argv.slice(2));
-  const dias = Math.max(1, Number(args.dias) || 3);
+  const pedidos = Math.max(1, Number(args.dias) || MAX_DIAS_ARGUS);
+  const dias = Math.min(pedidos, MAX_DIAS_ARGUS);
+  if (pedidos > dias) {
+    console.log(`A Argus entrega no máximo 7 dias de ligações: lendo os últimos ${dias} dias completos (pedido: ${pedidos}). `
+      + `Os mais antigos se completam com o BenURA ligado (até PERFIS_DIAS = ${cfg.rodizio.perfis.dias}).`);
+  }
   const fuso = cfg.agenda.fusoHorario;
   const p = cfg.rodizio.perfis;
   const client = new ArgusClient(cfg.argus, criarLogger({ debug: cfg.debug, escopo: 'perfis' }));
@@ -59,7 +73,9 @@ async function main() {
   const segredo = obterSegredo(p);
   const agora = Date.now();
   const ate = dataLocal(fuso, new Date(agora)); // hoje fica com o BenURA (ao vivo)
-  const minutos = dias * 1440 + Math.ceil((agora - instanteLocal(`${ate}T00:00:00`, fuso)) / 60_000);
+  const inicioDeHoje = instanteLocal(`${ate}T00:00:00`, fuso);
+  const desdeDia = dataLocal(fuso, new Date(inicioDeHoje - dias * 86_400_000 + 3_600_000));
+  const minutos = dias * 1440 + Math.ceil((agora - inicioDeHoje) / 60_000);
 
   const perfis = {};
   let lidas = 0;
@@ -78,12 +94,13 @@ async function main() {
     });
   }
 
-  const desde = dataLocal(fuso, new Date(agora - p.dias * 86_400_000));
-  podar(perfis, desde);
+  const anterior = lerJson(p.arquivoHistorico).dados?.perfis;
+  const juntos = podar(juntarHistorico(anterior, perfis, { desde: desdeDia, ate }), dataLocal(fuso, new Date(agora - p.dias * 86_400_000)));
   fs.mkdirSync(path.dirname(p.arquivoHistorico), { recursive: true });
-  fs.writeFileSync(p.arquivoHistorico, JSON.stringify({ ate, geradoEm: new Date().toISOString(), dias, perfis }));
-  console.log(`\n${lidas} ligação(ões) lida(s), ${contadas} contada(s) (atendeu ou callback), ${Object.keys(perfis).length} cliente(s).`);
-  console.log(`Histórico gravado em ${p.arquivoHistorico} (até ${ate}, sem o dia de hoje). O benura-rodizio relê sozinho.`);
+  fs.writeFileSync(p.arquivoHistorico, JSON.stringify({ desde: desdeDia, ate, geradoEm: new Date().toISOString(), dias, perfis: juntos }));
+  console.log(`\n${lidas} ligação(ões) lida(s), ${contadas} contada(s) (atendeu ou callback), de ${desdeDia} até ontem.`);
+  console.log(`Histórico gravado em ${p.arquivoHistorico}: ${Object.keys(juntos).length} cliente(s)`
+    + `${anterior ? ' (junto com o histórico anterior)' : ''}. O benura-rodizio relê sozinho.`);
 }
 
 if (require.main === module) {

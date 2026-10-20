@@ -97,6 +97,31 @@ function podar(perfis, desde) {
   return perfis;
 }
 
+/** Tira de `perfis` os dias do intervalo [desde, ate). */
+function tirarPeriodo(perfis, desde, ate) {
+  for (const [chave, p] of Object.entries(perfis)) {
+    p.dias = Object.fromEntries(Object.entries(p.dias).filter(([dia]) => dia < desde || dia >= ate));
+    if (!Object.keys(p.dias).length) delete perfis[chave];
+  }
+  return perfis;
+}
+
+/**
+ * Histórico novo = o anterior sem o período relido + o que acabou de ser lido.
+ * Rodar perfis:montar de novo não perde os dias mais antigos que a Argus não entrega mais.
+ */
+function juntarHistorico(anterior, novos, { desde, ate }) {
+  const juntos = tirarPeriodo(structuredClone(anterior || {}), desde, ate);
+  for (const [chave, p] of Object.entries(novos)) {
+    const alvo = juntos[chave] || { mascara: p.mascara, dias: {} };
+    Object.assign(alvo.dias, p.dias);
+    alvo.mascara = p.mascara;
+    juntos[chave] = alvo;
+  }
+  return juntos;
+}
+
 module.exports = {
+  tirarPeriodo, juntarHistorico,
   Resultado, normalizarTelefone, mascarar, chaveDoCliente, telefoneDaLigacao, classificarLigacao, somar, totais, motivosDeRisco, podar,
 };

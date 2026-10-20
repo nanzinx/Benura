@@ -32,8 +32,12 @@ const montarSugestao = (supervisores) => Object.fromEntries(supervisores.map((s)
 /** Fixos e equipes fixas do .env: quantos ramais cada um rendeu e quem não bate com a Argus. */
 function imprimirFixos(diretorio, regras) {
   if (!regras.fixosUra.length && !regras.equipesFixasUra.length) return;
-  const { ramais, faltando } = resolverFixos(diretorio, regras);
-  console.log(`\nFixos na URA (OPERADORES_FIXOS_URA e EQUIPES_FIXAS_URA): ${ramais.size} ramal(is)`);
+  const { ramais, fora, faltando } = resolverFixos(diretorio, regras);
+  const nome = (r) => diretorio.operadorPorRamal(r)?.nome ?? '(sem nome na Argus)';
+  const permanentes = regras.fixosPermanentesUra ? 'ficam na URA de vez, sem a regra do ocioso' : 'seguem a regra do ocioso';
+  console.log(`\nFixos na URA (OPERADORES_FIXOS_URA e EQUIPES_FIXAS_URA): ${ramais.size} ramal(is), ${permanentes}`);
+  for (const r of [...ramais].sort()) console.log(`  ${r}  ${nome(r)}`);
+  if (fora.size) console.log(`Fora dos fixos (FORA_DOS_FIXOS_URA): ${[...fora].map((r) => `${r} ${nome(r)}`).join('; ')}`);
   for (const f of faltando) console.log(`  ATENCAO  ${f.onde}: "${f.item}" ${f.motivo}`);
   if (!faltando.length) console.log('  Todos os nomes batem com a Argus.');
 }

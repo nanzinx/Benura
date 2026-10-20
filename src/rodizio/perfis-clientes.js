@@ -4,9 +4,11 @@
  *
  * Duas fontes, somadas na consulta:
  *  - histórico (PERFIS_HISTORICO_FILE): montado por `npm run perfis:montar`, só
- *    leitura aqui; relido sozinho quando o arquivo muda. Cobre os dias antes de `ate`;
- *  - ao vivo (PERFIS_FILE): cada ligação que o vigia de callbacks lê do relatório,
- *    a partir do dia `ate` do histórico (o que já está no histórico não conta de novo).
+ *    leitura aqui; relido sozinho quando o arquivo muda. A última leitura cobre
+ *    os dias de `desde` até antes de `ate` (hoje, no dia em que rodou);
+ *  - ao vivo (PERFIS_FILE): cada ligação que o vigia de callbacks lê do relatório.
+ *    Os dias que o histórico acabou de reler saem do ao vivo (não contam duas vezes);
+ *    os mais antigos continuam.
  * Guarda PERFIS_DIAS dias; quem não tem mais nenhum dia some.
  */
 
@@ -17,7 +19,7 @@ const { ArquivoDeEstado } = require('../utils/persistencia-json');
 const { ArquivoJsonObservado } = require('../utils/arquivo-json');
 const { dataLocal } = require('../utils/datas');
 const {
-  Resultado, telefoneDaLigacao, classificarLigacao, chaveDoCliente, mascarar, somar, totais, motivosDeRisco, podar,
+  Resultado, telefoneDaLigacao, classificarLigacao, chaveDoCliente, mascarar, somar, totais, motivosDeRisco, podar, tirarPeriodo,
 } = require('../domain/perfis-clientes');
 const { textoDaHora } = require('../domain/diagnostico-callbacks');
 
@@ -78,9 +80,11 @@ class PerfisClientes {
   relerHistorico() {
     const lido = this.historicoArquivo.verificar();
     if (lido.estado !== 'atualizado' || !lido.dados) return;
-    this.historico = { ate: lido.dados.ate || '', perfis: lido.dados.perfis || {} };
-    // O que o histórico já cobre não conta duas vezes.
-    podar(this.perfis, this.historico.ate);
+    // desde..ate: o período que o último perfis:montar leu (antes dele, o ao vivo continua valendo).
+    this.historico = { desde: lido.dados.desde || '', ate: lido.dados.ate || '', perfis: lido.dados.perfis || {} };
+    // O que o histórico acabou de ler não conta duas vezes.
+    tirarPeriodo(this.perfis, this.historico.desde, this.historico.ate);
+    this.mudou = true;
     this.log.info(`Perfis de clientes: histórico carregado (${Object.keys(this.historico.perfis).length} cliente(s), até ${this.historico.ate}).`);
   }
 
@@ -100,7 +104,7 @@ class PerfisClientes {
     const telefone = telefoneDaLigacao(ligacao);
     if (!telefone) return false;
     const dia = diaDaLigacao(ligacao, this.cfg.fuso, agora);
-    if (dia < this.historico.ate) return false;
+    if (dia >= this.historico.desde && dia < this.historico.ate) return false; // já no histórico
 
     this.contadas.set(id, agora);
     const chave = chaveDoCliente(telefone, this.segredo);

@@ -272,6 +272,14 @@ const CENARIOS = {
     await aguardar(() => r.transferencias().includes('201→2'), { descricao: '201 atendeu no Ativo → URA' });
   },
 
+  async 'URA: fixo de OPERADORES_FIXOS_URA/EQUIPES_FIXAS_URA fica na URA de vez, mesmo ocioso'(r) {
+    await esperar(9000); // TEMPO_MIN é 6 s
+    if (r.transferencias().some((t) => t.startsWith('201→'))) throw new Error(`o fixo saiu da URA: ${r.transferencias()}`);
+    if (!r.saida.join('').includes('Fixos na URA de vez')) throw new Error('não registrou os fixos permanentes');
+    const health = await (await fetch(`${r.base}/health`)).json();
+    if (!health.fixosPermanentes.includes('201')) throw new Error(`health: ${JSON.stringify(health.fixosPermanentes)}`);
+  },
+
   async 'URA: último livre sai no horário; antes disso os robôs param de discar e os em ligação terminam'(r) {
     const deslogados = () => r.chamadas('deslogaroperador').map((c) => String(c.dados.ramal));
     // 201 é o único humano. A 3 s de completar o ocioso (6 s), os robôs parados (901, 902) desligam; o 900, em ligação, fica.
@@ -799,6 +807,9 @@ const VARIACOES = {
   'URA: fixo (posto na URA pelo roteador) ocioso vai ao Ativo e volta à URA ao atender lá': {
     ...URA_COM_201_NAO_MOVIDO, env: { REFRESH_GRUPOS_MS: '60000', RODIZIO_SO_ELEGIVEIS: '1' },
     preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 201: 'URA' }),
+  },
+  'URA: fixo de OPERADORES_FIXOS_URA/EQUIPES_FIXAS_URA fica na URA de vez, mesmo ocioso': {
+    ...URA_COM_201_NAO_MOVIDO, env: { OPERADORES_FIXOS_URA: '201' },
   },
   'Ativo: sem a lista do dia do roteador, só os fixos sobem (e avisa)': { env: { RODIZIO_SO_ELEGIVEIS: '1', OPERADORES_FIXOS_URA: '101' } },
   'Ativo: só elegível sobe; quem vende hoje passa a subir': {
