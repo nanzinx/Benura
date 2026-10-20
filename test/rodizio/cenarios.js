@@ -38,7 +38,7 @@ const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 async function aguardar(condicao, { timeoutMs = 8000, descricao = 'condição' } = {}) {
   const limite = Date.now() + timeoutMs;
   while (Date.now() < limite) {
-    if (condicao()) return;
+    if (await condicao()) return;
     await esperar(100);
   }
   throw new Error(`Tempo esgotado esperando: ${descricao}`);
@@ -95,6 +95,12 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ROBOS_PASSIVA_APOS_MIN: '60', // os cenários de URA passiva ligam a sua
       ROBOS_MAX_COM_1_LIVRE: '0', // o cenário de 1 livre liga o seu
       CALLBACKS_VERIFICAR_SEG: '0', // o cenário do vigia de callbacks liga o seu
+      ROBOS_MODO: 'automatico', // os cenários do modo pânico ligam o seu
+      PERFIS_VIGIA_SEG: '0', // o cenário de cliente de risco liga o seu
+      PERFIS_FILE: path.join(pasta, 'state-perfis-clientes.json'),
+      PERFIS_HISTORICO_FILE: path.join(pasta, 'state-perfis-historico.json'),
+      PERFIS_SEGREDO_FILE: path.join(pasta, 'perfis-segredo.key'),
+      RODIZIO_RISCO_FILE: path.join(pasta, 'state-risco.json'),
       WEBHOOK_GRACE_MS: '1500',
       WEBHOOK_TOKEN: TOKEN,
       PORT: String(porta),
@@ -105,6 +111,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_LOCK_FILE: path.join(pasta, 'argus.lock'),
       RODIZIO_URA_CHEIA_FILE: path.join(pasta, 'state-ura-cheia.json'),
       RODIZIO_AJUSTE_FILE: path.join(pasta, 'state-ajuste-robos.json'),
+      RODIZIO_PANICO_FILE: path.join(pasta, 'state-panico.json'),
       ARGUS_PAUSA_FILE: path.join(pasta, 'argus-pausa.json'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
       RETORNO_LOG_FILE: path.join(pasta, 'logs', 'retorno-fila.jsonl'),
@@ -493,6 +500,66 @@ const CENARIOS = {
     if (ajuste.callbacks !== 1 || ajuste.porLivre !== 2) throw new Error(`ajuste ${JSON.stringify(ajuste)}`);
   },
 
+  async 'Pânico: com 1 livre, desliga os robôs que a supervisão ligou; com 2, não mexe; nunca liga'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x] && r.argus.estado.status[x] !== 'Deslogado');
+    await esperar(1500);
+    if (ligados().length !== 10) throw new Error(`com 2 livres o BenURA mexeu nos robôs: ${ligados().length}`);
+    if (r.chamadas('logaroperadorvirtual').length) throw new Error('o BenURA ligou robô no modo pânico');
+
+    r.argus.definirStatus('201', 'em atendimento');
+    await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: '1 livre: robôs desligados' });
+    if (!r.saida.join('').includes('PÂNICO: 1 livre')) throw new Error('não registrou o pânico no log');
+    const health = await (await fetch(`${r.base}/health`)).json();
+    if (!health.panico.ativoAgora || !health.panico.ligado) throw new Error(`health: ${JSON.stringify(health.panico)}`);
+    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Pânico dos robôs')) throw new Error('a /ura não mostra o pânico');
+
+    // A supervisão religa os robôs com 1 livre: na próxima leitura de grupos (1 s), o BenURA desliga de novo.
+    for (const x of ROBOS_10.slice(0, 3)) r.argus.definirStatus(x, 'livre');
+    await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'religados à mão: desligados de novo' });
+
+    r.argus.definirStatus('201', 'livre');
+    await aguardar(() => r.saida.join('').includes('PÂNICO encerrado'), { timeoutMs: 8000, descricao: 'pânico encerrado' });
+    for (const x of ROBOS_10) r.argus.definirStatus(x, 'livre');
+    await esperar(2500);
+    if (ligados().length !== 10) throw new Error('com 2 livres o BenURA desligou robôs');
+  },
+
+  async 'Pânico: interruptor desligado na /ura — o BenURA não desliga os robôs'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x] && r.argus.estado.status[x] !== 'Deslogado');
+    const pedir = (method, token = TOKEN) => fetch(`${r.base}/panico`, { method, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if ((await pedir('DELETE', '')).status !== 401) throw new Error('desligou o pânico sem token');
+    const resposta = await (await pedir('DELETE')).json();
+    if (resposta.ligado !== false || !resposta.mudou) throw new Error(`DELETE /panico: ${JSON.stringify(resposta)}`);
+    r.argus.definirStatus('201', 'em atendimento');
+    r.argus.definirStatus('200', 'em atendimento');
+    await esperar(2500);
+    if (ligados().length !== 10) throw new Error(`com o pânico desligado, o BenURA desligou robôs: ${ligados().length}`);
+    await pedir('POST');
+    await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'pânico religado: robôs desligados' });
+  },
+
+  async 'Cliente de risco: callback vira perfil; "em curso" com esse cliente alerta na /alertas e desliga os robôs'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x] && r.argus.estado.status[x] !== 'Deslogado');
+    await aguardar(() => r.chamadas('ligacoesdetalhadas').length > 0, { descricao: 'primeira leitura do relatório' });
+    const local = (ms) => new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).format(new Date(Date.now() - ms)).replace(' ', 'T');
+    const cliente = { dddTelefone: '11980821594', nomeCliente: 'CLIENTE TESTE', usuarioOperador: 'Oper Virtual 7' };
+    r.argus.estado.ligacoes.push({ ...cliente, idLigacao: 1, dataHoraLigacao: local(3000), resultadoLigacao: 'OPER. VIRTUAL - ABANDONO EM FILA', tempoSegundos: 2 });
+    await aguardar(async () => (await (await fetch(`${r.base}/perfis/risco`)).json()).clientes.length === 1, { timeoutMs: 8000, descricao: 'perfil de risco' });
+    if (ligados().length !== 10) throw new Error('mexeu nos robôs antes do cliente de risco ligar');
+
+    r.argus.estado.ligacoes.push({ ...cliente, idLigacao: 2, dataHoraLigacao: local(1000), resultadoLigacao: 'LIGAÇÃO EM CURSO', tempoSegundos: 0 });
+    await aguardar(async () => (await (await fetch(`${r.base}/alertas`)).json()).alertas.length === 1, { timeoutMs: 8000, descricao: 'alerta' });
+    const { alertas } = await (await fetch(`${r.base}/alertas`)).json();
+    if (alertas[0].mascara !== '(11) 9****-1594' || JSON.stringify(alertas).includes('98082')) throw new Error(`alerta: ${JSON.stringify(alertas)}`);
+    await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'robôs desligados pelo cliente de risco' });
+    if (!r.saida.join('').includes('CLIENTE DE RISCO em ligação')) throw new Error('não registrou no log');
+    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Clientes de risco')) throw new Error('a /ura não mostra os clientes de risco');
+    const gravado = fs.existsSync(path.join(r.pasta, 'state-perfis-clientes.json')) ? fs.readFileSync(path.join(r.pasta, 'state-perfis-clientes.json'), 'utf8') : '';
+    if (/98082|CLIENTE TESTE/.test(gravado)) throw new Error('telefone ou nome no arquivo de perfis');
+  },
+
   async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {
     const post = (rota, corpo = {}) => fetch(`${r.base}${rota}?token=${TOKEN}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
@@ -777,6 +844,35 @@ const VARIACOES = {
       ROBOS_POR_LIVRE: '2', ROBOS_POR_LIVRE_MINIMO: '1', ROBOS_POR_LIVRE_MAXIMO: '4', ROBOS_PASSIVA_APOS_MIN: '0.05',
       ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
     },
+  },
+  'Cliente de risco: callback vira perfil; "em curso" com esse cliente alerta na /alertas e desliga os robôs': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: {
+      ROBOS_MODO: 'panico', TEMPO_MIN: '5', CALLBACKS_VERIFICAR_SEG: '0.5', PERFIS_VIGIA_SEG: '0.5', RISCO_DESLIGA_ROBOS: '1',
+    },
+  },
+  'Pânico: com 1 livre, desliga os robôs que a supervisão ligou; com 2, não mexe; nunca liga': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: { ROBOS_MODO: 'panico', TEMPO_MIN: '5' },
+  },
+  'Pânico: interruptor desligado na /ura — o BenURA não desliga os robôs': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200', '201'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', 201: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    env: { ROBOS_MODO: 'panico', TEMPO_MIN: '5' },
   },
   'Vigia de callbacks: callback no relatório da Argus (sem webhook) → raio-x em callbacks.txt e ajuste desce': {
     grupos: [

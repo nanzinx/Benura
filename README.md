@@ -215,7 +215,20 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - Quem continua no grupo antigo por mais de `ALINHAR_LOGIN_APOS_MS` (**30 s**) ficou preso (ex.: no preditivo, emendando ligação). Aparece um aviso e, se estiver livre, o BenURA **reloga** a pessoa (`logaroperador`, que loga no grupo vinculado; se não bastar, desloga e loga). Isso vale também para quem foi movido à mão. Desligue com `ALINHAR_LOGIN_APOS_TRANSFERIR=false`.
    - **Carência depois da troca**: quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta como livre para os robôs depois de `CARENCIA_TROCA_GRUPO_MS` (**60 s**). Em 15/10 uma operadora já Livre e logada na URA não recebeu a derivação de um robô que discou 37 s depois da troca, e virou callback. A regra do ocioso não muda (o tempo livre conta normalmente).
    - Cada linha `URA: livres a→b` traz também quem está livre e como a Argus o vê: `livres: 2266423 (grupo 7, Receptivo, carência)`. Num callback com alguém "livre no painel", é essa linha que mostra o que o BenURA via.
-4. **Robôs proporcionais aos livres**: ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
+4. **Robôs: modo pânico (`ROBOS_MODO=panico`, o padrão)**: a supervisão liga os robôs pelo painel da Argus e o BenURA **nunca liga robôs**.
+   - Com o pânico ligado (interruptor na página `/ura`, ou `POST`/`DELETE /panico` com token), sempre que a URA ficar com **1 livre ou menos**, o BenURA desliga os robôs na hora. Usa a mesma contagem de livres do modo automático: carência da troca de grupo, telefonia em outro grupo e status sem resposta não contam.
+     - **1 livre:** desliga os robôs parados. Os que estão em ligação terminam a chamada e saem em seguida, porque derrubar corta o cliente.
+     - **Nenhum livre:** desliga todos, inclusive os em ligação.
+   - Ao entrar no pânico, relê na Argus quais robôs estão ligados. Robôs religados à mão durante o pânico são desligados na próxima leitura de grupos (`REFRESH_GRUPOS_MS`, 30 s).
+   - Log: `PÂNICO: 1 livre(s) na URA — desligando os robôs` e `PÂNICO encerrado`. O `/health` mostra `panico: { modo, ligado, desde, ativoAgora }`.
+   - **O que não roda no modo pânico:** robôs proporcionais, teto com 1 livre, ajuste por callback, URA passiva e preparação da saída do último livre (o pânico já cobre esse caso).
+   - **O que continua:** o rodízio Ativo ↔ URA, o raio-x dos callbacks e os logs.
+   - A escolha do interruptor fica gravada em `RODIZIO_PANICO_FILE`. Sem escolha, vale `PANICO_PADRAO` (ligado).
+   - O modo manual (`POST /robos/manual`) desliga também o pânico enquanto durar.
+
+   Com `ROBOS_MODO=automatico`, valem as regras a seguir.
+
+5. **Robôs proporcionais aos livres** (`ROBOS_MODO=automatico`): ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
    Com 1 livre, 7; com 2 livres, 14; e assim por diante, até o total de robôs (ou `ROBOS_MAXIMO`). Muitos robôs para poucos livres geram callback.
    - **Com 1 livre só**, no máximo `ROBOS_MAX_COM_1_LIVRE` (**6**) robôs, seja qual for o "por livre" do momento: dois clientes pedindo humano juntos com um livre só viram callback. `0` = sem esse teto.
    - **Ninguém livre** → todos desligados **na hora**. **Com gente livre**, a redução só acontece se a queda de livres durar `ROBOS_REDUZIR_APOS_MS` (**10 s**), para não reagir a cada piscada de status, e desliga **só os robôs que não estão em ligação**: derrubar um robô falando corta o cliente e vira callback. Os que estão em ligação saem nos ciclos seguintes, quando a ligação termina (o log mostra "N em ligação mantidos até terminar").
@@ -232,7 +245,7 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
    - **Ninguém livre** (todos ocupados ou em pausa, URA vazia ou offline, ou a Argus sem responder) → **todos desligados** na hora.
    - Os grupos dos robôs ficam em `GRUPOS_ROBOS_URA_IDS` (hoje URA PORT 3). A cada atualização de grupos, o rodízio confere na Argus quais robôs estão de fato ligados.
    - O `/health` mostra `robos: { ligados, alvo, total, porLivre, mudancasPorFora, manualAte }`, `intervaloUraMs` e `ultimoWebhook`.
-5. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
+6. **Webhook** (`POST /webhook?token=...`): o início de atendimento chega antes do polling e desliga os robôs na hora.
    Se nenhum webhook chegar em 1 h com robôs ligados, o log avisa que ele não está configurado.
 
 ### Diagnóstico de callbacks
@@ -267,6 +280,25 @@ Para descobrir **quando** e **por que** os robôs geram callback:
 4. **Aviso no rodízio:** quem está no grupo da URA mas logado na telefonia em outro grupo gera um aviso no log (uma vez por ramal) e aparece em `uraLogadosEmOutroGrupo` no `/health`. Com `DRY_RUN=1` o rodízio só avisa e registra `[DRY_RUN] Relogaria ...`.
 
 Compare a hora de cada callback com a linha do tempo daquele minuto.
+
+### Perfis de clientes e cliente de risco
+O BenURA monta um perfil de cada telefone das bases da URA a partir do relatório de ligações dos robôs (só leitura):
+- **Atendeu:** o cliente falou com o robô (`ATENDIMENTO` ou `OPER. VIRTUAL…`).
+- **Callback:** abandono em fila.
+- **De risco:** `PERFIL_RISCO_CALLBACKS` callback(s) (**1**) ou atendeu `PERFIL_RISCO_ATENDE` vezes (**3**) nos últimos `PERFIS_DIAS` (**30**). Zero desliga o critério.
+
+**Privacidade:** não se guarda o telefone. A chave do perfil é um HMAC do número com um segredo local (`PERFIS_SEGREDO`, ou o arquivo `perfis-segredo.key`, criado sozinho e fora do git). Para mostrar na tela, guarda-se só a versão mascarada, como `(11) 9****-1594`. Nada de nome, CPF ou lead.
+
+**De onde vêm os dados:**
+- **Ao vivo:** o vigia de callbacks (`CALLBACKS_VERIFICAR_SEG`) conta cada ligação final em `state-perfis-clientes.json`.
+- **Histórico:** `npm run perfis:montar -- --dias 7` lê os dias anteriores e grava `state-perfis-historico.json`. Pode rodar com o BenURA ligado, que relê sozinho e soma sem contar o mesmo dia duas vezes. Para vários dias, leva alguns minutos.
+
+**Cliente de risco em ligação:** a cada `PERFIS_VIGIA_SEG` (**10 s**), com robô ligado, o BenURA lê as ligações "em curso" do último minuto. Se o telefone for de risco:
+- registra no log `CLIENTE DE RISCO em ligação: Oper Virtual 7 com (11) 9****-1594 (2 callback(s))`, que vai para `avisos.txt`;
+- mostra uma faixa no topo da página `/ura`, com bipe, título piscando e notificação do navegador. Clique em "Ativar notificações", com a página aberta em `http://localhost:3000/ura`;
+- se o interruptor **"Desligar robôs com cliente de risco"** estiver ligado (página `/ura` ou `POST`/`DELETE /risco/desligar`; padrão `RISCO_DESLIGA_ROBOS=false`), desliga na hora os robôs que não estão em ligação, para o livre ficar para esse cliente.
+
+As rotas `GET /alertas` e `GET /perfis/risco` (os 20 de maior risco) mostram só o telefone mascarado. `PERFIS_ATIVO=0` desliga tudo isso.
 
 ### Logs
 Tudo o que cada serviço escreve vai também para arquivos de texto, **uma pasta por dia**, com a **hora de Brasília** em cada linha:
