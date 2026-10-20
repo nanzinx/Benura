@@ -76,6 +76,7 @@ class ControleRobos {
    */
   conferirMudancasPorFora(esperados, lidos, agora = Date.now()) {
     if (this.cfg.dryRun) return; // em DRY_RUN nada muda de verdade: a diferença é esperada
+    if (this.cfg.robosModo === 'panico') return; // no modo pânico, quem liga os robôs é a supervisão
     const recente = (r) => agora - (this.ultimoComando.get(r) || 0) < CARENCIA_COMANDO_MS;
     const ligadosFora = [...lidos].filter((r) => !esperados.has(r) && !recente(r));
     const desligadosFora = [...esperados].filter((r) => !lidos.has(r) && !recente(r));

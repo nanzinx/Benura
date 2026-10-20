@@ -114,6 +114,12 @@ function carregarConfig(overrides = {}) {
       gruposRobosIds: envListaNum('GRUPOS_ROBOS_URA_IDS').length
         ? envListaNum('GRUPOS_ROBOS_URA_IDS')
         : envListaNum('GRUPO_ROBOS_URA_ID').filter(Boolean),
+      // panico (padrão): a supervisão liga os robôs pelo painel; o BenURA só os desliga quando a URA
+      // fica com 1 livre ou menos (interruptor na página /ura). automatico: o BenURA liga e desliga
+      // os robôs proporcionalmente aos livres (regras abaixo).
+      robosModo: env('ROBOS_MODO', 'panico').toLowerCase() === 'automatico' ? 'automatico' : 'panico',
+      arquivoPanico: env('RODIZIO_PANICO_FILE', path.join(RAIZ, 'state-panico.json')),
+      panicoPadrao: envBool('PANICO_PADRAO', true),
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs

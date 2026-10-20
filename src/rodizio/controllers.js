@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Rotas HTTP do rodízio: saúde, webhooks da Argus, modo manual dos robôs e URA cheia.
+ * Rotas HTTP do rodízio: saúde, webhooks da Argus, modo manual dos robôs, pânico e URA cheia.
  *
  * Um único endereço recebe todos os webhooks configurados na Argus e os
  * distribui: início de atendimento → rodízio; encerramento de URA → retorno da fila e,
@@ -94,8 +94,20 @@ function criarRotasDoRodizio({ rodizio, retornoFila, ciclos, logger }) {
     return { status: 200, corpo: rodizio.desligarUraCheia() };
   }
 
+  /** POST /panico — liga a regra de pânico (com 1 livre ou menos, desliga os robôs). */
+  async function ligarPanico() {
+    return { status: 200, corpo: rodizio.definirPanico(true) };
+  }
+
+  /** DELETE /panico — desliga a regra de pânico (o BenURA não mexe nos robôs). */
+  async function desligarPanico() {
+    return { status: 200, corpo: rodizio.definirPanico(false) };
+  }
+
   return [
     { metodo: 'GET', caminho: '/health', handler: health },
+    { metodo: 'POST', caminho: '/panico', handler: ligarPanico, protegida: true },
+    { metodo: 'DELETE', caminho: '/panico', handler: desligarPanico, protegida: true },
     { metodo: 'GET', caminho: '/ura', handler: paginaUra },
     { metodo: 'POST', caminho: '/ura/cheia', handler: ligarUraCheia, protegida: true },
     { metodo: 'DELETE', caminho: '/ura/cheia', handler: desligarUraCheia, protegida: true },
