@@ -416,10 +416,19 @@ As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico
 - O dia (gráficos, callbacks e avisos) vem dos logs em arquivo (`logs/AAAA-MM-DD/`), que não têm dado de cliente. Os telefones aparecem só mascarados.
 - Sem `PAINEL_SENHA`, o painel sobe assim mesmo e avisa na tela que ninguém consegue entrar. Assim o atualizador pode reiniciá-lo sem risco.
 
-**Publicar na internet (Cloudflare):** o painel já está pronto para ficar atrás de um **Cloudflare Tunnel**, sem abrir porta no roteador da empresa.
-1. Instale o `cloudflared` no PC do BenURA e crie um túnel apontando `benura.<domínio>` para `http://localhost:3010`.
-2. Na frente, coloque o **Cloudflare Access** com os e-mails da supervisão (login por código no e-mail).
-3. Pela Cloudflare o cookie sai com `Secure`, e o endereço registrado no log é o de quem acessou (`CF-Connecting-IP`).
+**A interface** fica em `painel-web/`, feita com **React + TypeScript + Tailwind CSS** (Vite), Recharts nos gráficos e React Query para as atualizações:
+- **Interação:** filtros e busca nas tabelas e nos avisos, gráficos com dica ao passar o mouse e período (dia todo, 3 h, 1 h), confirmação antes dos comandos que pesam e avisos rápidos do resultado.
+- **Tela:** tema claro, escuro ou do sistema; botão **Ao vivo/Pausado**; atalhos `1`–`4` (abas) e `P` (pausa); CSV arrastado direto para a esteira.
+- **Funciona sem internet:** a fonte (Inter) e tudo mais vão junto no build. Nada vem de CDN.
+- **Build:** vai para `src/painel/publico/` e entra no git, então o PC do BenURA não compila nada (o `git pull` de sempre basta). O CI confere que o build está em dia com o código.
+- **Mudar a interface:** `npm run painel:dev` abre em `http://localhost:5173` com o painel (3010) rodando por trás; `npm run painel:build` gera o build para o commit.
+
+**Publicar em `https://benura.benconsig.com.br` (Cloudflare Tunnel + Access)**, sem abrir porta no roteador da empresa e sem expor os outros serviços:
+1. Na Cloudflare (conta onde está o `benconsig.com.br`): **Zero Trust → Networks → Tunnels → Create a tunnel** (tipo *Cloudflared*), nome `benura`.
+2. No PC do BenURA, instale o `cloudflared` (o próprio painel da Cloudflare mostra o comando para Windows) e rode o comando de instalação que ele mostra. Isso já cria o serviço do Windows.
+3. Em **Public Hostname**: subdomínio `benura`, domínio `benconsig.com.br`, serviço `http://localhost:3010`. Se preferir configurar por arquivo, o modelo é `cloudflared/config.example.yml`.
+4. Em **Zero Trust → Access → Applications → Add (Self-hosted)**: domínio `benura.benconsig.com.br`, política *Allow* com os e-mails da supervisão (login por código no e-mail).
+5. Pronto: `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois a senha do painel (BenURA). Pela Cloudflare o cookie sai com `Secure`, e o log registra o endereço real de quem acessou.
 
 ---
 

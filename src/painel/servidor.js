@@ -2,7 +2,7 @@
 /**
  * Servidor HTTP do painel (módulo nativo `http`).
  *
- *   GET  /                  a página (publico/index.html, com o CSS e o JS ao lado)
+ *   GET  /                  a página (publico/, o build do painel-web/: React + TypeScript + Tailwind)
  *   GET  /health            para o PM2/atualizador (sem dados)
  *   POST /api/entrar        { senha } → cookie de sessão
  *   POST /api/sair
@@ -22,12 +22,14 @@ const path = require('path');
 const { ACOES } = require('./servicos');
 const { tokenRecusadoRecentemente, segundosDoDia } = require('../domain/painel');
 
+/** A página (build do painel-web/, já no git): servida pelo nome exato, sem varrer pastas. */
 const PUBLICO = path.join(__dirname, 'publico');
-const ESTATICOS = Object.freeze({
-  '/': ['index.html', 'text/html; charset=utf-8'],
-  '/painel.css': ['painel.css', 'text/css; charset=utf-8'],
-  '/painel.js': ['painel.js', 'text/javascript; charset=utf-8'],
-  '/logo.svg': ['logo.svg', 'image/svg+xml'],
+const TIPOS = Object.freeze({
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
 });
 const SEGURANCA = Object.freeze({
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
@@ -97,7 +99,9 @@ function conferirOrigem(req) {
  * @returns {http.Server}
  */
 function criarServidorDoPainel({ sessoes, servicos, dados, cfg, logger }) {
-  const estaticos = Object.fromEntries(Object.entries(ESTATICOS).map(([rota, [arquivo, tipo]]) => [rota, { tipo, conteudo: fs.readFileSync(path.join(PUBLICO, arquivo)) }]));
+  const estaticos = Object.fromEntries(fs.readdirSync(PUBLICO).filter((nome) => TIPOS[path.extname(nome)]).map((nome) => [
+    nome === 'index.html' ? '/' : `/${nome}`, { tipo: TIPOS[path.extname(nome)], conteudo: fs.readFileSync(path.join(PUBLICO, nome)) },
+  ]));
 
   async function entrar(req) {
     conferirOrigem(req);
