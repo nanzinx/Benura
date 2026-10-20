@@ -42,6 +42,7 @@ const configDoRodizio = (cfg) => ({
   esperaLoginMs: cfg.argus.esperaLoginMs,
   alinharAposMs: cfg.argus.alinharAposMs,
   fusoHorario: cfg.agenda.fusoHorario,
+  fixosPermanentesUra: cfg.regras.fixosPermanentesUra,
 });
 
 /** Monta as dependências (sem efeitos colaterais: nada é iniciado aqui). */
@@ -66,6 +67,8 @@ function montarRodizio(overrides) {
     elegiveis: cfgRodizio.soElegiveis ? montarElegiveis(cfg, diretorio, log.filho('rodizio')) : null,
     ajuste: montarAjuste(cfgRodizio, cfg.agenda.fusoHorario, log.filho('robos')),
     uraCheia: new UraCheia({ arquivo: cfgRodizio.arquivoUraCheia, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
+    // Fixos e equipes fixas (ex.: a do Robson): ficam na URA de vez, sem a regra do ocioso.
+    fixos: cfg.regras.fixosPermanentesUra ? lerFixos(cfg, diretorio) : null,
     panico: new Interruptor({
       nome: 'Pânico dos robôs', arquivo: cfgRodizio.arquivoPanico, padrao: cfgRodizio.panicoPadrao, logger: log.filho('robos'),
     }),
@@ -92,13 +95,15 @@ function montarRisco({ cfgRodizio, cfgVigias, client, rodizio, log }) {
   return { perfis, desligaRobos, vigia };
 }
 
+/** Ramais dos fixos (OPERADORES_FIXOS_URA e EQUIPES_FIXAS_URA, menos FORA_DOS_FIXOS_URA), pelo diretório da Argus. */
+const lerFixos = (cfg, diretorio) => async () => {
+  await diretorio.atualizar();
+  return resolverFixos(diretorio, cfg.regras).ramais;
+};
+
 /** Lista do dia do roteador; sem ela, só os fixos (resolvidos pelo diretório da Argus). */
 function montarElegiveis(cfg, diretorio, logger) {
-  const fixos = async () => {
-    await diretorio.atualizar();
-    return resolverFixos(diretorio, cfg.regras).ramais;
-  };
-  return new ElegiveisUra({ arquivo: cfg.rodizio.arquivoVendas, fusoHorario: cfg.agenda.fusoHorario, logger, fixos });
+  return new ElegiveisUra({ arquivo: cfg.rodizio.arquivoVendas, fusoHorario: cfg.agenda.fusoHorario, logger, fixos: lerFixos(cfg, diretorio) });
 }
 
 /**

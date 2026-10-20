@@ -57,9 +57,11 @@ class RodizioService {
    */
   constructor({
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
-    panico = null,
+    panico = null, fixos = null,
   }) {
-    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico });
+    Object.assign(this, { client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, fixos });
+    /** Fixos na URA de vez (FIXOS_PERMANENTES_URA): a regra do ocioso não vale para eles. */
+    this.permanentes = new Set();
     /** ramais sem grupo do Ativo identificável (aviso uma vez por ramal) */
     this.semGrupoAvisados = new Set();
 
@@ -173,7 +175,23 @@ class RodizioService {
       && this.cfg.gruposAtivosIds.includes(g.idGrupoUsuario));
 
     this.log.debug(`Grupos: URA=${this.ramaisUra.size} robôs=${this.ramaisRobos.length} ativos=${this.gruposAtivos.length}`);
+    await this.atualizarPermanentes();
     await this.sincronizarRobos();
+  }
+
+  /** Relê os fixos (a equipe pode mudar na Argus); se a Argus não responder, mantém a última lista. */
+  async atualizarPermanentes() {
+    if (!this.fixos) return;
+    let novos;
+    try {
+      novos = new Set([...(await this.fixos())].map(String));
+    } catch (e) {
+      this.log.debug(`Fixos indisponíveis agora: ${e.message}`);
+      return;
+    }
+    const mudou = novos.size !== this.permanentes.size || [...novos].some((r) => !this.permanentes.has(r));
+    this.permanentes = novos;
+    if (mudou) this.log.info(`Fixos na URA de vez (sem a regra do ocioso): ${novos.size}${novos.size ? ` (${[...novos].join(', ')})` : ''}.`);
   }
 
   /** Confere na Argus quais robôs estão logados (ex.: alguém religou à mão). Não disputa com uma avaliação em curso. */
@@ -412,6 +430,8 @@ class RodizioService {
   deveDevolver(ramal, agora) {
     const info = this.statusUra.get(ramal);
     if (!info || this.emTransferencia.has(ramal)) return false;
+    // Fixos ficam na URA de vez: o ocioso não vale (deslogado segue a regra normal).
+    if (this.permanentes.has(String(ramal)) && info.classe !== Classe.OFFLINE) return false;
     return deveVoltarAoAtivo({
       classe: info.classe, livreDesde: info.livreDesde, agora, ociosoMs: this.cfg.tempoNaUraMs, movido: this.movidos[ramal],
       offlineDesde: info.offlineDesde, offlineMs: this.cfg.offlineVoltaAposMs,
@@ -830,6 +850,7 @@ class RodizioService {
       ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,
       uraLogadosEmOutroGrupo: [...this.logadosEmOutroGrupo.values()],
       elegiveisUra: this.elegiveis ? this.elegiveis.resumo() : { disponivel: false, total: null, desligado: true },
+      fixosPermanentes: [...this.permanentes],
       uraCheia: this.uraCheia ? this.uraCheia.resumo() : { ligada: false, desde: null },
       panico: {
         modo: this.emModoPanico(),

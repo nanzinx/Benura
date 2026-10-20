@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { elegiveisDoEstado } = require('../../src/domain/rodizio');
 const { ElegiveisUra } = require('../../src/rodizio/elegiveis-ura');
+const { Classe } = require('../../src/domain/rodizio');
 const { RodizioService } = require('../../src/rodizio/rodizio.service');
 const { loggerNulo } = require('../../src/utils/logger');
 
@@ -101,6 +102,34 @@ test('resolverFixos: ramais, nomes e equipes; quem não bate vira aviso', () => 
   const fora = resolverFixos({ ramalPorNome: () => { throw new Error('sem diretório'); } }, { fixosUra: ['1003', 'MARIA'] });
   assert.deepEqual([...fora.ramais], ['1003'], 'ramal numérico não depende do diretório');
   assert.match(fora.faltando[0].motivo, /diretório da Argus indisponível/);
+});
+
+test('resolverFixos: FORA_DOS_FIXOS_URA tira da equipe fixa quem saiu (por nome ou ramal)', () => {
+  const { resolverFixos } = require('../../src/integrations/argus/fixos');
+  const diretorio = {
+    ramalPorNome: (nome) => ({ 'GUILHERME SILVA': '2002', 'STEPHANNY MARLENE FIRMO DOS SANTOS': '2266111' }[nome] ?? null),
+    ramaisDaEquipe: () => ({ supervisor: { nome: 'ROBSON JUNIOR' }, candidatos: [], ramais: ['2001', '2002', '2003'] }),
+  };
+  const r = resolverFixos(diretorio, {
+    fixosUra: ['STEPHANNY MARLENE FIRMO DOS SANTOS'], equipesFixasUra: ['ROBSON JUNIOR'], foraDosFixosUra: ['GUILHERME SILVA', '2003'],
+  });
+  assert.deepEqual([...r.ramais].sort(), ['2001', '2266111']);
+  assert.deepEqual([...r.fora].sort(), ['2002', '2003']);
+});
+
+test('rodízio: fixos ficam na URA de vez (sem a regra do ocioso); os demais seguem o ocioso', async () => {
+  const devolvidos = [];
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, repositorio: {}, robos: {}, logger: loggerNulo,
+    cfg: { tempoNaUraMs: 180_000 }, fixos: async () => new Set(['2266111']),
+  });
+  await svc.atualizarPermanentes();
+  const agora = Date.now();
+  const ocioso = { classe: Classe.LIVRE, ts: agora, livreDesde: agora - 600_000 };
+  svc.statusUra.set('2266111', ocioso).set('2001', ocioso);
+  for (const r of ['2266111', '2001']) if (svc.deveDevolver(r, agora)) devolvidos.push(r);
+  assert.deepEqual(devolvidos, ['2001']);
+  assert.deepEqual([...svc.permanentes], ['2266111']);
 });
 
 test('rodízio: sem o grupo do supervisor, volta ao grupo de onde o roteador tirou (se for do Ativo)', async () => {

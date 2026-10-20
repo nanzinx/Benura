@@ -129,3 +129,20 @@ test('vigia de risco: "LIGAÇÃO EM CURSO" de cliente de risco vira alerta uma v
   assert.match(desligamentos[0], /cliente de risco em ligação: \(11\) 9\*\*\*\*-1594/);
   assert.equal(vigia.listar().length, 1);
 });
+
+test('perfis:montar de novo não perde os dias antigos; o ao vivo de antes do período relido continua', () => {
+  const { juntarHistorico } = require('../../src/domain/perfis-clientes');
+  const anterior = { k: { mascara: '(11) 9****-1594', dias: { '2026-10-10': [2, 1], '2026-10-14': [1, 0] } } };
+  const novos = { k: { mascara: '(11) 9****-1594', dias: { '2026-10-14': [3, 0], '2026-10-19': [1, 0] } } };
+  assert.deepEqual(juntarHistorico(anterior, novos, { desde: '2026-10-14', ate: '2026-10-20' }).k.dias,
+    { '2026-10-10': [2, 1], '2026-10-14': [3, 0], '2026-10-19': [1, 0] }, 'o período relido substitui; o mais antigo fica');
+
+  const dir = pasta();
+  const p = criar(dir, { segredo: 's' });
+  p.registrarLigacao(ligacao(1, 'ATENDIMENTO', { dia: '2026-10-12' }), AGORA); // ao vivo, antes do período do histórico
+  p.registrarLigacao(ligacao(2, 'ATENDIMENTO', { dia: '2026-10-15' }), AGORA); // ao vivo, dentro: o histórico substitui
+  fs.writeFileSync(path.join(dir, 'historico.json'), JSON.stringify({ desde: '2026-10-14', ate: '2026-10-20', perfis: {} }));
+  p.manter(AGORA);
+  assert.equal(p.consultar('11980821594', AGORA).atendeu, 1, 'fica só o dia 12');
+  assert.equal(p.registrarLigacao(ligacao(3, 'ATENDIMENTO', { dia: '2026-10-16' }), AGORA), false, 'dia já coberto pelo histórico');
+});
