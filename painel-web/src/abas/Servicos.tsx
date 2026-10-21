@@ -6,13 +6,15 @@ import { duracao, horaCurta } from '../formatos';
 import type { Servico, Visao } from '../tipos';
 import { Cartao, Esqueleto, Segmentado, Selo, Vazio } from '../ui/base';
 
-function CartaoServico({ s, linhas, opcional }: { s: Servico<{ uptime?: number }>; linhas: [string, string][]; opcional?: boolean }) {
+function CartaoServico({ s, linhas, opcional, parado }: { s: Servico<{ uptime?: number }>; linhas: [string, string][]; opcional?: boolean; parado?: boolean }) {
   const todas: [string, string][] = [['Resposta', s.online ? `${s.ms} ms` : '–'], ['No ar há', s.dados?.uptime != null ? duracao(s.dados.uptime) : '–'], ...(s.online ? linhas : [])];
   return (
     <div className="cartao grid content-start gap-3 p-4">
       <div className="flex items-start justify-between gap-2">
         <h2 className="font-semibold">{s.nome}</h2>
-        <Selo tom={s.online ? 'ok' : opcional ? 'neutro' : 'perigo'} pulsar={!s.online && !opcional}>{s.online ? 'no ar' : 'fora do ar'}</Selo>
+        {parado && !s.online
+          ? <Selo tom="neutro">desligado pelo painel</Selo>
+          : <Selo tom={s.online ? 'ok' : opcional ? 'neutro' : 'perigo'} pulsar={!s.online && !opcional}>{s.online ? 'no ar' : 'fora do ar'}</Selo>}
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         {todas.map(([k, v]) => [<dt key={`${k}-t`} className="text-slate-500 dark:text-slate-400">{k}</dt>, <dd key={`${k}-d`} className="text-right tabular-nums">{v}</dd>])}
@@ -26,16 +28,19 @@ function Cartoes({ v }: { v: Visao }) {
   const r = rodizio.dados;
   const argusOk = v.argus.respondendo && !v.argus.tokenRecusado;
   const ultimoCiclo = v.argus.cicloUraHaSeg == null ? '–' : `${duracao(v.argus.cicloUraHaSeg)} atrás`;
+  const parado = v.automacao?.estado === 'desligada';
   return (
     <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <CartaoServico s={roteador} linhas={[['Carga do dia', roteador.dados?.cargaInicialFeita ? 'feita' : 'pendente'], ['Última leitura de vendas', horaCurta(roteador.dados?.ultimoMonitoramento)]]} />
-      <CartaoServico s={rodizio} linhas={[['Último ciclo da URA', ultimoCiclo], ['Modo dos robôs', r?.robos?.modo === 'panico' ? 'pânico' : 'automático'], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]} />
-      <CartaoServico s={rotinas} linhas={[['Última execução', horaCurta(rotinas.dados?.ultimaExecucao)]]} />
+      <CartaoServico parado={parado} s={roteador} linhas={[['Carga do dia', roteador.dados?.cargaInicialFeita ? 'feita' : 'pendente'], ['Última leitura de vendas', horaCurta(roteador.dados?.ultimoMonitoramento)]]} />
+      <CartaoServico parado={parado} s={rodizio} linhas={[['Último ciclo da URA', ultimoCiclo], ['Modo dos robôs', r?.robos?.modo === 'panico' ? 'pânico' : 'automático'], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]} />
+      <CartaoServico parado={parado} s={rotinas} linhas={[['Última execução', horaCurta(rotinas.dados?.ultimaExecucao)]]} />
       {atualizador && <CartaoServico s={atualizador} linhas={[]} opcional />}
       <div className="cartao grid content-start gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <h2 className="font-semibold">Argus (discadora)</h2>
-          <Selo tom={argusOk ? 'ok' : 'perigo'} pulsar={!argusOk}>{v.argus.tokenRecusado ? 'token recusado' : argusOk ? 'respondendo' : 'sem resposta'}</Selo>
+          {parado
+            ? <Selo tom="neutro">automação desligada</Selo>
+            : <Selo tom={argusOk ? 'ok' : 'perigo'} pulsar={!argusOk}>{v.argus.tokenRecusado ? 'token recusado' : argusOk ? 'respondendo' : 'sem resposta'}</Selo>}
         </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-slate-500 dark:text-slate-400">Último ciclo</dt><dd className="text-right tabular-nums">{ultimoCiclo}</dd>

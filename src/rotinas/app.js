@@ -17,6 +17,7 @@ const { criarLogger } = require('../utils/logger');
 const { ativarLogsEmArquivo } = require('../utils/logs-em-arquivo');
 const { executarPeriodicamente } = require('../utils/periodico');
 const { adquirirTravaOuEncerrar } = require('../utils/trava-processo');
+const { aguardarAutomacaoLigada } = require('../utils/automacao');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
 const { ArquivoDeEstado } = require('../utils/persistencia-json');
 const { criarServidor } = require('../http/server');
@@ -82,6 +83,7 @@ function montarServidor({ cfg, log }, laco) {
 
 async function executarContinuamente(app) {
   const { cfg, log, fimExpediente } = app;
+  await aguardarAutomacaoLigada(cfg.automacao, log, 'serviço de rotinas');
   const trava = adquirirTravaOuEncerrar(cfg.rotinas.arquivoTrava, log);
   const laco = executarPeriodicamente({
     nome: 'rotinas', intervaloMs: cfg.rotinas.intervaloMs, tarefa: () => fimExpediente.tique(), logger: log,

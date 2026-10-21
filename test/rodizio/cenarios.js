@@ -113,6 +113,8 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_AJUSTE_FILE: path.join(pasta, 'state-ajuste-robos.json'),
       RODIZIO_PANICO_FILE: path.join(pasta, 'state-panico.json'),
       RODIZIO_URA_PASSIVA_FILE: path.join(pasta, 'state-ura-passiva.json'),
+      AUTOMACAO_FILE: path.join(pasta, 'state-automacao.json'),
+      AUTOMACAO_VERIFICAR_MS: '200',
       ARGUS_PAUSA_FILE: path.join(pasta, 'argus-pausa.json'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
       RETORNO_LOG_FILE: path.join(pasta, 'logs', 'retorno-fila.jsonl'),
@@ -684,6 +686,14 @@ const CENARIOS = {
     if (r.chamadas('deslogaroperador').length) throw new Error('webhook inválido teve efeito');
   },
 
+  async 'Automação desligada pelo painel: o rodízio espera sem tocar na Argus e sobe quando religam'(r) {
+    const tudo = r.saida.join('');
+    if (!tudo.includes('Automação desligada pelo painel')) throw new Error('não avisou que estava esperando');
+    if (!tudo.includes('Automação religada pelo painel')) throw new Error('não avisou que foi religada');
+    if (r.argus.estado.chamadasAntesDeReligar !== 0) throw new Error(`chamou a Argus desligado: ${r.argus.estado.chamadasAntesDeReligar}`);
+    if ((await fetch(`${r.base}/health`)).status !== 200) throw new Error('não subiu depois de religar');
+  },
+
   async 'Health responde'(r) {
     const res = await fetch(`${r.base}/health`);
     if (res.status !== 200) throw new Error(`health ${res.status}`);
@@ -1005,6 +1015,16 @@ const VARIACOES = {
   },
   'Robôs: URA sem humanos → desliga': {
     grupos: GRUPOS_BASE.map((g) => (g.idGrupoUsuario === 2 ? { ...g, ramaisOperadores: [] } : g)),
+  },
+  'Automação desligada pelo painel: o rodízio espera sem tocar na Argus e sobe quando religam': {
+    preparar: ({ argus, pasta }) => {
+      const arquivo = path.join(pasta, 'state-automacao.json');
+      fs.writeFileSync(arquivo, JSON.stringify({ desligada: true, desde: new Date().toISOString(), por: 'teste' }));
+      setTimeout(() => {
+        argus.estado.chamadasAntesDeReligar = argus.estado.chamadas.length;
+        fs.writeFileSync(arquivo, JSON.stringify({ desligada: false }));
+      }, 2500);
+    },
   },
   'Correção: trava deixada por processo morto não impede o início': {
     preparar: ({ pasta }) => fs.writeFileSync(path.join(pasta, 'argus.lock'), String(pidMorto())),

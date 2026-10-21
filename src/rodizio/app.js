@@ -12,6 +12,7 @@ const { ArgusClient } = require('../integrations/argus/argus.client');
 const { criarServidor } = require('../http/server');
 const { executarPeriodicamente } = require('../utils/periodico');
 const { adquirirTravaOuEncerrar } = require('../utils/trava-processo');
+const { aguardarAutomacaoLigada } = require('../utils/automacao');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
 const { EstadoRodizioRepository } = require('./estado-rodizio.repository');
 const { Transferencias } = require('./transferencias');
@@ -204,6 +205,7 @@ async function iniciarRodizio() {
   ativarLogsEmArquivo(cfg, 'rodizio');
 
   exigirConfigValida(cfg, log);
+  await aguardarAutomacaoLigada(cfg.automacao, log, 'rodízio');
   const trava = adquirirTravaOuEncerrar(cfgRodizio.arquivoTrava, log);
   rodizio.inicializar();
   retornoFila.inicializar();

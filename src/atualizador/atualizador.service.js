@@ -7,6 +7,8 @@
  * de IP público, porta aberta nem SSH — funciona igual no Windows e no Linux.
  *
  * Uma verificação:
+ *   0. automação desligada pelo painel → não faz nada (os serviços estão esperando
+ *      e não responderiam ao /health: o deploy seria revertido à toa)
  *   1. fora da janela de deploy (expediente) → não faz nada
  *   2. git fetch; nada novo → não faz nada
  *   3. alteração local em arquivo versionado, ou branch divergente → aborta (não arrisca)
@@ -21,6 +23,7 @@ const { podeFazerDeploy } = require('../domain/janela-deploy');
 
 const Resultado = Object.freeze({
   FORA_DA_JANELA: 'FORA_DA_JANELA',
+  AUTOMACAO_DESLIGADA: 'AUTOMACAO_DESLIGADA',
   SEM_MUDANCA: 'SEM_MUDANCA',
   ABORTADO: 'ABORTADO',
   IMPLANTADO: 'IMPLANTADO',
@@ -45,9 +48,10 @@ class AtualizadorService {
    *           expediente: { inicio: string, fim: string } }} deps.cfg
    * @param {{ registrar(acao: string, dados: object): Promise<object> }} deps.auditoria
    * @param {object} deps.logger
+   * @param {() => boolean} [deps.automacaoDesligada] - botão "Desligar automação" do painel
    */
-  constructor({ executar, aguardarSaude, relogio, cfg, auditoria, logger }) {
-    Object.assign(this, { executar, aguardarSaude, relogio, cfg, auditoria, log: logger });
+  constructor({ executar, aguardarSaude, relogio, cfg, auditoria, logger, automacaoDesligada = () => false }) {
+    Object.assign(this, { executar, aguardarSaude, relogio, cfg, auditoria, log: logger, automacaoDesligada });
     this.ultimo = null;
   }
 
@@ -61,6 +65,7 @@ class AtualizadorService {
    * @returns {Promise<{ resultado: string }>}
    */
   async verificar({ ignorarJanela = false } = {}) {
+    if (this.automacaoDesligada()) return this.concluir({ resultado: Resultado.AUTOMACAO_DESLIGADA }, false);
     if (!ignorarJanela && !this.janelaAberta()) return this.concluir({ resultado: Resultado.FORA_DA_JANELA }, false);
 
     await this.etapa('git fetch', 'git', ['fetch', '--quiet', 'origin', this.cfg.branch]);

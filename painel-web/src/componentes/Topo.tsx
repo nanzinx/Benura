@@ -4,6 +4,7 @@ import { useEffect, useState, type ComponentType } from 'react';
 import { useVisao } from '../dados';
 import type { Tema } from '../tema';
 import { Marca } from './Marca';
+import { BotaoDesligarAutomacao } from './DesligarAutomacao';
 
 export type Aba = 'visao' | 'ura' | 'esteira' | 'servicos';
 export const ABAS: { id: Aba; texto: string; Icone: ComponentType<{ className?: string }> }[] = [
@@ -75,6 +76,7 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
               : <><span className="size-2 rounded-full bg-slate-400" /><span className="hidden sm:inline">Pausado</span><Play className="size-3.5" aria-hidden /></>}
           </button>
           <Relogio />
+          <BotaoDesligarAutomacao />
           <button type="button" onClick={() => trocarTema(proximoTema.id)} title={`Tema: ${TEMAS.find((t) => t.id === tema)!.texto} (trocar para ${proximoTema.texto.toLowerCase()})`}
             className="hidden size-9 cursor-pointer place-items-center rounded-lg hover:bg-white/10 sm:grid" aria-label="Trocar o tema">
             <TemaAtual className="size-4" aria-hidden />

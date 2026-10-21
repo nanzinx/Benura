@@ -26,6 +26,7 @@ const { criarControllers } = require('./http/controllers');
 const { criarServidor } = require('./http/server');
 const { registrarDesligamento, fecharServidor, escutar } = require('./utils/ciclo-de-vida');
 const { adquirirTravaOuEncerrar } = require('./utils/trava-processo');
+const { aguardarAutomacaoLigada } = require('./utils/automacao');
 
 /**
  * Monta a camada da Argus (cliente, diretório de usuários e discadora).
@@ -135,6 +136,7 @@ async function iniciar() {
   ativarLogsEmArquivo(cfg, 'roteador');
 
   exigirConfigValida(cfg, log);
+  await aguardarAutomacaoLigada(cfg.automacao, log, 'roteador');
   const trava = adquirirTravaOuEncerrar(cfg.arquivoTrava, log);
   logarResumo(cfg, log);
 

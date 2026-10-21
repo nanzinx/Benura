@@ -18,15 +18,21 @@ const { Sessoes } = require('./sessoes');
 const { Servicos } = require('./servicos');
 const { DadosDoDia } = require('./dados-do-dia');
 const { criarServidorDoPainel } = require('./servidor');
+const { ControleAutomacao } = require('./automacao');
+const { criarExecutor } = require('../atualizador/executor');
 
 /** Monta as dependências (nada é iniciado aqui). */
 function montarPainel(overrides) {
   const cfg = carregarConfig(overrides);
   const log = criarLogger({ debug: cfg.debug, escopo: 'painel' });
   const p = cfg.painel;
+  const servicos = new Servicos({ cfg: p, token: cfg.http.tokenAdmin });
   const servidor = criarServidorDoPainel({
     sessoes: new Sessoes({ senha: p.senha, segredo: obterSegredo(p), horas: p.sessaoHoras }),
-    servicos: new Servicos({ cfg: p, token: cfg.http.tokenAdmin }),
+    servicos,
+    automacao: new ControleAutomacao({
+      cfg: cfg.automacao, servicos, executar: criarExecutor({ cwd: cfg.atualizador.diretorio, logger: log }), logger: log,
+    }),
     dados: new DadosDoDia({ pasta: cfg.logs.pasta, fuso: cfg.agenda.fusoHorario }),
     cfg: { fuso: cfg.agenda.fusoHorario },
     logger: log,
