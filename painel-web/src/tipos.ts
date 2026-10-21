@@ -60,6 +60,15 @@ export interface Alertas {
   perfis?: { clientes: number; historicoAte: string | null; risco: number };
 }
 
+/** Botão "Desligar automação" (src/painel/automacao.js). */
+export interface EstadoAutomacao {
+  estado: 'ligada' | 'desligando' | 'desligada' | 'religando';
+  etapa: string | null;
+  desde: string | null;
+  por: string | null;
+  aviso: string | null;
+}
+
 export interface Visao {
   agora: string;
   servicos: {
@@ -70,6 +79,7 @@ export interface Visao {
   };
   argus: { tokenRecusado: boolean; cicloUraHaSeg: number | null; respondendo: boolean };
   alertas: Alertas | null;
+  automacao?: EstadoAutomacao;
 }
 
 export interface PontoDoDia { hora: string; livres: number; humanos: number; robos: number | null }

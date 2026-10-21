@@ -89,7 +89,16 @@ function BotaoAvisos() {
 export function Ura() {
   const { data: v } = useVisao();
   const r = v?.servicos.rodizio.dados;
-  if (!r) return <Esqueleto className="h-96 w-full" />;
+  if (!v) return <Esqueleto className="h-96 w-full" />;
+  if (!r) {
+    return (
+      <Cartao titulo="URA e robôs">
+        <Vazio>{v.automacao?.estado === 'desligada'
+          ? 'A automação está desligada: os controles da URA voltam quando ela for religada (botão no topo da página).'
+          : 'O rodízio não está respondendo. Veja a aba Serviços.'}</Vazio>
+      </Cartao>
+    );
+  }
   const p = r.panico;
   const passiva = p?.uraPassiva;
   const cheia = r.uraCheia;

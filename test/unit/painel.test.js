@@ -91,6 +91,11 @@ async function subir() {
     sessoes: new Sessoes({ senha: SENHA, segredo: 's', horas: 1 }),
     servicos: new Servicos({ cfg: { servicos: { rodizio: 'http://rodizio', roteador: 'http://roteador', rotinas: 'http://rotinas' }, timeoutMs: 1000 }, token: 'tok', fetch: fetchFalso }),
     dados: new DadosDoDia({ pasta, fuso: 'America/Sao_Paulo' }),
+    automacao: {
+      estado: () => ({ estado: chamadas.some((c) => c.url === 'desligar') ? 'desligando' : 'ligada' }),
+      desligar: (por) => { chamadas.push({ url: 'desligar', por }); return { iniciado: true }; },
+      religar: () => ({ iniciado: false, motivo: 'Espere terminar o que está em andamento.' }),
+    },
     cfg: { fuso: 'America/Sao_Paulo' },
     logger: loggerNulo,
   });
@@ -113,6 +118,7 @@ test('painel: exige sessão, leva o token aos serviços e só passa os comandos 
   assert.match(pagina.headers.get('content-security-policy'), /script-src 'self'/);
   assert.equal((await pedir('GET', '/api/visao')).status, 401);
   assert.equal((await pedir('POST', '/api/rodizio/panico')).status, 401);
+  assert.equal((await pedir('POST', '/api/automacao/desligar')).status, 401, 'sem sessão não desliga');
   assert.equal((await pedir('POST', '/api/entrar', { corpo: { senha: 'errada' } })).status, 401);
   assert.equal((await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, painel: false })).status, 403, 'sem o cabeçalho do painel');
 
@@ -136,6 +142,14 @@ test('painel: exige sessão, leva o token aos serviços e só passa os comandos 
 
   await pedir('POST', '/api/roteador/manual', { cookie, corpo: { texto: 'a;b' } });
   assert.equal(chamadas.find((c) => c.url === 'http://roteador/manual').corpo, '{"texto":"a;b"}');
+
+  assert.equal((await pedir('POST', '/api/automacao/desligar', { cookie, painel: false })).status, 403, 'desligar exige o cabeçalho do painel');
+  const desligar = await pedir('POST', '/api/automacao/desligar', { cookie });
+  assert.equal(desligar.status, 202);
+  assert.equal((await desligar.json()).estado, 'desligando');
+  assert.equal(chamadas.find((c) => c.url === 'desligar').por, '127.0.0.1', 'registra quem pediu');
+  assert.equal((await pedir('POST', '/api/automacao/religar', { cookie })).status, 409, 'em andamento: recusa');
+  assert.equal((await (await pedir('GET', '/api/visao', { cookie })).json()).automacao.estado, 'desligando');
 
   assert.equal((await pedir('POST', '/api/sair', { cookie })).status, 200);
   assert.equal((await pedir('GET', '/api/visao', { cookie })).status, 401, 'saiu');

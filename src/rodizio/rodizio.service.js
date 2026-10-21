@@ -115,6 +115,8 @@ class RodizioService {
     /** Modo pânico: desde quando o BenURA está desligando os robôs (null = não está) e por quê (log e /health). */
     this.panicoDesde = null;
     this.panicoMotivo = null;
+    /** O painel está desligando a automação: não move ninguém nem decide robôs (encerrarRobosParaDesligar). */
+    this.desligandoAutomacao = false;
     /** Fotos da URA dos últimos FOTOS_MS (raio-x de cada callback: raio-x-callback.js). */
     this.fotos = [];
     this.iniciadoEm = Date.now();
@@ -225,6 +227,7 @@ class RodizioService {
   // ───────────────────────────── Ativo → URA ─────────────────────────────
 
   async cicloAtivo() {
+    if (this.desligandoAutomacao) return;
     const cheia = this.emUraCheia();
     if (cheia) await this.levarTodosParaUra();
     else await this.elegiveis?.atualizar();
@@ -304,6 +307,7 @@ class RodizioService {
   // ───────────────────────────── URA ─────────────────────────────
 
   async cicloUra() {
+    if (this.desligandoAutomacao) return;
     const ramais = [...this.ramaisUra];
     // 1. Status de todos  2. Quem volta (e se é o último livre)  3. Robôs (é o que evita fila)  4. Devoluções
     await mapearComLimite(ramais, this.cfg.concorrencia, (ramal) => this.atualizarStatusUra(ramal));
@@ -529,6 +533,7 @@ class RodizioService {
   }
 
   async aplicarDecisaoDosRobos() {
+    if (this.desligandoAutomacao) return undefined;
     if (this.emModoPanico()) return this.aplicarPanico();
     if (this.ultimoLivreSaindo()) {
       this.excessoDesde = null;
@@ -857,6 +862,24 @@ class RodizioService {
   }
 
   /** A supervisão assume os robôs pelo painel por `minutos`; o BenURA não liga nem desliga nenhum. */
+  /**
+   * Botão "Desligar automação" do painel: o rodízio para de mover gente e de
+   * decidir robôs, e desliga os robôs. Sem `derrubar`, só os parados (os em
+   * ligação terminam a chamada; o painel chama de novo até sobrar nenhum); com
+   * `derrubar`, todos. Em seguida o painel para os serviços (pm2 stop).
+   * @returns {Promise<{ ligados: number|null }>}
+   */
+  async encerrarRobosParaDesligar({ derrubar = false } = {}) {
+    if (!this.desligandoAutomacao) this.log.aviso('Automação sendo desligada pelo painel: o rodízio parou de mover operadores e está desligando os robôs.');
+    this.desligandoAutomacao = true;
+    if (this.ramaisRobos.length) await this.robos.sincronizar(this.ramaisRobos);
+    const motivo = 'automação desligada pelo painel';
+    const ligados = [...(this.robos.ligados || [])];
+    if (ligados.length && derrubar) await this.robos.desligar(ligados, motivo);
+    else if (ligados.length) await this.robos.encerrarSemDerrubar(motivo);
+    return { ligados: this.robos.ligados ? this.robos.ligados.size : null };
+  }
+
   assumirRobosManualmente(minutos) {
     this.manualAte = Date.now() + minutos * 60_000;
     this.log.aviso(`Modo manual por ${minutos} min: o BenURA não mexe nos robôs até ${new Date(this.manualAte).toISOString()}.`);
@@ -911,6 +934,7 @@ class RodizioService {
       },
       ajusteRobos: this.ajuste ? this.ajuste.resumo() : null,
       dryRun: Boolean(this.cfg.dryRun),
+      desligandoAutomacao: this.desligandoAutomacao,
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),

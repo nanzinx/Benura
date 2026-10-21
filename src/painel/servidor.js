@@ -9,6 +9,7 @@
  *   GET  /api/sessao        200 com sessão, 401 sem
  *   GET  /api/visao         saúde dos serviços + rodízio + alertas (a cada 5 s)
  *   GET  /api/dia           linha do tempo, callbacks e avisos do dia (logs)
+ *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
  *   *    /api/rodizio/...   comandos da lista ACOES (servicos.js), levados com o token
  *   *    /api/roteador/...
  *
@@ -94,11 +95,12 @@ function conferirOrigem(req) {
  * @param {import('./sessoes').Sessoes} deps.sessoes
  * @param {import('./servicos').Servicos} deps.servicos
  * @param {import('./dados-do-dia').DadosDoDia} deps.dados
+ * @param {import('./automacao').ControleAutomacao} deps.automacao
  * @param {{ fuso: string }} deps.cfg
  * @param {object} deps.logger
  * @returns {http.Server}
  */
-function criarServidorDoPainel({ sessoes, servicos, dados, cfg, logger }) {
+function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger }) {
   const estaticos = Object.fromEntries(fs.readdirSync(PUBLICO).filter((nome) => TIPOS[path.extname(nome)]).map((nome) => [
     nome === 'index.html' ? '/' : `/${nome}`, { tipo: TIPOS[path.extname(nome)], conteudo: fs.readFileSync(path.join(PUBLICO, nome)) },
   ]));
@@ -134,7 +136,10 @@ function criarServidorDoPainel({ sessoes, servicos, dados, cfg, logger }) {
       cicloUraHaSeg: cicloMs == null ? null : Math.round(cicloMs / 1000),
       respondendo: saude.rodizio.online && cicloMs != null && cicloMs < CICLO_PARADO_MS,
     };
-    return { status: 200, corpo: { agora: agora.toISOString(), servicos: saude, argus, alertas: alertas.status === 200 ? alertas.corpo : null } };
+    return {
+      status: 200,
+      corpo: { agora: agora.toISOString(), servicos: saude, argus, alertas: alertas.status === 200 ? alertas.corpo : null, automacao: automacao.estado() },
+    };
   }
 
   async function encaminhar(req, acao) {
@@ -165,6 +170,13 @@ function criarServidorDoPainel({ sessoes, servicos, dados, cfg, logger }) {
     if (req.method === 'GET' && pathname === '/api/sessao') return { status: 200, corpo: { ok: true } };
     if (req.method === 'GET' && pathname === '/api/visao') return visao();
     if (req.method === 'GET' && pathname === '/api/dia') return { status: 200, corpo: dados.resumo() };
+    if (req.method === 'POST' && (pathname === '/api/automacao/desligar' || pathname === '/api/automacao/religar')) {
+      conferirOrigem(req);
+      const desligar = pathname.endsWith('/desligar');
+      const r = desligar ? automacao.desligar(enderecoDe(req)) : automacao.religar(enderecoDe(req));
+      if (!r.iniciado) throw new ErroPainel(409, r.motivo);
+      return { status: 202, corpo: automacao.estado() };
+    }
     const acao = ACOES.find((a) => a.metodo === req.method && a.caminho === pathname);
     if (!acao) throw new ErroPainel(404, 'Comando não encontrado');
     return encaminhar(req, acao);

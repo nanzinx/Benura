@@ -323,6 +323,15 @@ function carregarConfig(overrides = {}) {
     timeoutMs: envNum('PAINEL_TIMEOUT_MS', 4000),
   };
 
+  // --- Botão "Desligar automação" do painel ---
+  // Desligada: roteador, rodízio e rotinas param e, se subirem de novo, esperam sem tocar na Argus.
+  cfg.automacao = {
+    arquivo: env('AUTOMACAO_FILE', path.join(RAIZ, 'state-automacao.json')),
+    // Ao desligar: quanto esperar os robôs em ligação terminarem antes de derrubar os que sobrarem.
+    esperaRobosMs: envNum('AUTOMACAO_ESPERA_ROBOS_MS', 90_000),
+    intervaloMs: envNum('AUTOMACAO_VERIFICAR_MS', 5000),
+  };
+
   // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---
   cfg.retornoFila = {
     ativo: envBool('RETORNO_FILA_ATIVO', false),

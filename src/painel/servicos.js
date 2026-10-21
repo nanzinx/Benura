@@ -40,15 +40,15 @@ class Servicos {
   /**
    * @param {string} servico
    * @param {string} caminho
-   * @param {{ metodo?: string, corpo?: string }} [opcoes] - corpo já em JSON
+   * @param {{ metodo?: string, corpo?: string, timeoutMs?: number }} [opcoes] - corpo já em JSON
    * @returns {Promise<{ status: number, corpo: any, ms: number }>} status 0 = fora do ar
    */
-  async chamar(servico, caminho, { metodo = 'GET', corpo } = {}) {
+  async chamar(servico, caminho, { metodo = 'GET', corpo, timeoutMs = this.cfg.timeoutMs } = {}) {
     const inicio = Date.now();
     const headers = { ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}), ...(corpo ? { 'Content-Type': 'application/json' } : {}) };
     try {
       const resposta = await this.buscar(`${this.cfg.servicos[servico]}${caminho}`, {
-        method: metodo, headers, body: corpo, signal: AbortSignal.timeout(this.cfg.timeoutMs),
+        method: metodo, headers, body: corpo, signal: AbortSignal.timeout(timeoutMs),
       });
       const texto = await resposta.text();
       let json;

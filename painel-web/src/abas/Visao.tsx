@@ -29,8 +29,20 @@ function Kpi({ rotulo, valor, nota, Icone, tom, destaque }: { rotulo: string; va
 }
 
 function Kpis({ r, callbacks }: { r: SaudeRodizio | null | undefined; callbacks: Callback[] | undefined }) {
-  if (!r) {
+  // undefined = carregando; null = rodízio sem resposta (ou automação desligada): mostra traços.
+  if (r === undefined) {
     return <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="cartao h-28 p-4"><Esqueleto className="h-4 w-24" /><Esqueleto className="mt-3 h-8 w-12" /></div>)}</div>;
+  }
+  if (r === null) {
+    return (
+      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <Kpi destaque rotulo="Livres na URA" valor="–" Icone={UserCheck} nota="rodízio parado" />
+        <Kpi rotulo="Humanos na URA" valor="–" Icone={Users} />
+        <Kpi rotulo="Robôs ligados" valor="–" Icone={Bot} />
+        <Kpi rotulo="Callbacks hoje" valor={callbacks?.length ?? '–'} Icone={PhoneMissed} />
+        <div className="col-span-2 lg:col-span-1"><Kpi rotulo="Pânico" valor={<span className="text-2xl">–</span>} Icone={ShieldCheck} /></div>
+      </div>
+    );
   }
   const ura = r.uraAgora ?? [];
   const livres = ura.filter((u) => u.classe === 'livre' && !u.emCarencia).length;
@@ -197,7 +209,7 @@ function Roteador() {
 export function Visao({ escuro }: { escuro: boolean }) {
   const { data: v, dataUpdatedAt } = useVisao();
   const { data: dia } = useDia();
-  const r = v?.servicos.rodizio.dados;
+  const r = v ? v.servicos.rodizio.dados : undefined;
   return (
     <>
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">

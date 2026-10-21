@@ -31,7 +31,7 @@ test('diaDaSemanaLocal respeita o fuso', () => {
  */
 function montar({
   head = 'aaa1111', remoto = 'bbb2222', alteracoesLocais = '', divergiu = false, lockMudou = false,
-  testesPassam = true, reloadOk = true, saudeOk = true, janela = { diaSemana: 6, hora: '12:00' },
+  testesPassam = true, reloadOk = true, saudeOk = true, janela = { diaSemana: 6, hora: '12:00' }, automacaoDesligada = false,
 } = {}) {
   const estado = { head };
   const comandos = [];
@@ -70,6 +70,7 @@ function montar({
     },
     auditoria: { registrar: async (acao, dados) => eventos.push({ acao, ...dados }) },
     logger: loggerNulo,
+    automacaoDesligada: () => automacaoDesligada,
   });
   return { servico, comandos, eventos, estado, foi: (re) => comandos.some((c) => re.test(c)) };
 }
@@ -79,6 +80,12 @@ test('fora da janela: não toca em nada', async () => {
   assert.equal((await ctx.servico.verificar()).resultado, Resultado.FORA_DA_JANELA);
   assert.equal(ctx.comandos.length, 0);
   assert.equal(ctx.eventos.length, 0, 'não polui a auditoria');
+});
+
+test('automação desligada pelo painel: não atualiza (os serviços estão esperando, o /health falharia)', async () => {
+  const ctx = montar({ automacaoDesligada: true });
+  assert.equal((await ctx.servico.verificar({ ignorarJanela: true })).resultado, Resultado.AUTOMACAO_DESLIGADA);
+  assert.equal(ctx.comandos.length, 0);
 });
 
 test('--ignorar-janela atualiza mesmo no expediente', async () => {

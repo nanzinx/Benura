@@ -1,6 +1,6 @@
 /** Cliente da API do benura-painel. Escrita leva o cabeçalho X-Painel (o servidor exige). */
 
-import type { ClienteDeRisco, Dia, RespostaInterruptor, ResultadoEsteira, StatusRoteador, Visao } from './tipos';
+import type { ClienteDeRisco, Dia, EstadoAutomacao, RespostaInterruptor, ResultadoEsteira, StatusRoteador, Visao } from './tipos';
 
 /** A sessão venceu ou não existe: a página volta para a entrada. */
 export class SemSessao extends Error {
@@ -44,4 +44,5 @@ export const api = {
   colarEsteira: (texto: string) => pedir<ResultadoEsteira>('POST', '/api/roteador/manual', { texto }),
   limparEsteira: () => pedir<{ apagados: number }>('DELETE', '/api/roteador/manual'),
   recarregarVendas: () => pedir<{ mensagem: string }>('POST', '/api/roteador/recarregar'),
+  automacao: (ligar: boolean) => pedir<EstadoAutomacao>('POST', ligar ? '/api/automacao/religar' : '/api/automacao/desligar'),
 };

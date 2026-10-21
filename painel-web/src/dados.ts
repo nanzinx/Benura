@@ -10,7 +10,27 @@ export const AoVivo = createContext(true);
 const intervalo = (ms: number, aoVivo: boolean) => (aoVivo ? ms : false);
 
 export function useVisao() {
-  return useQuery({ queryKey: ['visao'], queryFn: api.visao, refetchInterval: intervalo(5000, useContext(AoVivo)) });
+  const aoVivo = useContext(AoVivo);
+  return useQuery({
+    queryKey: ['visao'],
+    queryFn: api.visao,
+    // Desligando ou religando a automação: acompanha de perto (mesmo pausado).
+    refetchInterval: (q) => (['desligando', 'religando'].includes(q.state.data?.automacao?.estado ?? '') ? 1500 : intervalo(5000, aoVivo)),
+  });
+}
+
+/** Botões "Desligar automação" / "Religar automação". */
+export function useAutomacao() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: (ligar: boolean) => api.automacao(ligar),
+    onSuccess: (_, ligar) => {
+      avisar('ok', ligar ? 'Religando a automação…' : 'Desligando a automação: robôs primeiro, depois os serviços.');
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
+  });
 }
 
 export function useDia() {

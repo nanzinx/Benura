@@ -114,6 +114,11 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     return { status: 200, corpo: rodizio.definirUraPassiva(false) };
   }
 
+  /** POST /automacao/encerrar-robos { derrubar? } — o painel está desligando a automação. */
+  async function encerrarRobos({ corpo }) {
+    return { status: 200, corpo: await rodizio.encerrarRobosParaDesligar({ derrubar: corpo?.derrubar === true }) };
+  }
+
   /** GET /alertas — clientes de risco falando com um robô agora (telefone mascarado). */
   async function alertas() {
     if (!risco) return { status: 200, corpo: { ativo: false, alertas: [] } };
@@ -142,6 +147,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     { metodo: 'POST', caminho: '/risco/desligar', handler: definirDesligaRobos(true), protegida: true },
     { metodo: 'DELETE', caminho: '/risco/desligar', handler: definirDesligaRobos(false), protegida: true },
     { metodo: 'POST', caminho: '/panico', handler: ligarPanico, protegida: true },
+    { metodo: 'POST', caminho: '/automacao/encerrar-robos', handler: encerrarRobos, protegida: true },
     { metodo: 'DELETE', caminho: '/panico', handler: desligarPanico, protegida: true },
     { metodo: 'POST', caminho: '/ura/passiva', handler: ligarUraPassiva, protegida: true },
     { metodo: 'DELETE', caminho: '/ura/passiva', handler: desligarUraPassiva, protegida: true },

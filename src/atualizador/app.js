@@ -19,6 +19,7 @@ const { adquirirTravaOuEncerrar } = require('../utils/trava-processo');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
 const { criarServidor } = require('../http/server');
 const { AuditoriaRepository } = require('../repositories/auditoria.repository');
+const { lerAutomacao } = require('../utils/automacao');
 const { criarExecutor } = require('./executor');
 const { aguardarSaude } = require('./saude');
 const { AtualizadorService, Resultado } = require('./atualizador.service');
@@ -32,6 +33,7 @@ function montarAtualizador(overrides) {
   const servico = new AtualizadorService({
     executar: criarExecutor({ cwd: a.diretorio, logger: log }),
     aguardarSaude,
+    automacaoDesligada: () => lerAutomacao(cfg.automacao.arquivo).desligada,
     relogio: {
       momento: () => ({ diaSemana: diaDaSemanaLocal(cfg.agenda.fusoHorario), hora: horaLocal(cfg.agenda.fusoHorario) }),
     },
