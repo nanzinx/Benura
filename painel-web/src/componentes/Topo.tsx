@@ -26,7 +26,7 @@ function Relogio() {
     const t = setInterval(() => setAgora(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
-  return <span className="hidden font-semibold text-azul-100 tabular-nums md:inline">{agora.toLocaleTimeString('pt-BR')}</span>;
+  return <span className="hidden font-semibold text-azul-100 tabular-nums 2xl:inline">{agora.toLocaleTimeString('pt-BR')}</span>;
 }
 
 interface Props {
@@ -47,7 +47,7 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
 
   return (
     <header className="sticky top-0 z-30 border-b-[3px] border-amarelo-500 bg-gradient-to-b from-marinho-900 to-marinho-800 text-white">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 px-4 sm:px-6">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 px-4 sm:px-6">
         <a href="#visao" className="py-3.5" aria-label="BenURA, visão geral"><Marca /></a>
         <nav aria-label="Seções" className="order-3 -mb-[3px] flex basis-full gap-1 overflow-x-auto [scrollbar-width:none] lg:order-none lg:basis-auto lg:flex-1">
           {ABAS.map(({ id, texto, Icone }) => (
@@ -63,7 +63,7 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-1.5 py-3 sm:gap-2">
-          {dryRun && <span title="DRY_RUN ligado: o BenURA só simula as transferências e os robôs" className="rounded-full bg-amarelo-500 px-2 py-0.5 text-xs font-bold text-marinho-950 sm:px-2.5">Simulação</span>}
+          {dryRun && <a href="#servicos" title="Modo simulação (DRY_RUN): o BenURA só mostra o que faria. Clique para ver ou desligar." className="rounded-full bg-amarelo-500 px-2 py-0.5 text-xs font-bold text-marinho-950 hover:bg-amarelo-400 sm:px-2.5">Simulação</a>}
           <button
             type="button"
             onClick={alternarAoVivo}
@@ -72,8 +72,8 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
             className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/25 px-2.5 py-1 text-xs font-semibold hover:bg-white/10"
           >
             {aoVivo
-              ? <><span className="relative flex size-2"><span className="absolute size-full animate-ping rounded-full bg-emerald-400 opacity-70" /><span className="relative size-2 rounded-full bg-emerald-400" /></span><span className="hidden sm:inline">Ao vivo</span><Pause className="size-3.5" aria-hidden /></>
-              : <><span className="size-2 rounded-full bg-slate-400" /><span className="hidden sm:inline">Pausado</span><Play className="size-3.5" aria-hidden /></>}
+              ? <><span className="relative flex size-2"><span className="absolute size-full animate-ping rounded-full bg-emerald-400 opacity-70" /><span className="relative size-2 rounded-full bg-emerald-400" /></span><span className="hidden sm:inline lg:hidden xl:inline">Ao vivo</span><Pause className="size-3.5" aria-hidden /></>
+              : <><span className="size-2 rounded-full bg-slate-400" /><span className="hidden sm:inline lg:hidden xl:inline">Pausado</span><Play className="size-3.5" aria-hidden /></>}
           </button>
           <Relogio />
           <BotaoDesligarAutomacao />
@@ -82,7 +82,7 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
             <TemaAtual className="size-4" aria-hidden />
           </button>
           <button type="button" onClick={sair} aria-label="Sair" className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/30 px-2.5 py-1.5 text-sm font-semibold hover:bg-white/10 sm:px-3">
-            <LogOut className="size-4" aria-hidden /><span className="hidden sm:inline">Sair</span>
+            <LogOut className="size-4" aria-hidden /><span className="hidden sm:inline lg:hidden xl:inline">Sair</span>
           </button>
         </div>
       </div>

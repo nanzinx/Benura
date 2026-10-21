@@ -95,6 +95,7 @@ async function subir() {
       estado: () => ({ estado: chamadas.some((c) => c.url === 'desligar') ? 'desligando' : 'ligada' }),
       desligar: (por) => { chamadas.push({ url: 'desligar', por }); return { iniciado: true }; },
       religar: () => ({ iniciado: false, motivo: 'Espere terminar o que está em andamento.' }),
+      definirSimulacao: (ligada, por) => { chamadas.push({ url: 'simulacao', ligada, por }); return { iniciado: true }; },
     },
     cfg: { fuso: 'America/Sao_Paulo' },
     logger: loggerNulo,
@@ -143,6 +144,10 @@ test('painel: exige sessão, leva o token aos serviços e só passa os comandos 
   await pedir('POST', '/api/roteador/manual', { cookie, corpo: { texto: 'a;b' } });
   assert.equal(chamadas.find((c) => c.url === 'http://roteador/manual').corpo, '{"texto":"a;b"}');
 
+  assert.equal((await pedir('POST', '/api/simulacao', { cookie, painel: false, corpo: { ligada: true } })).status, 403, 'simulação exige o cabeçalho do painel');
+  assert.equal((await pedir('POST', '/api/simulacao', { cookie, corpo: { ligada: 'sim' } })).status, 400);
+  assert.equal((await pedir('POST', '/api/simulacao', { cookie, corpo: { ligada: true } })).status, 202);
+  assert.deepEqual(chamadas.find((c) => c.url === 'simulacao'), { url: 'simulacao', ligada: true, por: '127.0.0.1' });
   assert.equal((await pedir('POST', '/api/automacao/desligar', { cookie, painel: false })).status, 403, 'desligar exige o cabeçalho do painel');
   const desligar = await pedir('POST', '/api/automacao/desligar', { cookie });
   assert.equal(desligar.status, 202);

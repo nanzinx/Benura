@@ -410,6 +410,12 @@ As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico
 
 Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o caminho de emergência continua sendo `npx pm2 stop all` no PC do BenURA.
 
+**Modo simulação (aba Serviços):** liga ou desliga o DRY_RUN sem editar o `.env`. Simulação ligada: o BenURA continua lendo a Argus e mostrando o que faria, mas não move ninguém nem mexe nos robôs.
+- **Como vale:** a escolha fica em `SIMULACAO_FILE` (`state-simulacao.json`) e os três serviços reiniciam em seguida (`npx pm2 startOrRestart`), porque o DRY_RUN é lido quando cada um sobe.
+- **Selo "Simulação":** fica no topo enquanto ela estiver ligada; clicar nele leva ao cartão.
+- **`.env` manda:** com `DRY_RUN=1` no `.env`, a simulação fica fixa e o botão não desliga.
+- **Automação desligada:** com a automação desligada pelo botão vermelho, a escolha só é gravada e vale quando religar.
+
 **Como ligar:**
 1. No `.env`, coloque `PAINEL_SENHA=` (8 caracteres ou mais). É a senha que a supervisão usa para entrar.
 2. `npx pm2 start ecosystem.config.js --only benura-painel` (ou `npm run pm2:iniciar`, que sobe todos).

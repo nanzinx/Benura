@@ -31,7 +31,7 @@ function montarPainel(overrides) {
     sessoes: new Sessoes({ senha: p.senha, segredo: obterSegredo(p), horas: p.sessaoHoras }),
     servicos,
     automacao: new ControleAutomacao({
-      cfg: cfg.automacao, servicos, executar: criarExecutor({ cwd: cfg.atualizador.diretorio, logger: log }), logger: log,
+      cfg: { ...cfg.automacao, dryRunPeloEnv: cfg.argus.dryRunPeloEnv }, servicos, executar: criarExecutor({ cwd: cfg.atualizador.diretorio, logger: log }), logger: log,
     }),
     dados: new DadosDoDia({ pasta: cfg.logs.pasta, fuso: cfg.agenda.fusoHorario }),
     cfg: { fuso: cfg.agenda.fusoHorario },

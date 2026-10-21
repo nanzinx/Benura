@@ -11,9 +11,12 @@
  *   3. para roteador, rodízio e rotinas (npx pm2 stop). O painel continua no ar.
  * Religar: tira a marca e sobe os três de novo (npx pm2 startOrRestart). Os
  * robôs continuam desligados: quem liga é a supervisão, pela Argus.
+ *
+ * Modo simulação (DRY_RUN): grava a escolha (SIMULACAO_FILE) e reinicia os três
+ * (o DRY_RUN só é lido quando o serviço sobe). Com a automação desligada, só grava.
  */
 
-const { lerAutomacao, gravarAutomacao } = require('../utils/automacao');
+const { lerAutomacao, gravarAutomacao, lerSimulacao } = require('../utils/automacao');
 
 const APPS = ['benura-roteador', 'benura-rodizio', 'benura-rotinas'];
 const REPETIR_ROBOS_MS = 5000;
@@ -22,14 +25,15 @@ const esperarMs = (ms) => new Promise((r) => { setTimeout(r, ms); });
 class ControleAutomacao {
   /**
    * @param {object} deps
-   * @param {{ arquivo: string, esperaRobosMs: number }} deps.cfg - cfg.automacao
+   * @param {{ arquivo: string, esperaRobosMs: number, arquivoSimulacao: string, dryRunPeloEnv?: boolean }} deps.cfg
+   *        cfg.automacao + DRY_RUN do .env
    * @param {import('./servicos').Servicos} deps.servicos
    * @param {(comando: string, args: string[], opcoes?: object) => Promise<{ ok: boolean, saida: string }>} deps.executar
    * @param {object} deps.logger
    */
   constructor({ cfg, servicos, executar, logger, agora = Date.now, esperar = esperarMs }) {
     Object.assign(this, { cfg, servicos, executar, log: logger, agora, esperar });
-    /** Em andamento: { estado: 'desligando'|'religando', etapa, aviso } | null */
+    /** Em andamento: { estado: 'desligando'|'religando'|'reiniciando', etapa, aviso } | null */
     this.andamento = null;
     this.ultimoAviso = null;
   }
@@ -37,8 +41,36 @@ class ControleAutomacao {
   /** Para o /api/visao. */
   estado() {
     const gravado = lerAutomacao(this.cfg.arquivo);
-    if (this.andamento) return { ...this.andamento, desde: gravado.desde, por: gravado.por };
-    return { estado: gravado.desligada ? 'desligada' : 'ligada', etapa: null, desde: gravado.desde, por: gravado.por, aviso: this.ultimoAviso };
+    const sim = lerSimulacao(this.cfg.arquivoSimulacao);
+    const simulacao = { escolhida: sim.ligada, fixaPeloEnv: Boolean(this.cfg.dryRunPeloEnv), desde: sim.desde, por: sim.por };
+    if (this.andamento) return { ...this.andamento, desde: gravado.desde, por: gravado.por, simulacao };
+    return { estado: gravado.desligada ? 'desligada' : 'ligada', etapa: null, desde: gravado.desde, por: gravado.por, aviso: this.ultimoAviso, simulacao };
+  }
+
+  /**
+   * Liga ou desliga o modo simulação (DRY_RUN) e reinicia os serviços para valer.
+   * @returns {{ iniciado: boolean, motivo?: string }}
+   */
+  definirSimulacao(ligada, por) {
+    if (this.andamento) return { iniciado: false, motivo: 'Espere terminar o que está em andamento.' };
+    if (!ligada && this.cfg.dryRunPeloEnv) return { iniciado: false, motivo: 'A simulação está fixa pelo .env (DRY_RUN=1): troque para DRY_RUN=0 no PC do BenURA.' };
+    if (lerSimulacao(this.cfg.arquivoSimulacao).ligada === ligada) return { iniciado: false, motivo: `A simulação já está ${ligada ? 'ligada' : 'desligada'}.` };
+    this.andamento = { estado: 'reiniciando', etapa: `${ligada ? 'ligando' : 'desligando'} a simulação: reiniciando roteador, rodízio e rotinas`, aviso: null };
+    this.ultimoAviso = null;
+    this.executarSimulacao(ligada, por).catch((e) => this.falhou(`${ligada ? 'ligar' : 'desligar'} a simulação`, e));
+    return { iniciado: true };
+  }
+
+  async executarSimulacao(ligada, por) {
+    await gravarAutomacao(this.cfg.arquivoSimulacao, { ligada, desde: new Date(this.agora()).toISOString(), por }, this.log);
+    if (lerAutomacao(this.cfg.arquivo).desligada) {
+      this.log.aviso(`Painel: simulação ${ligada ? 'LIGADA' : 'DESLIGADA'} (${por}); vale quando a automação for religada.`);
+      return this.concluir();
+    }
+    const r = await this.executar('npx', ['pm2', 'startOrRestart', 'ecosystem.config.js', '--only', APPS.join(',')], { timeoutMs: 60_000 });
+    if (!r.ok) this.avisar(`Não foi possível reiniciar os serviços pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npx pm2 restart all.`);
+    this.log.aviso(`Painel: simulação ${ligada ? 'LIGADA: o BenURA só mostra o que faria' : 'DESLIGADA: o BenURA volta a agir de verdade'} (${por}).`);
+    return this.concluir();
   }
 
   /** @returns {{ iniciado: boolean, motivo?: string }} */
@@ -47,7 +79,7 @@ class ControleAutomacao {
     if (lerAutomacao(this.cfg.arquivo).desligada) return { iniciado: false, motivo: 'A automação já está desligada.' };
     this.andamento = { estado: 'desligando', etapa: 'marcando a automação como desligada', aviso: null };
     this.ultimoAviso = null;
-    this.executarDesligamento(por).catch((e) => this.falhou('desligar', e));
+    this.executarDesligamento(por).catch((e) => this.falhou('desligar a automação', e));
     return { iniciado: true };
   }
 
@@ -56,7 +88,7 @@ class ControleAutomacao {
     if (this.andamento) return { iniciado: false, motivo: 'Espere terminar o que está em andamento.' };
     this.andamento = { estado: 'religando', etapa: 'subindo os serviços', aviso: null };
     this.ultimoAviso = null;
-    this.executarReligamento(por).catch((e) => this.falhou('religar', e));
+    this.executarReligamento(por).catch((e) => this.falhou('religar a automação', e));
     return { iniciado: true };
   }
 
@@ -110,9 +142,9 @@ class ControleAutomacao {
     this.andamento = null;
   }
 
-  falhou(acao, e) {
-    this.log.erro(`Painel: falha ao ${acao} a automação: ${e.message}`);
-    this.ultimoAviso = `Falha ao ${acao} a automação: ${e.message}`;
+  falhou(oQue, e) {
+    this.log.erro(`Painel: falha ao ${oQue}: ${e.message}`);
+    this.ultimoAviso = `Falha ao ${oQue}: ${e.message}`;
     this.andamento = null;
   }
 }

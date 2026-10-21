@@ -10,6 +10,7 @@
  *   GET  /api/visao         saúde dos serviços + rodízio + alertas (a cada 5 s)
  *   GET  /api/dia           linha do tempo, callbacks e avisos do dia (logs)
  *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
+ *   POST /api/simulacao     { ligada } — botão "Modo simulação" (DRY_RUN)
  *   *    /api/rodizio/...   comandos da lista ACOES (servicos.js), levados com o token
  *   *    /api/roteador/...
  *
@@ -170,6 +171,19 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     if (req.method === 'GET' && pathname === '/api/sessao') return { status: 200, corpo: { ok: true } };
     if (req.method === 'GET' && pathname === '/api/visao') return visao();
     if (req.method === 'GET' && pathname === '/api/dia') return { status: 200, corpo: dados.resumo() };
+    if (req.method === 'POST' && pathname === '/api/simulacao') {
+      conferirOrigem(req);
+      let ligada;
+      try {
+        ligada = JSON.parse(await lerCorpo(req, 1024) || '{}').ligada;
+      } catch {
+        throw new ErroPainel(400, 'JSON inválido');
+      }
+      if (typeof ligada !== 'boolean') throw new ErroPainel(400, 'Envie { "ligada": true | false }');
+      const r = automacao.definirSimulacao(ligada, enderecoDe(req));
+      if (!r.iniciado) throw new ErroPainel(409, r.motivo);
+      return { status: 202, corpo: automacao.estado() };
+    }
     if (req.method === 'POST' && (pathname === '/api/automacao/desligar' || pathname === '/api/automacao/religar')) {
       conferirOrigem(req);
       const desligar = pathname.endsWith('/desligar');

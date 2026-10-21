@@ -45,4 +45,5 @@ export const api = {
   limparEsteira: () => pedir<{ apagados: number }>('DELETE', '/api/roteador/manual'),
   recarregarVendas: () => pedir<{ mensagem: string }>('POST', '/api/roteador/recarregar'),
   automacao: (ligar: boolean) => pedir<EstadoAutomacao>('POST', ligar ? '/api/automacao/religar' : '/api/automacao/desligar'),
+  simulacao: (ligada: boolean) => pedir<EstadoAutomacao>('POST', '/api/simulacao', { ligada }),
 };

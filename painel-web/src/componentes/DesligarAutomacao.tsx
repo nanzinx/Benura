@@ -47,7 +47,7 @@ export function BotaoDesligarAutomacao() {
     <>
       <button type="button" onClick={() => setAberto(true)} title="Desligar a automação (robôs e serviços)"
         className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1.5 text-sm font-semibold text-white hover:bg-red-700 sm:px-3">
-        <Power className="size-4" aria-hidden /><span className="hidden md:inline">Desligar automação</span>
+        <Power className="size-4" aria-hidden /><span className="hidden md:inline xl:hidden">Desligar</span><span className="hidden xl:inline">Desligar automação</span>
       </button>
       {aberto && <Dialogo fechar={() => setAberto(false)} />}
     </>
