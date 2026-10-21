@@ -13,6 +13,8 @@ const ACOES = Object.freeze([
   { metodo: 'DELETE', caminho: '/api/rodizio/panico', servico: 'rodizio', destino: '/panico', nome: 'desligar o pânico' },
   { metodo: 'POST', caminho: '/api/rodizio/ura/passiva', servico: 'rodizio', destino: '/ura/passiva', nome: 'ligar a URA passiva hoje' },
   { metodo: 'DELETE', caminho: '/api/rodizio/ura/passiva', servico: 'rodizio', destino: '/ura/passiva', nome: 'desligar a URA passiva' },
+  { metodo: 'POST', caminho: '/api/rodizio/ura/passiva-auto', servico: 'rodizio', destino: '/ura/passiva-auto', nome: 'ligar a passiva automática' },
+  { metodo: 'DELETE', caminho: '/api/rodizio/ura/passiva-auto', servico: 'rodizio', destino: '/ura/passiva-auto', nome: 'desligar a passiva automática' },
   { metodo: 'POST', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'ligar a URA cheia' },
   { metodo: 'DELETE', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'desligar a URA cheia' },
   { metodo: 'POST', caminho: '/api/rodizio/risco/desligar', servico: 'rodizio', destino: '/risco/desligar', nome: 'ligar "desligar robôs com cliente de risco"' },

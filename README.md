@@ -226,15 +226,21 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
      | 0 | qualquer | Desliga todos os robôs, inclusive os em ligação |
      | 1, comum | falta mais de `PANICO_ANTES_DE_SAIR_MS` (**60 s**) para ele sair por ociosidade | Nada: os robôs seguem |
      | 1, comum | ele sai em até 60 s | Desliga os parados; os em ligação terminam a chamada enquanto ele ainda está na URA |
-     | 1, fixo | "URA passiva hoje" desligada | Desliga os parados na hora (o fixo nunca sai, então não há "antes de sair") |
-     | 1, fixo | "URA passiva hoje" ligada | Nada: os robôs seguem até ele atender; aí sobra 0 livre e vale a 1ª linha |
+     | 1, fixo | livre há menos de `PANICO_FIXO_OCIOSO_MIN` (**3 min**), URA não passiva | Desliga a **metade** dos robôs ligados e de novo a cada `PANICO_FIXO_REDUZIR_A_CADA_S` (**60 s**): 8 → 4 → 2 → 1. Poupa quem está em ligação e deixa pelo menos 1 |
+     | 1, fixo | livre há 3 min ou mais | Nada: a URA está calma; os robôs seguem até ele atender; aí sobra 0 livre e vale a 1ª linha |
+     | 1, fixo | "URA passiva hoje" ligada, ou o termômetro em **calma** com a passiva automática | Nada: os robôs seguem até ele atender |
      | 2 ou mais | qualquer | Nada |
 
      - **URA passiva hoje:** interruptor na `/ura` (`POST`/`DELETE /ura/passiva`, com token), para os dias em que a URA não está agressiva. Vale só no dia (`RODIZIO_URA_PASSIVA_FILE`): na virada do dia volta a desligado.
+     - **Termômetro da URA** (aba URA e robôs do painel): mede, nos últimos `TERMOMETRO_JANELA_MIN` (**15 min**), quantos minutos de gente livre a URA gasta por derivação, contando só o tempo com robô ligado.
+       - **Calma** (≥ `TERMOMETRO_CALMA_MIN`, **3 min**, ou nenhuma derivação com gente livre): com a **passiva automática** ligada (`POST`/`DELETE /ura/passiva-auto`, padrão `TERMOMETRO_AUTO=true`, gravada em `RODIZIO_PASSIVA_AUTO_FILE`), age como a URA passiva.
+       - **Agressiva** (< `TERMOMETRO_AGRESSIVA_S`, **45 s**, ou callback na janela) e **normal**: a regra do fixo vale inteira. Para sair de calma, a medida precisa cair abaixo de 2/3 do limite.
+       - **Medindo** até `TERMOMETRO_MIN_OBSERVADO_MIN` (**5 min**) com robô ligado. Cada troca vai para o log: `Termômetro da URA: normal → calma (4,2 min livres por derivação, 3 derivação(ões) em 15 min).`
+     - **Relatório do dia** (visão geral do painel, `relatorio` no `/health`): callbacks, minutos com gente livre e nenhum robô ligado, minutos livres por atendimento, tempo em pânico por motivo e tempo em cada estado do termômetro, também por hora. Gravado em `RODIZIO_ESTATISTICAS_FILE`; zera na virada do dia.
      - **Cliente de risco** (interruptor dele ligado) continua desligando os robôs parados em qualquer linha da tabela.
      - **Risco aceito:** numa URA agressiva com 1 livre comum, os robôs seguem discando até 60 s antes da saída dele, e pode haver callback.
    - Ao entrar no pânico, relê na Argus quais robôs estão ligados. Robôs religados à mão durante o pânico são desligados na próxima leitura de grupos (`REFRESH_GRUPOS_MS`, 30 s).
-   - Log com o motivo, ex.: `PÂNICO: 1 livre na URA (2266267) e ele sai por ociosidade em até 60 s — desligando os robôs`, `PÂNICO: 0 livre na URA` e `PÂNICO encerrado`. O `/health` mostra `panico: { modo, ligado, desde, ativoAgora, motivo, antesDeSairMs, uraPassiva }`; a faixa vermelha da `/ura` mostra o motivo.
+   - Log com o motivo, ex.: `PÂNICO: 1 livre na URA (2266267) e ele sai por ociosidade em até 60 s — desligando os robôs`, `PÂNICO: 0 livre na URA` e `PÂNICO encerrado`. O `/health` mostra `panico: { modo, ligado, desde, ativoAgora, motivo, tipo, antesDeSairMs, uraPassiva, passivaAuto, passivaAgora }`, `termometro` e `relatorio`; a faixa vermelha da `/ura` mostra o motivo.
    - **O que não roda no modo pânico:** robôs proporcionais, teto com 1 livre, ajuste por callback, URA passiva e preparação da saída do último livre (o pânico já cobre esse caso).
    - **O que continua:** o rodízio Ativo ↔ URA, o raio-x dos callbacks e os logs.
    - A escolha do interruptor fica gravada em `RODIZIO_PANICO_FILE`. Sem escolha, vale `PANICO_PADRAO` (ligado).
@@ -395,8 +401,8 @@ Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado p
 
 | Aba | O que tem |
 | --- | --- |
-| **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; vendas e filas do roteador |
-| **URA e robôs** | Pânico, URA passiva hoje, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
+| **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; relatório do dia (ociosidade sem robô, pânico, termômetro, por hora); gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; vendas e filas do roteador |
+| **URA e robôs** | Pânico, termômetro da URA (passiva automática), URA passiva hoje, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
 | **Esteira manual** | Colar ou escolher o CSV da esteira quando o Carrossel cair, ver o que ela decidiu, apagar e recarregar as vendas |
 | **Serviços** | Roteador, rodízio, rotinas e atualizador no ar ou não, a Argus respondendo (ou recusando o token), DRY_RUN e os avisos do dia |
 

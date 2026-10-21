@@ -7,11 +7,18 @@ const { Classe } = require('../../src/domain/rodizio');
 const { loggerNulo } = require('../../src/utils/logger');
 
 /** Robôs falsos: registram o que o BenURA mandou fazer. */
-function robosFalsos(ligados = ['900', '901']) {
+function robosFalsos(ligados = ['900', '901'], emLigacao = []) {
   const chamadas = [];
   return {
     chamadas,
     ligados: new Set(ligados),
+    /** Poupa quem está em ligação, como o ControleRobos. */
+    async reduzirPoupando(alvo, motivo) {
+      chamadas.push(`reduzirPoupando ${alvo} (${motivo})`);
+      const parados = [...this.ligados].filter((r) => !emLigacao.includes(r));
+      const sair = parados.slice(0, Math.max(0, this.ligados.size - alvo));
+      sair.forEach((r) => this.ligados.delete(r));
+    },
     situacao(total) { return { ligados: this.ligados.size, total, ultimaReducao: 0, ultimoAumento: 0 }; },
     resumo() { return { ligados: this.ligados.size, alvo: null }; },
     async sincronizar() { chamadas.push('sincronizar'); },
@@ -25,14 +32,20 @@ function robosFalsos(ligados = ['900', '901']) {
 const TEMPO_MIN = 180_000;
 
 /** URA com 3 humanos: os `livres` primeiros estão livres há `livreHaMs`. */
-function montar({ livres, panicoLigado = true, robos = robosFalsos(), ajuste = null, livreHaMs = 0, fixos = [], passiva = false }) {
+function montar({
+  livres, panicoLigado = true, robos = robosFalsos(), ajuste = null, livreHaMs = 0, fixos = [], passiva = false, termometro = null, passivaAuto = true,
+}) {
   const avisos = [];
   const logger = { ...loggerNulo, aviso: (m) => avisos.push(m), info: (m) => avisos.push(m) };
   const panico = new Interruptor({ nome: 'Pânico', arquivo: null, padrao: panicoLigado, logger });
   const uraPassiva = new Interruptor({ nome: 'URA passiva hoje', arquivo: null, padrao: passiva, logger });
+  const auto = new Interruptor({ nome: 'Passiva automática', arquivo: null, padrao: passivaAuto, logger });
   const svc = new RodizioService({
-    client: {}, transferencias: {}, robos, repositorio: {}, logger, ajuste, panico, uraPassiva,
-    cfg: { robosModo: 'panico', pollUraMs: 5000, tempoNaUraMs: TEMPO_MIN, panicoAntesDeSairMs: 60_000 },
+    client: {}, transferencias: {}, robos, repositorio: {}, logger, ajuste, panico, uraPassiva, termometro, passivaAuto: auto,
+    cfg: {
+      robosModo: 'panico', pollUraMs: 5000, tempoNaUraMs: TEMPO_MIN, panicoAntesDeSairMs: 60_000,
+      panicoFixoReduzirMs: 60_000, panicoFixoOciosoMs: 3 * 60_000,
+    },
   });
   const agora = Date.now();
   const ramais = ['201', '202', '203'];
@@ -63,12 +76,64 @@ test('pânico: 1 livre comum longe de sair, os robôs seguem; a 60 s de sair, pa
   assert.equal(robos.chamadas.filter((c) => c === 'sincronizar').length, 1, 'só relê os robôs ao entrar no pânico');
 });
 
-test('pânico: 1 livre fixo (nunca sai) desliga os parados na hora; com a URA passiva hoje, os robôs seguem', async () => {
-  const comum = montar({ livres: 1, fixos: ['201'] });
-  await comum.svc.avaliarRobos();
-  assert.deepEqual(comum.robos.chamadas, ['sincronizar', 'encerrarSemDerrubar (PÂNICO: 1 livre na URA (201, fixo) e a URA não está passiva hoje)']);
+const OITO = ['900', '901', '902', '903', '904', '905', '906', '907'];
+const FIXO = 'PÂNICO: 1 livre na URA (201, fixo): metade dos robôs a cada 60 s até ele atender';
 
-  const { svc, robos } = montar({ livres: 1, fixos: ['201'], passiva: true, livreHaMs: 10 * 60_000 });
+test('pânico: 1 fixo livre desliga a metade dos robôs ligados, de novo a cada 60 s', async () => {
+  const { svc, robos, avisos } = montar({ livres: 1, fixos: ['201'], robos: robosFalsos(OITO) });
+  await svc.avaliarRobos();
+  assert.deepEqual(robos.chamadas, ['sincronizar', `reduzirPoupando 4 (${FIXO} (8 → 4))`]);
+  assert.ok(avisos.some((m) => m === `${FIXO} — reduzindo os robôs à metade.`));
+  assert.equal(svc.resumo().panico.tipo, 'fixo');
+
+  await svc.avaliarRobos();
+  assert.equal(robos.chamadas.length, 2, 'antes de 60 s não reduz de novo');
+
+  svc.reducaoFixo.ultimaEm -= 60_000;
+  await svc.avaliarRobos();
+  svc.reducaoFixo.ultimaEm -= 60_000;
+  await svc.avaliarRobos();
+  assert.deepEqual(robos.chamadas.slice(2), ['sincronizar', `reduzirPoupando 2 (${FIXO} (4 → 2))`, 'sincronizar', `reduzirPoupando 1 (${FIXO} (2 → 1))`]);
+  assert.equal(robos.ligados.size, 1);
+
+  svc.reducaoFixo.ultimaEm -= 60_000;
+  await svc.avaliarRobos();
+  assert.equal(robos.ligados.size, 1, 'um robô só fica: não deriva duas ligações juntas');
+});
+
+test('pânico: a metade poupa quem está em ligação (eles terminam a chamada)', async () => {
+  const robos = robosFalsos(['900', '901', '902', '903'], ['900', '901', '902']);
+  const { svc } = montar({ livres: 1, fixos: ['201'], robos });
+  await svc.avaliarRobos();
+  assert.deepEqual([...robos.ligados], ['900', '901', '902'], 'só o parado saiu');
+});
+
+test('pânico: fixo livre há 3 min, os robôs seguem até ele atender; ao atender, 0 livre desliga todos', async () => {
+  const { svc, robos, avisos } = montar({ livres: 1, fixos: ['201'], robos: robosFalsos(OITO), livreHaMs: 3 * 60_000 });
+  await svc.avaliarRobos();
+  await svc.avaliarRobos();
+  assert.deepEqual(robos.chamadas, []);
+  assert.equal(avisos.filter((m) => m === 'Ramal 201 (fixo) livre há 3 min: os robôs seguem até ele atender.').length, 1, 'avisa uma vez');
+  assert.equal(svc.resumo().panico.ativoAgora, null);
+
+  svc.statusUra.set('201', { classe: Classe.ATENDIMENTO, ts: Date.now() });
+  await svc.avaliarRobos();
+  assert.deepEqual(robos.chamadas, ['sincronizar', `desligar ${OITO.join(',')} (PÂNICO: 0 livre na URA)`]);
+});
+
+test('pânico: reduzindo e o fixo completa 3 min livre, para de reduzir', async () => {
+  const { svc, robos } = montar({ livres: 1, fixos: ['201'], robos: robosFalsos(OITO), livreHaMs: 2 * 60_000 });
+  await svc.avaliarRobos();
+  assert.equal(robos.ligados.size, 4);
+  svc.statusUra.get('201').livreDesde -= 60_000; // agora livre há 3 min
+  svc.reducaoFixo.ultimaEm -= 60_000;
+  await svc.avaliarRobos();
+  assert.equal(robos.ligados.size, 4, 'os robôs seguem');
+  assert.equal(svc.reducaoFixo, null);
+});
+
+test('pânico: com a URA passiva hoje, 1 fixo livre não reduz; ao atender, desliga todos', async () => {
+  const { svc, robos } = montar({ livres: 1, fixos: ['201'], passiva: true });
   await svc.avaliarRobos();
   assert.deepEqual(robos.chamadas, [], 'fixo livre e URA passiva: os robôs seguem até ele atender');
   assert.equal(svc.resumo().panico.uraPassiva.ligado, true);
@@ -76,6 +141,21 @@ test('pânico: 1 livre fixo (nunca sai) desliga os parados na hora; com a URA pa
   svc.statusUra.set('201', { classe: Classe.ATENDIMENTO, ts: Date.now() }); // atendeu: sobra 0 livre
   await svc.avaliarRobos();
   assert.deepEqual(robos.chamadas, ['sincronizar', 'desligar 900,901 (PÂNICO: 0 livre na URA)']);
+});
+
+test('pânico: termômetro em calma age como a URA passiva; com a passiva automática desligada, não', async () => {
+  const calma = { calma: () => true, resumo: () => ({ estado: 'calma' }) };
+  const auto = montar({ livres: 1, fixos: ['201'], termometro: calma });
+  await auto.svc.avaliarRobos();
+  assert.deepEqual(auto.robos.chamadas, []);
+  assert.equal(auto.svc.resumo().panico.passivaAgora, true);
+
+  const semAuto = montar({ livres: 1, fixos: ['201'], termometro: calma, passivaAuto: false });
+  await semAuto.svc.avaliarRobos();
+  assert.match(semAuto.robos.chamadas[1], /^reduzirPoupando 1 /);
+  const r = semAuto.svc.definirPassivaAuto(true);
+  assert.equal(r.mudou, true);
+  assert.equal(semAuto.svc.resumo().panico.passivaAgora, true);
 });
 
 test('pânico: sem nenhum livre, desliga todos os ligados (inclusive em ligação), mesmo com a URA passiva', async () => {

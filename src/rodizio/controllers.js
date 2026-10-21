@@ -114,6 +114,12 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     return { status: 200, corpo: rodizio.definirUraPassiva(false) };
   }
 
+  /** POST/DELETE /ura/passiva-auto — com o termômetro em calma, age como a URA passiva (ou não). */
+  const definirPassivaAuto = (ligado) => async () => {
+    if (!rodizio.passivaAuto) return { status: 404, corpo: { erro: 'termômetro da URA indisponível' } };
+    return { status: 200, corpo: rodizio.definirPassivaAuto(ligado) };
+  };
+
   /** POST /automacao/encerrar-robos { derrubar? } — o painel está desligando a automação. */
   async function encerrarRobos({ corpo }) {
     return { status: 200, corpo: await rodizio.encerrarRobosParaDesligar({ derrubar: corpo?.derrubar === true }) };
@@ -151,6 +157,8 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     { metodo: 'DELETE', caminho: '/panico', handler: desligarPanico, protegida: true },
     { metodo: 'POST', caminho: '/ura/passiva', handler: ligarUraPassiva, protegida: true },
     { metodo: 'DELETE', caminho: '/ura/passiva', handler: desligarUraPassiva, protegida: true },
+    { metodo: 'POST', caminho: '/ura/passiva-auto', handler: definirPassivaAuto(true), protegida: true },
+    { metodo: 'DELETE', caminho: '/ura/passiva-auto', handler: definirPassivaAuto(false), protegida: true },
     { metodo: 'GET', caminho: '/ura', handler: paginaUra },
     { metodo: 'POST', caminho: '/ura/cheia', handler: ligarUraCheia, protegida: true },
     { metodo: 'DELETE', caminho: '/ura/cheia', handler: desligarUraCheia, protegida: true },

@@ -22,6 +22,8 @@ const { ElegiveisUra } = require('./elegiveis-ura');
 const { resolverFixos } = require('../integrations/argus/fixos');
 const { UraCheia } = require('./ura-cheia');
 const { Interruptor } = require('./interruptor');
+const { TermometroUra } = require('./termometro-ura');
+const { EstatisticasDia } = require('./estatisticas-dia');
 const { AjusteRobos } = require('./ajuste-robos');
 const { VigiaCallbacks } = require('./vigia-callbacks');
 const { VigiaRisco } = require('./vigia-risco');
@@ -75,6 +77,13 @@ function montarRodizio(overrides) {
     }),
     uraPassiva: new Interruptor({
       nome: 'URA passiva hoje', arquivo: cfgRodizio.arquivoUraPassiva, padrao: false, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('robos'),
+    }),
+    passivaAuto: new Interruptor({
+      nome: 'Passiva automática (termômetro da URA)', arquivo: cfgRodizio.arquivoPassivaAuto, padrao: cfgRodizio.passivaAutoPadrao, logger: log.filho('robos'),
+    }),
+    termometro: new TermometroUra({ cfg: cfgRodizio.termometro, logger: log.filho('robos') }),
+    estatisticas: new EstatisticasDia({
+      repositorio: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoEstatisticas, logger: log.filho('estado') }), fusoHorario: cfg.agenda.fusoHorario,
     }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
@@ -224,6 +233,7 @@ async function iniciarRodizio() {
       () => Promise.all(Object.values(ciclos).map((c) => c.parar())),
       () => fecharServidor(servidor),
       () => rodizio.salvar(),
+      () => rodizio.estatisticas?.gravar(),
       () => app.risco?.perfis.salvar(),
       () => retornoFila.aguardar(),
       () => trava.liberar(),
