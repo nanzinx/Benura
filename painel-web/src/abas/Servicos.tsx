@@ -1,7 +1,10 @@
 import { clsx } from 'clsx';
 import { Search } from 'lucide-react';
 import { useState } from 'react';
-import { useDia, useVisao } from '../dados';
+import { useDia, useSimulacao, useVisao } from '../dados';
+import { FlaskConical } from 'lucide-react';
+import { Botao } from '../ui/base';
+import { useRetorno } from '../ui/retorno';
 import { duracao, horaCurta } from '../formatos';
 import type { Servico, Visao } from '../tipos';
 import { Cartao, Esqueleto, Segmentado, Selo, Vazio } from '../ui/base';
@@ -48,6 +51,48 @@ function Cartoes({ v }: { v: Visao }) {
         </dl>
       </div>
     </div>
+  );
+}
+
+/** Botão "Modo simulação" (DRY_RUN). */
+function Simulacao({ v }: { v: Visao }) {
+  const mutacao = useSimulacao();
+  const { confirmar } = useRetorno();
+  const s = v.automacao?.simulacao;
+  const ativa = Boolean(v.servicos.rodizio.dados?.dryRun);
+  const ligada = Boolean(s?.escolhida || s?.fixaPeloEnv);
+  // Desligando, religando ou reiniciando: espera terminar.
+  const ocupado = mutacao.isPending || ['desligando', 'religando', 'reiniciando'].includes(v.automacao?.estado ?? '');
+  const trocar = async () => {
+    const ligar = !ligada;
+    const ok = await confirmar(ligar
+      ? { titulo: 'Ligar o modo simulação?', texto: 'O BenURA continua lendo a Argus e mostrando o que faria, mas não move ninguém nem mexe nos robôs. Os serviços reiniciam em alguns segundos.', confirmar: 'Ligar simulação' }
+      : { titulo: 'Voltar a agir de verdade?', texto: 'O BenURA volta a mover operadores e a desligar robôs (pânico). Os serviços reiniciam em alguns segundos.', confirmar: 'Agir de verdade', perigo: true });
+    if (ok) mutacao.mutate(ligar);
+  };
+  return (
+    <section id="simulacao" className="cartao mb-5 flex flex-wrap items-center gap-4 p-4">
+      <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-amarelo-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"><FlaskConical className="size-5" aria-hidden /></div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-semibold">Modo simulação (DRY_RUN)</h2>
+          {s?.fixaPeloEnv ? <Selo tom="alerta">fixa pelo .env</Selo> : <Selo tom={ligada ? 'alerta' : 'ok'}>{ligada ? 'ligada' : 'desligada: agindo de verdade'}</Selo>}
+          {ligada !== ativa && v.servicos.rodizio.online && <Selo tom="neutro">reinicie para valer</Selo>}
+        </div>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {s?.fixaPeloEnv
+            ? 'DRY_RUN=1 no .env do PC: para agir de verdade, troque para DRY_RUN=0 e reinicie (npx pm2 restart all).'
+            : ligada
+              ? `O BenURA só mostra o que faria, sem mexer na Argus${s?.desde ? ` · ligada às ${horaCurta(s.desde)}${s.por ? ` por ${s.por}` : ''}` : ''}.`
+              : 'Ligada, o BenURA continua lendo a Argus e mostrando o que faria, mas não move ninguém nem mexe nos robôs.'}
+        </p>
+      </div>
+      {!s?.fixaPeloEnv && (
+        <Botao variante={ligada ? 'perigo' : 'secundario'} carregando={mutacao.isPending} disabled={ocupado} onClick={trocar}>
+          {ligada ? 'Voltar a agir de verdade' : 'Ligar simulação'}
+        </Botao>
+      )}
+    </section>
   );
 }
 
@@ -107,6 +152,7 @@ export function Servicos() {
         </p>
       </div>
       {v ? <Cartoes v={v} /> : <Esqueleto className="mb-5 h-32 w-full" />}
+      {v && <Simulacao v={v} />}
       <Avisos />
     </>
   );

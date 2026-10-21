@@ -9,6 +9,7 @@
 
 const path = require('path');
 const { METRICAS } = require('../integrations/carrossel/carrossel.mapper');
+const { lerJson } = require('../utils/arquivo-json');
 
 /**
  * Carrega o .env, a menos que BENURA_SEM_DOTENV=1 (usado pela simulação no PM2
@@ -53,6 +54,8 @@ const RAIZ = path.resolve(__dirname, '..', '..');
  * @returns {Readonly<object>}
  */
 function carregarConfig(overrides = {}) {
+  // Botão "Modo simulação" do painel: grava aqui; vale junto com DRY_RUN (qualquer um dos dois liga).
+  const arquivoSimulacao = env('SIMULACAO_FILE', path.join(RAIZ, 'state-simulacao.json'));
   const cfg = {
     // --- API do Carrossel (repositório Carrosel-BenApi) ---
     carrossel: {
@@ -93,7 +96,8 @@ function carregarConfig(overrides = {}) {
       cacheGruposMs: envNum('ARGUS_CACHE_GRUPOS_MS', 15_000),
       // Cache do diretório de usuários (/listarusuarios).
       cacheDiretorioMs: envNum('ARGUS_CACHE_DIRETORIO_MS', 5 * 60_000),
-      dryRun: envBool('DRY_RUN'),
+      dryRun: envBool('DRY_RUN') || lerJson(arquivoSimulacao).dados?.ligada === true,
+      dryRunPeloEnv: envBool('DRY_RUN'),
       // Mover de grupo quem já está logado muda a lista na hora, mas a telefonia só troca
       // quando a pessoa fica livre, com atraso. Quem fica preso no grupo antigo (na URA,
       // a derivação dos robôs não chega e vira callback) é relogado (logaroperador).
@@ -330,6 +334,7 @@ function carregarConfig(overrides = {}) {
     // Ao desligar: quanto esperar os robôs em ligação terminarem antes de derrubar os que sobrarem.
     esperaRobosMs: envNum('AUTOMACAO_ESPERA_ROBOS_MS', 90_000),
     intervaloMs: envNum('AUTOMACAO_VERIFICAR_MS', 5000),
+    arquivoSimulacao,
   };
 
   // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---

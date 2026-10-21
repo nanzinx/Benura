@@ -15,7 +15,7 @@ export function useVisao() {
     queryKey: ['visao'],
     queryFn: api.visao,
     // Desligando ou religando a automação: acompanha de perto (mesmo pausado).
-    refetchInterval: (q) => (['desligando', 'religando'].includes(q.state.data?.automacao?.estado ?? '') ? 1500 : intervalo(5000, aoVivo)),
+    refetchInterval: (q) => (['desligando', 'religando', 'reiniciando'].includes(q.state.data?.automacao?.estado ?? '') ? 1500 : intervalo(5000, aoVivo)),
   });
 }
 
@@ -27,6 +27,20 @@ export function useAutomacao() {
     mutationFn: (ligar: boolean) => api.automacao(ligar),
     onSuccess: (_, ligar) => {
       avisar('ok', ligar ? 'Religando a automação…' : 'Desligando a automação: robôs primeiro, depois os serviços.');
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
+  });
+}
+
+/** Botão "Modo simulação" (DRY_RUN): grava e reinicia os serviços. */
+export function useSimulacao() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: (ligada: boolean) => api.simulacao(ligada),
+    onSuccess: (_, ligada) => {
+      avisar('ok', ligada ? 'Ligando a simulação: os serviços reiniciam em alguns segundos.' : 'Voltando a agir de verdade: os serviços reiniciam em alguns segundos.');
       cliente.invalidateQueries({ queryKey: ['visao'] });
     },
     onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),

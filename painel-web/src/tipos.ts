@@ -62,11 +62,13 @@ export interface Alertas {
 
 /** Botão "Desligar automação" (src/painel/automacao.js). */
 export interface EstadoAutomacao {
-  estado: 'ligada' | 'desligando' | 'desligada' | 'religando';
+  estado: 'ligada' | 'desligando' | 'desligada' | 'religando' | 'reiniciando';
   etapa: string | null;
   desde: string | null;
   por: string | null;
   aviso: string | null;
+  /** Botão "Modo simulação" (DRY_RUN): a escolha do painel; fixaPeloEnv = DRY_RUN=1 no .env. */
+  simulacao?: { escolhida: boolean; fixaPeloEnv: boolean; desde: string | null; por: string | null };
 }
 
 export interface Visao {

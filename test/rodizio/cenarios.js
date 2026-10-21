@@ -114,6 +114,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_PANICO_FILE: path.join(pasta, 'state-panico.json'),
       RODIZIO_URA_PASSIVA_FILE: path.join(pasta, 'state-ura-passiva.json'),
       AUTOMACAO_FILE: path.join(pasta, 'state-automacao.json'),
+      SIMULACAO_FILE: path.join(pasta, 'state-simulacao.json'),
       AUTOMACAO_VERIFICAR_MS: '200',
       ARGUS_PAUSA_FILE: path.join(pasta, 'argus-pausa.json'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
@@ -694,6 +695,16 @@ const CENARIOS = {
     if ((await fetch(`${r.base}/health`)).status !== 200) throw new Error('não subiu depois de religar');
   },
 
+  async 'Modo simulação ligado pelo painel: o rodízio age em DRY_RUN mesmo com DRY_RUN=0 no .env'(r) {
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => /DRY_RUN/.test(r.saida.join('')) && r.saida.join('').includes('101'), { descricao: 'simulou a ida do 101' });
+    if (r.chamadas('transferiroperadorgrupo').length) throw new Error('transferiu de verdade em simulação');
+    const { dryRun } = await (await fetch(`${r.base}/health`)).json();
+    if (dryRun !== true) throw new Error('/health sem dryRun');
+  },
+
   async 'Health responde'(r) {
     const res = await fetch(`${r.base}/health`);
     if (res.status !== 200) throw new Error(`health ${res.status}`);
@@ -1025,6 +1036,10 @@ const VARIACOES = {
         fs.writeFileSync(arquivo, JSON.stringify({ desligada: false }));
       }, 2500);
     },
+  },
+  'Modo simulação ligado pelo painel: o rodízio age em DRY_RUN mesmo com DRY_RUN=0 no .env': {
+    env: { DRY_RUN: '0' },
+    preparar: ({ pasta }) => fs.writeFileSync(path.join(pasta, 'state-simulacao.json'), JSON.stringify({ ligada: true })),
   },
   'Correção: trava deixada por processo morto não impede o início': {
     preparar: ({ pasta }) => fs.writeFileSync(path.join(pasta, 'argus.lock'), String(pidMorto())),

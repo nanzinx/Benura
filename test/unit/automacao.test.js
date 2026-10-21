@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { lerAutomacao, gravarAutomacao, aguardarAutomacaoLigada } = require('../../src/utils/automacao');
+const { lerAutomacao, gravarAutomacao, aguardarAutomacaoLigada, lerSimulacao } = require('../../src/utils/automacao');
+const { carregarConfig } = require('../../src/config');
 const { ControleAutomacao } = require('../../src/painel/automacao');
 const { RodizioService } = require('../../src/rodizio/rodizio.service');
 const { loggerNulo } = require('../../src/utils/logger');
@@ -29,8 +30,9 @@ test('automação: sem arquivo está ligada; desligada espera (sem tocar em nada
 });
 
 /** Painel com rodízio e PM2 falsos. */
-function montarControle({ ligadosPorChamada = [2, 1, 0], rodizioFora = false, esperaRobosMs = 60_000 } = {}) {
+function montarControle({ ligadosPorChamada = [2, 1, 0], rodizioFora = false, esperaRobosMs = 60_000, dryRunPeloEnv = false } = {}) {
   const arquivo = arquivoTemp();
+  const arquivoSimulacao = path.join(path.dirname(arquivo), 'state-simulacao.json');
   const chamadas = [];
   let relogio = 0;
   let n = 0;
@@ -44,10 +46,10 @@ function montarControle({ ligadosPorChamada = [2, 1, 0], rodizioFora = false, es
   };
   const executar = async (comando, args) => { chamadas.push(`$ ${comando} ${args.join(' ')}`); return { ok: true, saida: '' }; };
   const controle = new ControleAutomacao({
-    cfg: { arquivo, esperaRobosMs }, servicos, executar, logger: loggerNulo, agora: () => relogio, esperar: async (ms) => { relogio += ms; },
+    cfg: { arquivo, esperaRobosMs, arquivoSimulacao, dryRunPeloEnv }, servicos, executar, logger: loggerNulo, agora: () => relogio, esperar: async (ms) => { relogio += ms; },
   });
   const terminar = async () => { while (controle.andamento) await new Promise((r) => setImmediate(r)); };
-  return { controle, chamadas, arquivo, terminar };
+  return { controle, chamadas, arquivo, arquivoSimulacao, terminar };
 }
 
 test('desligar: marca, desliga os robôs (esperando os em ligação) e só então para os serviços; religar sobe de novo', async () => {
@@ -108,4 +110,44 @@ test('rodízio: ao desligar a automação, para de mover gente e de decidir rob�
   assert.deepEqual(chamadas, [
     'sincronizar', 'encerrar (automação desligada pelo painel)', 'sincronizar', 'desligar 901 (automação desligada pelo painel)',
   ]);
+});
+
+test('simulação: o arquivo do painel liga o DRY_RUN; o .env com DRY_RUN=1 continua valendo sozinho', async () => {
+  const arquivo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'simulacao-')), 'state-simulacao.json');
+  const antes = { ...process.env };
+  try {
+    Object.assign(process.env, { SIMULACAO_FILE: arquivo, DRY_RUN: '0' });
+    assert.equal(carregarConfig().argus.dryRun, false);
+    await gravarAutomacao(arquivo, { ligada: true }, loggerNulo);
+    assert.equal(carregarConfig().argus.dryRun, true, 'ligado pelo painel');
+    assert.equal(carregarConfig().argus.dryRunPeloEnv, false);
+    await gravarAutomacao(arquivo, { ligada: false }, loggerNulo);
+    process.env.DRY_RUN = '1';
+    assert.equal(carregarConfig().argus.dryRun, true, 'o .env vence o arquivo desligado');
+  } finally {
+    for (const k of ['SIMULACAO_FILE', 'DRY_RUN']) { if (k in antes) process.env[k] = antes[k]; else delete process.env[k]; }
+  }
+});
+
+test('simulação pelo painel: grava e reinicia os serviços; com a automação desligada só grava; fixa pelo .env não desliga', async () => {
+  const { controle, chamadas, arquivo, arquivoSimulacao, terminar } = montarControle();
+  assert.deepEqual(controle.definirSimulacao(true, '10.0.0.7'), { iniciado: true });
+  assert.equal(controle.estado().estado, 'reiniciando');
+  assert.equal(controle.desligar('x').iniciado, false, 'um de cada vez');
+  await terminar();
+  assert.equal(lerSimulacao(arquivoSimulacao).ligada, true);
+  assert.deepEqual(chamadas, ['$ npx pm2 startOrRestart ecosystem.config.js --only benura-roteador,benura-rodizio,benura-rotinas']);
+  assert.deepEqual(controle.estado().simulacao, { escolhida: true, fixaPeloEnv: false, desde: lerSimulacao(arquivoSimulacao).desde, por: '10.0.0.7' });
+  assert.match(controle.definirSimulacao(true, 'x').motivo, /já está ligada/);
+
+  chamadas.length = 0;
+  await gravarAutomacao(arquivo, { desligada: true }, loggerNulo);
+  controle.definirSimulacao(false, 'x');
+  await terminar();
+  assert.equal(lerSimulacao(arquivoSimulacao).ligada, false);
+  assert.deepEqual(chamadas, [], 'automação desligada: só grava');
+
+  const fixa = montarControle({ dryRunPeloEnv: true });
+  await gravarAutomacao(fixa.arquivoSimulacao, { ligada: true }, loggerNulo);
+  assert.match(fixa.controle.definirSimulacao(false, 'x').motivo, /fixa pelo \.env/);
 });

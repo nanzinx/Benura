@@ -63,8 +63,14 @@ export function Faixas() {
   const fora = Object.entries(v.servicos).filter(([nome, s]) => s && !s.online && nome !== 'atualizador').map(([, s]) => s!.nome);
   const faixas: ReactNode[] = [];
   const automacao = v.automacao;
+  const reiniciando = automacao?.estado === 'reiniciando';
+  // Parada de propósito (ou reiniciando para a simulação): sem "fora do ar" nem "rodízio sem Argus".
   const automacaoParada = Boolean(automacao && automacao.estado !== 'ligada');
-  if (automacao && automacaoParada) faixas.push(<FaixaAutomacao key="automacao" a={automacao} />);
+  if (automacao && automacaoParada && !reiniciando) faixas.push(<FaixaAutomacao key="automacao" a={automacao} />);
+  if (automacao && reiniciando) {
+    faixas.push(<Faixa key="reiniciando" tom="alerta" icone={<LoaderCircle className="size-5 animate-spin" />} titulo="Reiniciando os serviços…"
+      detalhe={`${automacao.etapa ?? ''}${automacao.aviso ? ` · ${automacao.aviso}` : ''}`} />);
+  }
 
   for (const a of alertas) {
     faixas.push(<Faixa key={`risco-${a.id}`} tom="perigo" icone={<PhoneCall className="size-5" />}
