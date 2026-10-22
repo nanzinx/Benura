@@ -1,8 +1,8 @@
 /**
- * [NOVO] Relatório do dia por atendente (aba Receptivo): tempo livre, em atendimento e
- * em pausa (abre por tipo), atendimentos, pausas estouradas, maior espera e quando foi
- * visto na URA. Ordena por qualquer coluna; a última linha soma o dia.
- * Conta só o tempo no grupo da URA (o BenURA lê o status de quem está nela).
+ * Tabela do relatório do dia por atendente (a visão "Tabela" do RelatorioDoPessoal): tempo
+ * livre, em atendimento e em pausa (abre por tipo), atendimentos, pausas estouradas, maior
+ * espera e quando foi visto na URA. Ordena por qualquer coluna; a última linha soma o dia.
+ * No celular, um cartão por atendente.
  */
 
 import { clsx } from 'clsx';
@@ -10,7 +10,6 @@ import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
 import { duracao, horaCurta, minutos } from '../formatos';
 import type { AtendenteDoDia } from '../tipos';
-import { Cartao, Vazio } from '../ui/base';
 
 type Coluna = 'nome' | 'livreMin' | 'atendimentoMin' | 'pausaMin' | 'atendimentos' | 'pausasEstouradas' | 'maiorEsperaSeg' | 'primeiroEm';
 
@@ -25,7 +24,7 @@ const COLUNAS: { id: Coluna; texto: string; dica?: string; numero?: boolean; esc
   { id: 'primeiroEm', texto: 'Na URA', dica: 'Primeira e última vez visto no grupo da URA hoje.', esconder: 'hidden lg:table-cell' },
 ];
 
-export function RelatorioAtendentes({ lista }: { lista: AtendenteDoDia[] | undefined }) {
+export function TabelaAtendentes({ lista }: { lista: AtendenteDoDia[] }) {
   const [ordem, setOrdem] = useState<{ coluna: Coluna; desc: boolean }>({ coluna: 'nome', desc: false });
   const [aberto, setAberto] = useState<string | null>(null);
 
@@ -44,8 +43,6 @@ export function RelatorioAtendentes({ lista }: { lista: AtendenteDoDia[] | undef
   const ordenar = (coluna: Coluna) => setOrdem((o) => ({ coluna, desc: o.coluna === coluna ? !o.desc : coluna !== 'nome' }));
 
   return (
-    <Cartao titulo="Relatório do dia por atendente" extra={<span>{linhas.length} atendente(s) · só o tempo na URA</span>}>
-      {linhas.length ? (
         <>
         {/* Celular: um cartão por atendente (a tabela não cabe) */}
         <ul className="grid gap-2 sm:hidden">
@@ -146,7 +143,5 @@ export function RelatorioAtendentes({ lista }: { lista: AtendenteDoDia[] | undef
           </table>
         </div>
         </>
-      ) : <Vazio>Ninguém passou pela URA hoje ainda.</Vazio>}
-    </Cartao>
   );
 }

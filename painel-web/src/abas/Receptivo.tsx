@@ -11,7 +11,7 @@ import { ArrowRightLeft, Coffee, Hourglass, Lock, PhoneForwarded, PhoneIncoming,
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { AcoesAtendente } from '../componentes/AcoesAtendente';
 import { NoAtivo } from '../componentes/NoAtivo';
-import { RelatorioAtendentes } from '../componentes/RelatorioAtendentes';
+import { RelatorioPessoal } from '../componentes/RelatorioPessoal';
 import { StatusUra } from '../componentes/StatusUra';
 import { useMetricasHoje, useRetomarRodizio, useTransferirUraAtivo, useVisao } from '../dados';
 import { cronometro, horaCurta, limiteDaPausa, minutos, ordenarOperadores } from '../formatos';
@@ -234,7 +234,7 @@ export function Receptivo() {
       </div>
       <div className="mt-5 grid gap-5">
         <NoAtivo lista={r.noAtivo ?? []} />
-        <RelatorioAtendentes lista={r.relatorio?.porAtendente} />
+        <RelatorioPessoal lista={r.relatorio?.porAtendente} limites={r.pausasLimitesMin} />
       </div>
     </>
   );
