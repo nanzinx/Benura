@@ -16,9 +16,13 @@
  *
  * Tudo em /api, menos entrar, exige sessão. Escrita exige também o cabeçalho
  * X-Painel: 1 e a mesma origem (um site de fora não consegue mandar).
+ *
+ * Com a página no Cloudflare Pages, a Function functions/api repassa o /api para
+ * cá pelo túnel, com o segredo PAINEL_PROXY_SEGREDO: pelo túnel, sem ele, nada passa.
  */
 
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { ACOES } = require('./servicos');
@@ -52,15 +56,30 @@ class ErroPainel extends Error {
 }
 
 const LOCAL = /^(127\.|::1$|::ffff:127\.)/;
+
+/** Chegou pelo túnel da Cloudflare? (o cloudflared roda neste PC: pedido do localhost com CF-Connecting-IP) */
+const viaTunel = (req) => Boolean(req.headers['cf-connecting-ip']) && LOCAL.test(String(req.socket.remoteAddress || ''));
+
+/** Comparação em tempo constante (o segredo do proxy não vaza pelo tempo de resposta). */
+function iguais(a, b) {
+  const x = crypto.createHash('sha256').update(String(a)).digest();
+  const y = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(x, y);
+}
+
+/** Veio pela Function do Cloudflare Pages (functions/api), com o segredo combinado? */
+const pelaFunction = (req, segredo) => Boolean(segredo) && viaTunel(req) && iguais(req.headers['x-benura-proxy'] ?? '', segredo);
+
 /**
- * Endereço de quem pediu. Atrás do túnel da Cloudflare (o cloudflared roda neste PC,
- * então o pedido chega do localhost), vale o CF-Connecting-IP; de outro PC da rede,
- * o cabeçalho é ignorado (senão daria para fugir do bloqueio de senha errada).
+ * Endereço de quem pediu. Pela Function do Pages, vale o X-Benura-Cliente-IP que ela
+ * repassa (o CF-Connecting-IP seria o da própria Cloudflare); pelo túnel direto, o
+ * CF-Connecting-IP; de outro PC da rede, os cabeçalhos são ignorados (senão daria
+ * para fugir do bloqueio de senha errada).
  */
-function enderecoDe(req) {
+function enderecoDoPedido(req, segredoProxy) {
   const direto = String(req.socket.remoteAddress || '?');
-  const cloudflare = req.headers['cf-connecting-ip'];
-  return cloudflare && LOCAL.test(direto) ? String(cloudflare) : direto;
+  if (pelaFunction(req, segredoProxy) && req.headers['x-benura-cliente-ip']) return String(req.headers['x-benura-cliente-ip']);
+  return viaTunel(req) ? String(req.headers['cf-connecting-ip']) : direto;
 }
 /** Chegou por HTTPS (túnel da Cloudflare)? Então o cookie vai com Secure. */
 const viaHttps = (req) => req.headers['x-forwarded-proto'] === 'https' || /https/.test(String(req.headers['cf-visitor'] || ''));
@@ -79,11 +98,15 @@ async function lerCorpo(req, limiteBytes) {
   return Buffer.concat(partes).toString('utf8');
 }
 
-/** Pedido de escrita vindo da própria página (não de outro site). */
-function conferirOrigem(req) {
+/**
+ * Pedido de escrita vindo da própria página (não de outro site). Pelo Cloudflare Pages
+ * a página é de outro endereço (PAINEL_ORIGENS_PERMITIDAS) que o deste servidor.
+ */
+function conferirOrigemDoPedido(req, origensPermitidas = []) {
   if (req.headers['x-painel'] !== '1') throw new ErroPainel(403, 'Pedido sem o cabeçalho do painel');
   const origem = req.headers.origin;
   if (!origem) return;
+  if (origensPermitidas.includes(origem)) return;
   let host = null;
   try {
     host = new URL(origem).host;
@@ -97,7 +120,8 @@ function conferirOrigem(req) {
  * @param {import('./servicos').Servicos} deps.servicos
  * @param {import('./dados-do-dia').DadosDoDia} deps.dados
  * @param {import('./automacao').ControleAutomacao} deps.automacao
- * @param {{ fuso: string }} deps.cfg
+ * @param {{ fuso: string, origensPermitidas?: string[], proxySegredo?: string }} deps.cfg
+ *        origensPermitidas: endereço da página no Cloudflare Pages; proxySegredo: o da Function
  * @param {object} deps.logger
  * @returns {http.Server}
  */
@@ -105,6 +129,9 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
   const estaticos = Object.fromEntries(fs.readdirSync(PUBLICO).filter((nome) => TIPOS[path.extname(nome)]).map((nome) => [
     nome === 'index.html' ? '/' : `/${nome}`, { tipo: TIPOS[path.extname(nome)], conteudo: fs.readFileSync(path.join(PUBLICO, nome)) },
   ]));
+  const segredoProxy = cfg.proxySegredo || '';
+  const enderecoDe = (req) => enderecoDoPedido(req, segredoProxy);
+  const conferirOrigem = (req) => conferirOrigemDoPedido(req, cfg.origensPermitidas ?? []);
 
   async function entrar(req) {
     conferirOrigem(req);
@@ -157,6 +184,8 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
 
   async function atender(req) {
     const { pathname } = new URL(req.url, 'http://localhost');
+    // Com a página no Pages, pelo túnel só entra a Function (segunda trava, além do Cloudflare Access).
+    if (segredoProxy && viaTunel(req) && !pelaFunction(req, segredoProxy)) throw new ErroPainel(403, 'Acesso só pelo painel');
     const estatico = req.method === 'GET' && estaticos[pathname];
     if (estatico) return { status: 200, bruto: estatico };
     if (req.method === 'GET' && pathname === '/health') return { status: 200, corpo: { status: 'ok', uptime: Math.round(process.uptime()), senhaConfigurada: sessoes.configurada } };
