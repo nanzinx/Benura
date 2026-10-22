@@ -72,14 +72,16 @@ class RodizioService {
    * @param {import('./estatisticas-dia').EstatisticasDia} [deps.estatisticas] - relatório do dia (painel)
    * @param {import('./retencao-ativo').RetencaoAtivo} [deps.retencao]
    *        [NOVO] "Alocar Todos no Ativo": ninguém sobe para a URA até "Retomar rodízio da URA"
+   * @param {import('./travas-manuais').TravasManuais} [deps.travas]
+   *        [NOVO] quem a supervisão mexeu à mão pelo painel: o rodízio não mexe nele até liberarem
    */
   constructor({
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
-    panico = null, fixos = null, termometro = null, statusDaUra = null, estatisticas = null, retencao = null,
+    panico = null, fixos = null, termometro = null, statusDaUra = null, estatisticas = null, retencao = null, travas = null,
   }) {
     Object.assign(this, {
       client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, fixos,
-      termometro, statusDaUra, estatisticas, retencao,
+      termometro, statusDaUra, estatisticas, retencao, travas,
     });
     /** Fixos na URA de vez (FIXOS_PERMANENTES_URA): a regra do ocioso não vale para eles. */
     this.permanentes = new Set();
@@ -178,6 +180,7 @@ class RodizioService {
     this.panico?.carregar();
     this.statusDaUra?.carregar();
     this.retencao?.carregar();
+    this.travas?.carregar();
     this.estatisticas?.carregar();
     return this;
   }
@@ -267,7 +270,7 @@ class RodizioService {
     return this.gruposAtivos.flatMap((g) => (g.ramaisOperadores || [])
       .map((ramal) => ({ ramal: String(ramal), grupo: g.idGrupoUsuario })))
       .filter(({ ramal }) => !this.movidos[ramal] && !this.ramaisUra.has(ramal) && !this.emTransferencia.has(ramal)
-        && !this.alinhandoLogin.has(ramal));
+        && !this.alinhandoLogin.has(ramal) && this.travadoEm(ramal) !== 'ativo');
   }
 
   /**
@@ -395,7 +398,7 @@ class RodizioService {
     const emCarencia = agora - (this.trocouEm.get(ramal) ?? -Infinity) < (this.cfg.carenciaTrocaMs ?? 0);
     const detalhe = lido.status ? this.detalheDoStatus(lido.status, agora) : null;
     if (classe === Classe.ATENDIMENTO && anterior?.classe !== Classe.ATENDIMENTO) {
-      this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null);
+      this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null, ramal);
     }
     this.statusUra.set(ramal, { classe, ts: agora, livreDesde, offlineDesde, emCarencia, detalhe });
   }
@@ -487,6 +490,8 @@ class RodizioService {
     if (!info || this.emTransferencia.has(ramal)) return false;
     // Fixos ficam na URA de vez: o ocioso não vale (deslogado segue a regra normal).
     if (this.permanentes.has(String(ramal)) && info.classe !== Classe.OFFLINE) return false;
+    // Travado à mão na URA pelo painel: fica até liberarem.
+    if (this.travadoEm(ramal) === 'ura') return false;
     return deveVoltarAoAtivo({
       classe: info.classe, livreDesde: info.livreDesde, agora, ociosoMs: this.cfg.tempoNaUraMs, movido: this.movidos[ramal],
       offlineDesde: info.offlineDesde, offlineMs: this.cfg.offlineVoltaAposMs,
@@ -749,10 +754,10 @@ class RodizioService {
    * Alguém da URA começou a atender (derivação): mede a URA passiva, o termômetro e o relatório do dia.
    * @param {number|null} [esperaMs] - quanto ele esperou livre até a ligação chegar
    */
-  registrarDerivacao(agora, esperaMs = null) {
+  registrarDerivacao(agora, esperaMs = null, ramal = null) {
     this.ultimoAtendimentoUraEm = agora;
     this.termometro?.registrarDerivacao(agora, esperaMs);
-    this.estatisticas?.registrarDerivacao(agora);
+    this.estatisticas?.registrarDerivacao(agora, ramal);
   }
 
   /** Fim do ciclo da URA: amostra para o termômetro e o relatório do dia. */
@@ -766,7 +771,18 @@ class RodizioService {
     const termometro = this.termometro?.amostrar(agora, { esperasEmCursoMs }) ?? null;
     const pausas = this.humanosNaUra().map((r) => this.statusUra.get(r)).filter((s) => s?.classe === Classe.OUTRO && s.detalhe?.pausa)
       .map((s) => s.detalhe.pausa);
-    this.estatisticas?.amostrar(agora, { ...amostra, panico: this.panicoTipo, termometro: this.statusAtualDaUra() ?? termometro, pausas });
+    // [NOVO] relatório por atendente: cada humano da URA e o status dele agora
+    const operadores = this.humanosNaUra().map((ramal) => {
+      const s = this.statusUra.get(ramal);
+      return {
+        ramal, nome: s?.detalhe?.nome ?? null, classe: s?.classe ?? null,
+        pausa: s?.classe === Classe.OUTRO ? s?.detalhe?.pausa ?? null : null,
+        statusDesde: s?.detalhe?.statusDesde ?? null, livreDesde: s?.livreDesde ?? null,
+      };
+    });
+    this.estatisticas?.amostrar(agora, {
+      ...amostra, panico: this.panicoTipo, termometro: this.statusAtualDaUra() ?? termometro, pausas, operadores,
+    });
   }
 
   /** [NOVO] Status da URA que vale agora (manual ou do termômetro). */
@@ -850,7 +866,7 @@ class RodizioService {
     const agora = Date.now();
     this.statusUra.set(ramal, { classe: Classe.ATENDIMENTO, ts: agora, doWebhook: true, detalhe: anterior?.detalhe ? { ...anterior.detalhe, pausa: null, statusDesde: agora } : null });
     if (anterior?.classe === Classe.ATENDIMENTO) this.ultimoAtendimentoUraEm = agora;
-    else this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null);
+    else this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null, ramal);
     this.log.debug(`webhook: ${ramal} em atendimento na URA`);
     this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após webhook: ${e.message}`));
   }
@@ -1039,11 +1055,15 @@ class RodizioService {
         ignorados.push({ ramal, nome, motivo: 'fixo' });
         continue;
       }
+      if (this.travadoEm(ramal) === 'ura') {
+        ignorados.push({ ramal, nome, motivo: 'travado' });
+        continue;
+      }
       const r = await this.moverParaAtivo(ramal, 'alocar todos no Ativo');
       if (r.ok) movidos.push(ramal);
       else erros.push({ ramal, nome, erro: r.erro });
     }
-    this.log.aviso(`Alocar todos no Ativo${por ? ` (${por})` : ''}: ${movidos.length} movido(s), ${ignorados.length} fixo(s) mantido(s), `
+    this.log.aviso(`Alocar todos no Ativo${por ? ` (${por})` : ''}: ${movidos.length} movido(s), ${ignorados.length} mantido(s) na URA (fixo ou travado), `
       + `${erros.length} erro(s)${uraCheiaDesligada ? '; URA cheia desligada' : ''}.`);
     if (movidos.length) this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após alocar todos no Ativo: ${e.message}`));
     return { movidos, ignorados, erros, uraCheiaDesligada };
@@ -1091,6 +1111,82 @@ class RodizioService {
     } finally {
       this.emTransferencia.delete(ramal);
     }
+  }
+
+  // ───────────────────────── [NOVO] Mexer à mão pelo painel ─────────────────────────
+
+  /** Onde a supervisão travou o ramal à mão (null = o rodízio decide). @returns {'ativo'|'ura'|null} */
+  travadoEm(ramal) {
+    return this.travas?.onde(ramal) ?? null;
+  }
+
+  /** Humano que o painel pode mexer: na lista da URA ou num grupo do Ativo. @returns {'ura'|'ativo'|null} */
+  ondeEsta(ramal) {
+    const r = String(ramal);
+    if (this.ramaisRobos.map(String).includes(r)) return null;
+    if (this.ramaisUra.has(r)) return ehOperadorVirtual(this.statusUra.get(r)?.detalhe?.nome) ? null : 'ura';
+    return this.gruposAtivos.some((g) => (g.ramaisOperadores || []).map(String).includes(r)) ? 'ativo' : null;
+  }
+
+  /** Grupo do Ativo em que o ramal está agora (null = não está no Ativo). */
+  grupoNoAtivo(ramal) {
+    const g = this.gruposAtivos.find((x) => (x.ramaisOperadores || []).map(String).includes(String(ramal)));
+    return g ? g.idGrupoUsuario : null;
+  }
+
+  /**
+   * POST /operadores/mover: a supervisão manda para o Ativo ou traz para a URA, e o
+   * ramal fica travado lá (o rodízio e o roteador respeitam) até liberarem ou virar o dia.
+   * @returns {Promise<{ ok: boolean, erro?: string, simulado?: boolean }>}
+   */
+  async moverManual(ramal, para, por = null) {
+    const r = String(ramal);
+    const onde = this.ondeEsta(r);
+    if (!onde) return { ok: false, erro: `ramal ${r} não é um humano da URA nem do Ativo` };
+    if (onde === para) {
+      await this.travas?.travar(r, para, por);
+      this.log.aviso(`Ramal ${r} travado no ${para === 'ura' ? 'grupo da URA' : 'Ativo'} pelo painel${por ? ` (${por})` : ''}.`);
+      return { ok: true, jaEstava: true };
+    }
+    // Trava antes de mover: o ciclo seguinte não desfaz no meio (nem o roteador, que lê o mesmo arquivo).
+    await this.travas?.travar(r, para, por);
+    let ok;
+    let erro;
+    if (para === 'ativo') ({ ok, erro } = await this.moverParaAtivo(r, `mexido à mão pelo painel${por ? ` (${por})` : ''}`));
+    else {
+      ok = await this.moverParaUra(r, this.grupoNoAtivo(r));
+      if (!ok) erro = 'a transferência não foi aceita agora';
+    }
+    if (!ok) {
+      await this.travas?.liberar(r);
+      return { ok: false, erro };
+    }
+    this.log.aviso(`Ramal ${r} → ${para === 'ura' ? 'URA' : 'Ativo'} à mão pelo painel${por ? ` (${por})` : ''}: o rodízio não mexe nele até liberarem.`);
+    this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após mexer à mão: ${e.message}`));
+    return { ok: true, simulado: Boolean(this.cfg.dryRun) };
+  }
+
+  /** POST /operadores/liberar: o rodízio volta a decidir por ele. @returns {Promise<boolean>} true se estava travado */
+  async liberarTrava(ramal, por = null) {
+    const liberou = await this.travas?.liberar(String(ramal));
+    if (liberou) this.log.aviso(`Ramal ${ramal} liberado para o rodízio pelo painel${por ? ` (${por})` : ''}.`);
+    return Boolean(liberou);
+  }
+
+  /** Para o painel: quem está no Ativo agora (para "Trazer para a URA"). */
+  noAtivoAgora() {
+    const nomeDe = (ramal) => {
+      try {
+        return this.diretorio?.operadorPorRamal?.(ramal)?.nome || null;
+      } catch {
+        return null; // diretório ainda não carregado
+      }
+    };
+    const robos = new Set(this.ramaisRobos.map(String));
+    return this.gruposAtivos.flatMap((g) => (g.ramaisOperadores || []).map(String)
+      .filter((ramal) => !robos.has(ramal) && !this.ramaisUra.has(ramal))
+      .map((ramal) => ({ ramal, nome: nomeDe(ramal), grupo: g.idGrupoUsuario, grupoDesc: g.grupoUsuarioDesc ?? null,
+        travado: this.travadoEm(ramal) })));
   }
 
   // ───────────────────────────── Modo manual ─────────────────────────────
@@ -1172,6 +1268,7 @@ class RodizioService {
         virtual: robos.has(String(ramal)) || ehOperadorVirtual(s?.detalhe?.nome),
         pausa: s?.classe === Classe.OUTRO ? s?.detalhe?.pausa ?? null : null,
         statusDesde: desdeDoStatus(s),
+        travado: this.travadoEm(ramal),
       };
     });
   }
@@ -1193,6 +1290,8 @@ class RodizioService {
       elegiveisUra: this.elegiveis ? this.elegiveis.resumo() : { disponivel: false, total: null, desligado: true },
       fixosPermanentes: [...this.permanentes],
       uraAgora: this.uraAgora(),
+      // [NOVO] quem está no Ativo agora (o painel oferece "Trazer para a URA")
+      noAtivo: this.noAtivoAgora(),
       uraCheia: this.uraCheia ? this.uraCheia.resumo() : { ligada: false, desde: null },
       panico: {
         modo: this.emModoPanico(),

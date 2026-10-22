@@ -1,12 +1,17 @@
 /**
  * [NOVO] Painel do Receptivo URA: resumo, operadores humanos (tempo no status, selo de
- * fixo), gestão de pausas (limite, excedido, total do dia por tipo) e "Alocar Todos no Ativo".
- * Tudo vem do backend (o rodízio filtra quem vai para o Ativo).
+ * fixo e de travado, e o menu de ações de cada um: pausar, sair da pausa, ficar
+ * disponível, mandar para o Ativo, deslogar), gestão de pausas (limite, excedido, total do
+ * dia por tipo), quem está no Ativo (trazer para a URA), o relatório do dia por atendente
+ * e "Alocar Todos no Ativo". Tudo vem do backend (o rodízio filtra e executa).
  */
 
 import { clsx } from 'clsx';
-import { ArrowRightLeft, Coffee, RotateCcw, Hourglass, PhoneForwarded, PhoneIncoming, UserCheck, Users } from 'lucide-react';
+import { ArrowRightLeft, Coffee, Hourglass, Lock, PhoneForwarded, PhoneIncoming, RotateCcw, UserCheck, Users } from 'lucide-react';
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
+import { AcoesAtendente } from '../componentes/AcoesAtendente';
+import { NoAtivo } from '../componentes/NoAtivo';
+import { RelatorioAtendentes } from '../componentes/RelatorioAtendentes';
 import { StatusUra } from '../componentes/StatusUra';
 import { useMetricasHoje, useRetomarRodizio, useTransferirUraAtivo, useVisao } from '../dados';
 import { cronometro, horaCurta, limiteDaPausa, minutos, ordenarOperadores } from '../formatos';
@@ -99,8 +104,8 @@ function Operadores({ ura, agora }: { ura: OperadorNaUra[]; agora: number }) {
     <Cartao titulo="Operadores do receptivo" extra={<span>{lista.length} humano(s)</span>}>
       {lista.length ? (
         <div className="overflow-x-auto">
-          <table className="tabela">
-            <thead><tr><th>Operador</th><th>Status</th><th className="hidden text-right sm:table-cell">No status há</th></tr></thead>
+          <table className="tabela [&_td]:px-2 sm:[&_td]:px-3 [&_th]:px-2 sm:[&_th]:px-3">
+            <thead><tr><th>Operador</th><th>Status</th><th className="hidden text-right sm:table-cell">No status há</th><th className="w-10"><span className="sr-only">Ações</span></th></tr></thead>
             <tbody ref={corpo}>{lista.map((u) => {
               const c = CLASSES[u.classe ?? 'erro'];
               const seg = segundosDesde(u.statusDesde, agora);
@@ -109,6 +114,12 @@ function Operadores({ ura, agora }: { ura: OperadorNaUra[]; agora: number }) {
                   <td>
                     <span className="font-medium">{u.nome ?? '—'}</span>
                     {u.fixo && <span className="ml-2 rounded-md bg-amarelo-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-950 dark:text-amber-200">Fixo</span>}
+                    {u.travado === 'ura' && (
+                      <span title="Travado na URA à mão: o rodízio não devolve ao Ativo até liberar"
+                        className="ml-2 inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 dark:bg-noite-800 dark:text-slate-200">
+                        <Lock className="size-3" aria-hidden />Travado
+                      </span>
+                    )}
                     <span className="block text-xs text-slate-500 tabular-nums dark:text-slate-400">{u.ramal}</span>
                   </td>
                   <td>
@@ -116,6 +127,9 @@ function Operadores({ ura, agora }: { ura: OperadorNaUra[]; agora: number }) {
                     <span className="mt-0.5 block text-xs text-slate-500 tabular-nums sm:hidden dark:text-slate-400">há {seg != null ? cronometro(seg) : '–'}</span>
                   </td>
                   <td className="numero hidden text-right sm:table-cell">{seg != null ? cronometro(seg) : '–'}</td>
+                  <td className="w-10 py-1 pr-0! text-right sm:pr-3!">
+                    <AcoesAtendente a={{ ramal: u.ramal, nome: u.nome, onde: 'ura', classe: u.classe, pausa: u.pausa, travado: u.travado }} />
+                  </td>
                 </tr>
               );
             })}</tbody>
@@ -217,6 +231,10 @@ export function Receptivo() {
       <div className="grid gap-5 lg:grid-cols-[3fr_2fr]">
         <Operadores ura={r.uraAgora ?? []} agora={agora} />
         <Pausas r={r} agora={agora} />
+      </div>
+      <div className="mt-5 grid gap-5">
+        <NoAtivo lista={r.noAtivo ?? []} />
+        <RelatorioAtendentes lista={r.relatorio?.porAtendente} />
       </div>
     </>
   );

@@ -25,6 +25,19 @@ const ACOES = Object.freeze([
     metodo: 'POST', caminho: '/api/operadores/retomar-rodizio', servico: 'rodizio', destino: '/operadores/retomar-rodizio',
     nome: 'retomar o rodízio da URA', comQuem: true, limiteBytes: 1024, timeoutMs: 60_000,
   },
+  // [NOVO] ações por atendente na aba Receptivo (ramal no corpo); a lista de pausas é só leitura
+  { metodo: 'POST', caminho: '/api/operadores/pausas', servico: 'rodizio', destino: '/operadores/pausas', limiteBytes: 1024, timeoutMs: 15_000 },
+  ...[
+    ['pausar', 'pausar um atendente'],
+    ['sair-pausa', 'tirar um atendente da pausa'],
+    ['ficar-disponivel', 'deixar um atendente disponível'],
+    ['deslogar', 'deslogar um atendente'],
+    ['mover', 'mudar um atendente de grupo (Ativo/URA)'],
+    ['liberar', 'liberar um atendente para o rodízio'],
+  ].map(([rota, nome]) => ({
+    metodo: 'POST', caminho: `/api/operadores/${rota}`, servico: 'rodizio', destino: `/operadores/${rota}`,
+    nome, comQuem: true, limiteBytes: 1024, timeoutMs: 15_000,
+  })),
   { metodo: 'POST', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'ligar a URA cheia' },
   { metodo: 'DELETE', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'desligar a URA cheia' },
   { metodo: 'POST', caminho: '/api/rodizio/risco/desligar', servico: 'rodizio', destino: '/risco/desligar', nome: 'ligar "desligar robôs com cliente de risco"' },

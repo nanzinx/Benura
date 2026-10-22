@@ -25,6 +25,8 @@ const { Interruptor } = require('./interruptor');
 const { TermometroUra } = require('./termometro-ura');
 const { StatusUra } = require('./status-ura');
 const { RetencaoAtivo } = require('./retencao-ativo');
+const { TravasManuais } = require('./travas-manuais');
+const { AcoesOperador } = require('./acoes-operador');
 const { EstatisticasDia } = require('./estatisticas-dia');
 const { AjusteRobos } = require('./ajuste-robos');
 const { VigiaCallbacks } = require('./vigia-callbacks');
@@ -82,6 +84,7 @@ function montarRodizio(overrides) {
     statusDaUra: new StatusUra({ arquivo: cfgRodizio.arquivoStatusUra, logger: log.filho('robos') }),
     // "Alocar Todos no Ativo": segura todos no Ativo até "Retomar rodízio da URA" (o roteador lê o mesmo arquivo).
     retencao: new RetencaoAtivo({ arquivo: cfg.automacao.arquivoRetencao, logger: log.filho('rodizio') }),
+    travas: new TravasManuais({ arquivo: cfg.automacao.arquivoTravas, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
     estatisticas: new EstatisticasDia({
       repositorio: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoEstatisticas, logger: log.filho('estado') }), fusoHorario: cfg.agenda.fusoHorario,
     }),
@@ -93,7 +96,8 @@ function montarRodizio(overrides) {
   const vigia = cfgRodizio.callbacksVerificarMs > 0 && comRobos ? new VigiaCallbacks({
     client, rodizio, cfg: cfgVigias, logger: log.filho('callbacks'), perfis: risco?.perfis ?? null,
   }) : null;
-  return { cfg, cfgRodizio, log, rodizio, retornoFila, vigia, risco };
+  const acoes = new AcoesOperador({ client, rodizio, cfg: { dryRun: cfg.argus.dryRun }, logger: log.filho('acoes') });
+  return { cfg, cfgRodizio, log, rodizio, retornoFila, vigia, risco, acoes };
 }
 
 /** Perfis de clientes + vigia de cliente de risco em ligação + interruptor "desligar robôs". */
@@ -183,12 +187,13 @@ async function lerGruposIniciais(rodizio, log) {
   }
 }
 
-function montarServidor({ cfg, log, rodizio, retornoFila, risco }, ciclos) {
+function montarServidor({ cfg, log, rodizio, retornoFila, risco, acoes }, ciclos) {
   return criarServidor({
     rotas: criarRotasDoRodizio({
       rodizio,
       retornoFila,
       risco,
+      acoes,
       ciclos: { ultimoCicloUra: () => ciclos.ura.ultimaExecucao(), ultimoCicloAtivo: () => ciclos.ativo.ultimaExecucao() },
       logger: log,
     }),

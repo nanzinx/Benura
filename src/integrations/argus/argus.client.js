@@ -294,6 +294,30 @@ class ArgusClient {
     return this.comando('deslogaroperador', { ramal: String(ramal) }, { timeoutMs: 1500, tentativas: 1 });
   }
 
+  /**
+   * [NOVO] Pausas cadastradas para o operador (doc 4.8).
+   * @returns {Promise<Array<{ idPausa: number, pausaDesc: string }>>}
+   */
+  async listarPausas(ramal) {
+    const r = await this.comando('listarpausas', { ramal: String(ramal) }, { timeoutMs: 3000, tentativas: 1 });
+    return Array.isArray(r.retornoPausasItens) ? r.retornoPausasItens : [];
+  }
+
+  /** [NOVO] Pausa o operador (doc 4.9). Fora do Livre, a Argus pausa quando ele ficar livre. */
+  pausar(ramal, idPausa) {
+    return this.comando('pausar', { ramal: String(ramal), idPausa: String(idPausa) }, { timeoutMs: 3000, tentativas: 1 });
+  }
+
+  /** [NOVO] Tira o operador da pausa (doc 4.10). */
+  sairPausa(ramal) {
+    return this.comando('sairpausa', { ramal: String(ramal) }, { timeoutMs: 3000, tentativas: 1 });
+  }
+
+  /** [NOVO] Força o operador a ficar Livre, mesmo com lead ou pesquisa aberta (doc 4.13). */
+  ficarDisponivel(ramal) {
+    return this.comando('ficardisponivel', { ramal: String(ramal) }, { timeoutMs: 3000, tentativas: 1 });
+  }
+
   /** Aciona um operador virtual (robô) específico (doc 4.6). */
   logarOperadorVirtual(ramal) {
     return this.comando('logaroperadorvirtual', { ramal: String(ramal) }, { timeoutMs: 2000, tentativas: 1 });

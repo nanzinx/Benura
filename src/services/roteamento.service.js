@@ -77,9 +77,12 @@ class RoteamentoService {
    * @param {{ metaDiaria: number, fixosUra?: string[] }} deps.regras - fixosUra: ramais ou nomes
    * @param {object} deps.logger
    * @param {() => { ativa: boolean }} [deps.retencao] - [NOVO] "todos no Ativo" pelo painel: não sobe ninguém para a URA
+   * @param {() => (ramal: string) => 'ativo'|'ura'|null} [deps.travas] - [NOVO] quem a supervisão travou à mão pelo painel
    */
-  constructor({ carrossel, discadora, repositorio, diretorio, relogio, regras, logger, retencao = () => ({ ativa: false }) }) {
+  constructor({ carrossel, discadora, repositorio, diretorio, relogio, regras, logger, retencao = () => ({ ativa: false }),
+    travas = () => () => null }) {
     this.retencao = retencao;
+    this.travas = travas;
     /** Ramais já avisados como retidos no Ativo (avisa uma vez por ramal). */
     this.retidosAvisados = new Set();
     this.carrossel = carrossel;
@@ -387,11 +390,12 @@ class RoteamentoService {
     // "Todos no Ativo" pelo painel: a decisão fica registrada (fila URA) e pendente, sem gastar
     // tentativa; quando retomarem o rodízio, o reprocessamento (ou o próprio rodízio) a leva à URA.
     // Os fixos continuam indo para a URA.
-    if (registro.fila === Fila.URA && !registro.fixo && this.retencao().ativa) {
-      Object.assign(registro, { sincronizado: false, ultimoResultado: 'RETIDO_NO_ATIVO', atualizadoEm: new Date().toISOString() });
+    const retido = this.motivoDeRetencao(ramal, registro);
+    if (retido) {
+      Object.assign(registro, { sincronizado: false, ultimoResultado: retido.resultado, atualizadoEm: new Date().toISOString() });
       if (!this.retidosAvisados.has(ramal)) {
         this.retidosAvisados.add(ramal);
-        this.log.info(`${registro.nome} (ramal ${ramal}) → URA registrado (${motivo}), mas fica no Ativo: rodízio pausado pelo painel até retomarem.`);
+        this.log.info(`${registro.nome} (ramal ${ramal}) → ${registro.fila} registrado (${motivo}), mas ${retido.texto}.`);
       }
       return false;
     }
@@ -412,6 +416,24 @@ class RoteamentoService {
     return registro.sincronizado;
   }
 
+  /**
+   * [NOVO] O painel segura a pessoa onde está: "todos no Ativo" (fixos sobem) ou a trava
+   * manual de quem a supervisão mexeu à mão (vale até para fixo, até liberarem).
+   * @returns {{ resultado: string, texto: string }|null}
+   */
+  motivoDeRetencao(ramal, registro) {
+    const travadoEm = this.travas()(ramal);
+    if (travadoEm && travadoEm.toUpperCase() !== registro.fila) {
+      return travadoEm === 'ativo'
+        ? { resultado: 'RETIDO_NO_ATIVO', texto: 'fica no Ativo: travado à mão pelo painel até liberarem' }
+        : { resultado: 'RETIDO_NA_URA', texto: 'fica na URA: travado à mão pelo painel até liberarem' };
+    }
+    if (registro.fila === Fila.URA && !registro.fixo && this.retencao().ativa) {
+      return { resultado: 'RETIDO_NO_ATIVO', texto: 'fica no Ativo: rodízio pausado pelo painel até retomarem' };
+    }
+    return null;
+  }
+
   logarSincronizacao(ramal, registro, motivo, { resultado, grupoAnterior, grupoDestino, erro }) {
     const quem = `${registro.nome} (ramal ${ramal}) → ${registro.fila}`;
     if (resultado === Resultado.FALHA) return this.log.erro(`✗ ${quem} falhou: ${erro}. Será re-tentado.`);
@@ -428,8 +450,8 @@ class RoteamentoService {
     const pendentes = Object.entries(this.estado.vendedores)
       .filter(([, r]) => !r.sincronizado && (r.tentativasSync || 0) < MAX_TENTATIVAS_SYNC);
     if (!pendentes.length) return;
-    // Retidos no Ativo pelo painel: nada a re-tentar até retomarem.
-    if (this.retencao().ativa && pendentes.every(([, r]) => r.fila === Fila.URA && !r.fixo)) return;
+    // Retidos pelo painel (todos no Ativo ou trava manual): nada a re-tentar até retomarem ou liberarem.
+    if (pendentes.every(([ramal, r]) => this.motivoDeRetencao(ramal, r))) return;
 
     this.log.info(`Re-tentando ${pendentes.length} transferência(s) pendente(s).`);
     for (const [ramal, registro] of pendentes) {

@@ -99,6 +99,13 @@ const STATUS_INICIAL = {
   1008: { descricaoStatus: 'Pausa', descricaoPausa: 'Almoço' },
 };
 
+const PAUSAS = [
+  { idPausa: 1, pausaDesc: 'ALMOÇO' },
+  { idPausa: 2, pausaDesc: 'DESCANSO' },
+  { idPausa: 3, pausaDesc: 'BANHEIRO' },
+  { idPausa: 4, pausaDesc: 'FEEDBACK' },
+];
+
 class ArgusMockClient {
   constructor(logger) {
     this.log = logger;
@@ -139,6 +146,30 @@ class ArgusMockClient {
     this.log.info(`[MOCK] Argus: ramal ${ramal} deslogado`);
     this.status.delete(String(ramal));
     return { codStatus: 1, descStatus: 'Operador deslogado' };
+  }
+
+  async listarPausas() {
+    return PAUSAS.map((p) => ({ ...p }));
+  }
+
+  async pausar(ramal, idPausa) {
+    const pausa = PAUSAS.find((p) => String(p.idPausa) === String(idPausa));
+    if (!pausa) throw new Error(`pausa ${idPausa} não existe`);
+    this.log.info(`[MOCK] Argus: ramal ${ramal} em pausa ${pausa.pausaDesc}`);
+    this.status.set(String(ramal), { descricaoStatus: 'Pausa', descricaoPausa: pausa.pausaDesc });
+    return { codStatus: 1, descStatus: 'Pausa solicitada' };
+  }
+
+  async sairPausa(ramal) {
+    this.log.info(`[MOCK] Argus: ramal ${ramal} saiu da pausa`);
+    this.status.set(String(ramal), { descricaoStatus: 'Livre', descricaoPausa: '' });
+    return { codStatus: 1, descStatus: 'Pausa encerrada' };
+  }
+
+  async ficarDisponivel(ramal) {
+    this.log.info(`[MOCK] Argus: ramal ${ramal} disponível`);
+    this.status.set(String(ramal), { descricaoStatus: 'Livre', descricaoPausa: '' });
+    return { codStatus: 1, descStatus: 'Operador disponível' };
   }
 
   async incluirLead(hashSkill, lead) {

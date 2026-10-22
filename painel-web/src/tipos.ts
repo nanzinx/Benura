@@ -15,6 +15,51 @@ export interface OperadorNaUra {
   pausa?: string | null;
   /** [NOVO] desde quando está no status (tempoStatus da Argus; livre: desde que ficou livre) */
   statusDesde?: string | null;
+  /** [NOVO] travado à mão pelo painel (o rodízio não mexe até liberarem) */
+  travado?: OndeTravado | null;
+}
+
+/** [NOVO] onde a supervisão travou o atendente à mão */
+export type OndeTravado = 'ativo' | 'ura';
+
+/** [NOVO] quem está no Ativo agora (para "Trazer para a URA") */
+export interface OperadorNoAtivo {
+  ramal: string;
+  nome: string | null;
+  grupo: number;
+  grupoDesc: string | null;
+  travado: OndeTravado | null;
+}
+
+/** [NOVO] relatório do dia por atendente (só o tempo no grupo da URA) */
+export interface AtendenteDoDia {
+  ramal: string;
+  nome: string | null;
+  primeiroEm: string | null;
+  ultimoEm: string | null;
+  livreMin: number;
+  atendimentoMin: number;
+  outroMin: number;
+  pausaMin: number;
+  pausasMin: Record<string, number>;
+  pausaPct: number;
+  atendimentos: number;
+  pausasEstouradas: number;
+  maiorEsperaSeg: number;
+}
+
+/** [NOVO] resposta das ações por atendente */
+export interface ResultadoAcao {
+  ok: boolean;
+  simulado?: boolean;
+  jaEstava?: boolean;
+  estavaTravado?: boolean;
+  descStatus?: string | null;
+}
+
+export interface PausaDaArgus {
+  idPausa: number;
+  pausaDesc: string;
 }
 
 export interface Interruptor {
@@ -52,6 +97,8 @@ export interface SaudeRodizio {
   uptime?: number;
   dryRun?: boolean;
   uraAgora?: OperadorNaUra[];
+  /** [NOVO] quem está no Ativo agora */
+  noAtivo?: OperadorNoAtivo[];
   fixosPermanentes?: string[];
   robos?: { ligados: number | null; total?: number; alvo?: number | null; modo?: 'panico' | 'automatico' };
   uraCheia?: { ligada: boolean; desde: string | null };
@@ -106,6 +153,8 @@ export interface RelatorioDoDia {
   filaMediaSeg?: number | null;
   /** [NOVO] minutos em pausa por tipo, hoje */
   pausasMin?: Record<string, number>;
+  /** [NOVO] por atendente, hoje */
+  porAtendente?: AtendenteDoDia[];
   horas: HoraDoRelatorio[];
 }
 

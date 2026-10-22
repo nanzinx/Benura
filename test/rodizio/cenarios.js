@@ -114,6 +114,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_PANICO_FILE: path.join(pasta, 'state-panico.json'),
       RODIZIO_STATUS_URA_FILE: path.join(pasta, 'state-status-ura.json'),
       RETENCAO_ATIVO_FILE: path.join(pasta, 'state-retencao-ativo.json'),
+      TRAVAS_MANUAIS_FILE: path.join(pasta, 'state-travas-manuais.json'),
       RODIZIO_ESTATISTICAS_FILE: path.join(pasta, 'state-estatisticas-dia.json'),
       AUTOMACAO_FILE: path.join(pasta, 'state-automacao.json'),
       SIMULACAO_FILE: path.join(pasta, 'state-simulacao.json'),
@@ -251,6 +252,32 @@ const CENARIOS = {
     if (JSON.stringify(retomar.movidos) !== '["101"]') throw new Error(`retomar: ${JSON.stringify(retomar)}`);
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101 (elegível) → URA ao retomar' });
     if (r.transferencias().some((t) => t.startsWith('100→2'))) throw new Error('100 não é elegível e foi para a URA');
+  },
+
+  async 'Painel do receptivo: pausar e sair da pausa pela API; trazer para a URA trava e o ocioso não devolve'(r) {
+    const pedir = async (caminho, corpo) => {
+      const resp = await fetch(`${r.base}${caminho}`, { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ por: 'cenário', ...corpo }) });
+      return { status: resp.status, corpo: await resp.json() };
+    };
+    const pausas = await pedir('/operadores/pausas', { ramal: '200' });
+    if (pausas.corpo.pausas?.length !== 2) throw new Error(`pausas: ${JSON.stringify(pausas)}`);
+    if ((await pedir('/operadores/pausar', { ramal: '200', idPausa: 3 })).status !== 200) throw new Error('pausar falhou');
+    const emPausa = async () => (await (await fetch(`${r.base}/health`)).json()).uraAgora.find((u) => u.ramal === '200');
+    if ((await emPausa()).pausa !== 'BANHEIRO') throw new Error(`a pausa não apareceu na hora: ${JSON.stringify(await emPausa())}`);
+    await pedir('/operadores/sair-pausa', { ramal: '200' });
+    await aguardar(async () => (await emPausa()).classe === 'livre', { descricao: '200 livre depois de sair da pausa' });
+    if ((await pedir('/operadores/pausar', { ramal: '900', idPausa: 1 })).status !== 400) throw new Error('pausou um robô');
+
+    // Trazer 100 (Ativo) para a URA à mão: fica travado e o ocioso (TEMPO_MIN = 6 s) não devolve.
+    const mover = await pedir('/operadores/mover', { ramal: '100', para: 'ura' });
+    if (mover.status !== 200) throw new Error(`mover: ${JSON.stringify(mover)}`);
+    await aguardar(() => r.transferencias().includes('100→2'), { descricao: '100 → URA à mão' });
+    const travas = JSON.parse(fs.readFileSync(path.join(r.pasta, 'state-travas-manuais.json'), 'utf8'));
+    if (travas.ramais?.['100']?.onde !== 'ura') throw new Error(`trava não gravada: ${JSON.stringify(travas)}`);
+    await esperar(8000);
+    if (r.transferencias().includes('100→1')) throw new Error('travado na URA e voltou ao Ativo por ocioso');
+    await pedir('/operadores/liberar', { ramal: '100' });
+    await aguardar(() => r.transferencias().includes('100→1'), { descricao: 'liberado: o ocioso devolve ao Ativo' });
   },
 
   async 'URA cheia em DRY_RUN: simula a ida de cada um uma vez só'(r) {

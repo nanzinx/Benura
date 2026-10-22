@@ -13,6 +13,7 @@
 
 const { lerJson } = require('./arquivo-json');
 const { ArquivoDeEstado } = require('./persistencia-json');
+const { dataLocal } = require('./datas');
 
 /** @returns {{ desligada: boolean, desde: string|null, por: string|null }} */
 function lerAutomacao(arquivo) {
@@ -65,4 +66,16 @@ function lerRetencao(arquivo) {
   return { ativa: true, desde: dados.desde ?? null, por: dados.por ?? null };
 }
 
-module.exports = { lerAutomacao, gravarAutomacao, aguardarAutomacaoLigada, lerSimulacao, lerRetencao };
+/**
+ * [NOVO] Travas manuais do painel (TRAVAS_MANUAIS_FILE): quem a supervisão mexeu à
+ * mão fica onde foi posto até liberarem ou virar o dia. O rodízio grava; o roteador
+ * lê para não subir a venda de quem está travado no Ativo.
+ * @returns {(ramal: string) => 'ativo'|'ura'|null}
+ */
+function lerTravas(arquivo, fusoHorario, agora = new Date()) {
+  const { dados } = lerJson(arquivo);
+  const ramais = dados?.dia && dados.dia === dataLocal(fusoHorario, agora) && dados.ramais ? dados.ramais : {};
+  return (ramal) => ramais[String(ramal)]?.onde ?? null;
+}
+
+module.exports = { lerAutomacao, gravarAutomacao, aguardarAutomacaoLigada, lerSimulacao, lerRetencao, lerTravas };

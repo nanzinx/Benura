@@ -266,3 +266,24 @@ test('painel [NOVO]: PUT /api/ura/status e "alocar todos no Ativo" levam quem pe
   assert.ok(chamadas.some((c) => c.url === 'http://rodizio/metricas/hoje' && c.metodo === 'GET'));
   assert.equal((await pedir('PUT', '/api/ura/status', { cookie, origem: PAGES, extras: pelaPagina, corpo: [1] })).status, 400);
 });
+
+test('painel [NOVO]: ações por atendente levam o ramal e quem pediu; a lista de pausas não leva quem pediu', async (t) => {
+  const { servidor, chamadas, pedir } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
+  t.after(() => servidor.close());
+  const pelaPagina = { 'X-Forwarded-For': '100.64.0.1', 'X-Benura-Proxy': SEGREDO, 'X-Benura-Cliente-IP': '200.1.2.3', 'X-Benura-Cliente-Email': 'ana@empresa.com' };
+  const cookie = (await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: pelaPagina })).headers.get('set-cookie').split(';')[0];
+  const enviar = (caminho, corpo) => pedir('POST', caminho, { cookie, origem: PAGES, extras: pelaPagina, corpo });
+
+  await enviar('/api/operadores/pausar', { ramal: '202', idPausa: 1 });
+  assert.deepEqual(JSON.parse(chamadas.find((c) => c.url === 'http://rodizio/operadores/pausar').corpo),
+    { ramal: '202', idPausa: 1, por: 'ana@empresa.com (200.1.2.3)' });
+  for (const rota of ['sair-pausa', 'ficar-disponivel', 'deslogar', 'liberar']) {
+    await enviar(`/api/operadores/${rota}`, { ramal: '202' });
+    assert.equal(JSON.parse(chamadas.find((c) => c.url === `http://rodizio/operadores/${rota}`).corpo).por, 'ana@empresa.com (200.1.2.3)', rota);
+  }
+  await enviar('/api/operadores/mover', { ramal: '301', para: 'ura' });
+  assert.equal(JSON.parse(chamadas.find((c) => c.url === 'http://rodizio/operadores/mover').corpo).para, 'ura');
+  await enviar('/api/operadores/pausas', { ramal: '202' });
+  assert.deepEqual(JSON.parse(chamadas.find((c) => c.url === 'http://rodizio/operadores/pausas').corpo), { ramal: '202' });
+  assert.equal((await pedir('POST', '/api/operadores/deslogar', { cookie, painel: false, corpo: { ramal: '202' } })).status, 403, 'escrita exige o cabeçalho do painel');
+});
