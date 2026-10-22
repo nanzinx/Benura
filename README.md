@@ -628,6 +628,47 @@ npm run servico:instalar
 
 ---
 
+<a id="docker"></a>
+### 🐳 Docker (alternativa)
+
+A produção segue no **PM2 como serviço do Windows**, que tem o atualizador automático e sobe sem ninguém logado. O Docker fica pronto para quando quiserem migrar ou rodar o BenURA em outra máquina.
+
+**Como roda:**
+- **Um container só,** com os quatro serviços no PM2 (`pm2-runtime`): roteador, rodízio, rotinas e painel conversam pelo `localhost`, como no servidor. Os botões **Desligar/Religar automação** e **Modo simulação** do painel funcionam igual.
+- **Estado no volume `./dados`** (`DADOS_DIR=/dados`). Ficam lá os `state*.json`, as chaves (`painel-segredo.key`, `perfis-segredo.key`), os logs e o `supervisores-grupos.json`. Recriar o container não perde nada.
+- **Travas de instância única num `tmpfs`** (`/run/benura`). Num container novo os PIDs se repetem, e uma trava velha impediria a subida.
+- **Portas:** `3000` (webhooks da Argus), `3001` (webhook de venda) e `3010` (painel).
+- **Configuração:** o mesmo `.env` do servidor (`env_file`).
+
+**No Windows 10/11 Pro:**
+1. Instale o Docker Desktop: `winget install Docker.DockerDesktop`. Ele usa o WSL2, então reinicie se pedir.
+2. Em *Settings → General*, ligue **Start Docker Desktop when you sign in**.
+   > [!WARNING]
+   > O Docker Desktop só sobe **com alguém logado** no Windows. Para um servidor que precisa voltar sozinho depois de queda de energia, o PM2 como serviço é o caminho.
+3. **Na pasta do BenURA:** copie para `dados\` o que hoje está na raiz:
+   - os `state*.json`;
+   - `painel-segredo.key` e `perfis-segredo.key`;
+   - `supervisores-grupos.json` e `vendedores-ramais.json`, se existirem.
+
+   **Pare o PM2 antes** (`npx pm2 stop all`), porque os dois juntos mexeriam na Argus ao mesmo tempo.
+4. Suba com:
+   ```powershell
+   docker compose up -d --build
+   ```
+
+**Comandos do dia a dia:**
+
+| Para… | Rode |
+|---|---|
+| Acompanhar os logs | `docker compose logs -f` (ou `dados\logs\`) |
+| Ver os serviços no PM2 | `docker compose exec benura npx pm2 list` |
+| Atualizar | `git pull` e `docker compose up -d --build` (o atualizador automático não roda no Docker) |
+| Parar (o estado fica em `dados\`) | `docker compose down` |
+
+**Teste da imagem:** o job `docker` do CI constrói a imagem e sobe com uma Argus falsa. Ele confere os quatro serviços no ar, o estado no volume, o Desligar/Religar pelo painel e um `docker restart`. Para rodar o mesmo teste no seu PC: `docker build -t benura:ci .` e depois `node test/docker/fumaca.js`.
+
+---
+
 <a id="servidor"></a>
 ## 🏢 Servidor + Cloudflare Pages
 

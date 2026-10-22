@@ -54,8 +54,12 @@ const RAIZ = path.resolve(__dirname, '..', '..');
  * @returns {Readonly<object>}
  */
 function carregarConfig(overrides = {}) {
+  // [NOVO] DADOS_DIR: pasta dos arquivos de estado, travas, chaves e logs (no Docker, o volume /dados).
+  // Sem ela, tudo fica onde sempre ficou: a raiz do projeto (e a pasta atual, para os da esteira).
+  const DADOS = path.resolve(env('DADOS_DIR', RAIZ));
+  const DADOS_CWD = env('DADOS_DIR') ? DADOS : process.cwd();
   // Botão "Modo simulação" do painel: grava aqui; vale junto com DRY_RUN (qualquer um dos dois liga).
-  const arquivoSimulacao = env('SIMULACAO_FILE', path.join(RAIZ, 'state-simulacao.json'));
+  const arquivoSimulacao = env('SIMULACAO_FILE', path.join(DADOS, 'state-simulacao.json'));
   const cfg = {
     // --- API do Carrossel (repositório Carrosel-BenApi) ---
     carrossel: {
@@ -75,8 +79,8 @@ function carregarConfig(overrides = {}) {
 
     // Exceções opcionais. O ramal e o grupo de cada um vêm do /listarusuarios da Argus;
     // estes arquivos só corrigem casos que a descoberta automática não resolve.
-    arquivoRamais: env('VENDEDORES_RAMAIS_FILE', path.join(process.cwd(), 'vendedores-ramais.json')),
-    arquivoSupervisoresGrupos: env('SUPERVISORES_GRUPOS_FILE', path.join(process.cwd(), 'supervisores-grupos.json')),
+    arquivoRamais: env('VENDEDORES_RAMAIS_FILE', path.join(DADOS_CWD, 'vendedores-ramais.json')),
+    arquivoSupervisoresGrupos: env('SUPERVISORES_GRUPOS_FILE', path.join(DADOS_CWD, 'supervisores-grupos.json')),
 
     // --- Discadora Argus ---
     argus: {
@@ -107,7 +111,7 @@ function carregarConfig(overrides = {}) {
       // só reloga quem continua no grupo antigo depois deste tempo.
       alinharAposMs: envNum('ALINHAR_LOGIN_APOS_MS', 30_000),
       // Pausa por limite (HTTP 429) compartilhada entre roteador, rodízio e rotinas.
-      arquivoPausa: env('ARGUS_PAUSA_FILE', path.join(RAIZ, 'argus-pausa.json')),
+      arquivoPausa: env('ARGUS_PAUSA_FILE', path.join(DADOS, 'argus-pausa.json')),
     },
 
     // --- Rodízio Ativo ↔ URA e robôs (argus-automacao.js) ---
@@ -122,7 +126,7 @@ function carregarConfig(overrides = {}) {
       // fica com 1 livre ou menos (interruptor na página /ura). automatico: o BenURA liga e desliga
       // os robôs proporcionalmente aos livres (regras abaixo).
       robosModo: env('ROBOS_MODO', 'panico').toLowerCase() === 'automatico' ? 'automatico' : 'panico',
-      arquivoPanico: env('RODIZIO_PANICO_FILE', path.join(RAIZ, 'state-panico.json')),
+      arquivoPanico: env('RODIZIO_PANICO_FILE', path.join(DADOS, 'state-panico.json')),
       panicoPadrao: envBool('PANICO_PADRAO', true),
       // Pânico com 1 livre comum: os robôs só param quando ele está a isso de sair por ociosidade.
       panicoAntesDeSairMs: envNum('PANICO_ANTES_DE_SAIR_MS', 60_000),
@@ -131,9 +135,9 @@ function carregarConfig(overrides = {}) {
       panicoFixoOciosoMs: envNum('PANICO_FIXO_OCIOSO_MIN', 3) * 60_000,
       // [NOVO] Status da URA escolhido no painel (manual: calma, normal ou agressiva; ou automático, pelo
       // termômetro com as faixas de src/config/uraThresholds.js). Calma: com 1 fixo livre, os robôs seguem.
-      arquivoStatusUra: env('RODIZIO_STATUS_URA_FILE', path.join(RAIZ, 'state-status-ura.json')),
+      arquivoStatusUra: env('RODIZIO_STATUS_URA_FILE', path.join(DADOS, 'state-status-ura.json')),
       // Relatório do dia (painel): gravado para um reinício no mesmo dia continuar.
-      arquivoEstatisticas: env('RODIZIO_ESTATISTICAS_FILE', path.join(RAIZ, 'state-estatisticas-dia.json')),
+      arquivoEstatisticas: env('RODIZIO_ESTATISTICAS_FILE', path.join(DADOS, 'state-estatisticas-dia.json')),
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
@@ -151,7 +155,7 @@ function carregarConfig(overrides = {}) {
       recuperarAposMs: envNum('ROBOS_RECUPERAR_APOS_MIN', 15) * 60_000,
       intervaloAjusteMs: envNum('ROBOS_AJUSTE_INTERVALO_S', 60) * 1000,
       // Ajuste gravado para um reinício no mesmo dia retomar o degrau em que estava.
-      arquivoAjuste: env('RODIZIO_AJUSTE_FILE', path.join(RAIZ, 'state-ajuste-robos.json')),
+      arquivoAjuste: env('RODIZIO_AJUSTE_FILE', path.join(DADOS, 'state-ajuste-robos.json')),
       // Vigia de callbacks: lê o relatório de ligações dos robôs a cada N s (só leitura) e grava o
       // raio-x de cada callback em logs/AAAA-MM-DD/callbacks.txt. Não depende do webhook. 0 = desligado.
       callbacksVerificarMs: envNum('CALLBACKS_VERIFICAR_SEG', 60) * 1000,
@@ -159,16 +163,16 @@ function carregarConfig(overrides = {}) {
       // risco falando com um robô. Os perfis se alimentam do vigia de callbacks (CALLBACKS_VERIFICAR_SEG).
       perfis: {
         ativo: envBool('PERFIS_ATIVO', true),
-        arquivo: env('PERFIS_FILE', path.join(RAIZ, 'state-perfis-clientes.json')),
-        arquivoHistorico: env('PERFIS_HISTORICO_FILE', path.join(RAIZ, 'state-perfis-historico.json')),
-        arquivoSegredo: env('PERFIS_SEGREDO_FILE', path.join(RAIZ, 'perfis-segredo.key')),
+        arquivo: env('PERFIS_FILE', path.join(DADOS, 'state-perfis-clientes.json')),
+        arquivoHistorico: env('PERFIS_HISTORICO_FILE', path.join(DADOS, 'state-perfis-historico.json')),
+        arquivoSegredo: env('PERFIS_SEGREDO_FILE', path.join(DADOS, 'perfis-segredo.key')),
         segredo: env('PERFIS_SEGREDO', ''),
         dias: envNum('PERFIS_DIAS', 30),
         // Cliente de risco: tantos callbacks (abandono em fila) ou atendeu o robô tantas vezes nos PERFIS_DIAS. 0 = não usa.
         minCallbacks: envNum('PERFIL_RISCO_CALLBACKS', 1),
         minAtendeu: envNum('PERFIL_RISCO_ATENDE', 3),
         vigiaMs: envNum('PERFIS_VIGIA_SEG', 10) * 1000,
-        arquivoDesliga: env('RODIZIO_RISCO_FILE', path.join(RAIZ, 'state-risco.json')),
+        arquivoDesliga: env('RODIZIO_RISCO_FILE', path.join(DADOS, 'state-risco.json')),
         desligaPadrao: envBool('RISCO_DESLIGA_ROBOS', false),
       },
       // Campanha dos robôs para o relatório; vazio = a única campanha ativa.
@@ -188,7 +192,7 @@ function carregarConfig(overrides = {}) {
       // Só sobe do Ativo para a URA quem o roteador pôs na URA hoje (meta de ontem, venda
       // hoje ou fixo), lido do STATE_FILE do roteador. Sem a lista do dia, gira todos.
       soElegiveis: envBool('RODIZIO_SO_ELEGIVEIS', true),
-      arquivoVendas: env('STATE_FILE', path.join(process.cwd(), 'state-vendas.json')),
+      arquivoVendas: env('STATE_FILE', path.join(DADOS_CWD, 'state-vendas.json')),
       // Intervalo entre as consultas à Argus (Ativo e URA). 5 s evita o liga-desliga
       // de robôs a cada oscilação de status; o webhook de atendimento continua imediato.
       pollAtivoMs: envNum('POLL_ATIVO_MS', 5000),
@@ -218,10 +222,10 @@ function carregarConfig(overrides = {}) {
       },
       // Nomes próprios para não colidir com o roteador (que usa PORT e STATE_FILE).
       porta: envNum('RODIZIO_PORT', 3000),
-      arquivoEstado: env('RODIZIO_STATE_FILE', path.join(RAIZ, 'state.json')),
-      arquivoTrava: env('RODIZIO_LOCK_FILE', path.join(RAIZ, 'argus.lock')),
+      arquivoEstado: env('RODIZIO_STATE_FILE', path.join(DADOS, 'state.json')),
+      arquivoTrava: env('RODIZIO_LOCK_FILE', path.join(DADOS, 'argus.lock')),
       // URA cheia (GET /ura): ligada pela supervisão, vale até desligar ou virar o dia.
-      arquivoUraCheia: env('RODIZIO_URA_CHEIA_FILE', path.join(RAIZ, 'state-ura-cheia.json')),
+      arquivoUraCheia: env('RODIZIO_URA_CHEIA_FILE', path.join(DADOS, 'state-ura-cheia.json')),
     },
 
     // --- Regras de negócio ---
@@ -263,18 +267,18 @@ function carregarConfig(overrides = {}) {
     // --- Logs em arquivos de texto (logs/AAAA-MM-DD/<serviço>.txt, avisos.txt, callbacks.txt) ---
     logs: {
       arquivos: envBool('LOGS_ARQUIVOS', true),
-      pasta: env('LOGS_DIR', path.join(RAIZ, 'logs')),
+      pasta: env('LOGS_DIR', path.join(DADOS, 'logs')),
       dias: envNum('LOGS_DIAS', 30), // pastas mais antigas são apagadas; 0 = guarda tudo
     },
 
     // Simula Carrossel e Argus em memória (desenvolvimento, sem rede).
     usarMock: envBool('USAR_MOCK'),
     debug: envBool('DEBUG'),
-    arquivoEstado: env('STATE_FILE', path.join(process.cwd(), 'state-vendas.json')),
+    arquivoEstado: env('STATE_FILE', path.join(DADOS_CWD, 'state-vendas.json')),
     // Uma instância só do roteador (PM2 e uma janela ao mesmo tempo transfeririam em dobro).
-    arquivoTrava: env('ROTEADOR_LOCK_FILE', path.join(RAIZ, 'roteador.lock')),
+    arquivoTrava: env('ROTEADOR_LOCK_FILE', path.join(DADOS, 'roteador.lock')),
     // Esteira colada em GET /manual (redundância do Carrossel)
-    arquivoEsteiraManual: env('ESTEIRA_MANUAL_FILE', path.join(process.cwd(), 'state-esteira-manual.json')),
+    arquivoEsteiraManual: env('ESTEIRA_MANUAL_FILE', path.join(DADOS_CWD, 'state-esteira-manual.json')),
   };
 
   // --- Atualizador da produção (atualizador.js) ---
@@ -288,29 +292,29 @@ function carregarConfig(overrides = {}) {
       .map((p) => `http://localhost:${p}/health`).join(',')),
     healthTimeoutMs: envNum('ATUALIZADOR_HEALTH_TIMEOUT_MS', 30_000),
     porta: envNum('ATUALIZADOR_PORT', 3002),
-    arquivoLog: env('ATUALIZADOR_LOG_FILE', path.join(RAIZ, 'logs', 'deploy.jsonl')),
-    arquivoTrava: env('ATUALIZADOR_LOCK_FILE', path.join(RAIZ, 'atualizador.lock')),
+    arquivoLog: env('ATUALIZADOR_LOG_FILE', path.join(DADOS, 'logs', 'deploy.jsonl')),
+    arquivoTrava: env('ATUALIZADOR_LOCK_FILE', path.join(DADOS, 'atualizador.lock')),
   };
 
   // --- Notificações (avisos e resumos) ---
   cfg.notificacoes = {
     tipo: env('NOTIFICADOR', 'log'),
-    arquivo: env('NOTIFICACOES_FILE', path.join(RAIZ, 'logs', 'notificacoes.jsonl')),
+    arquivo: env('NOTIFICACOES_FILE', path.join(DADOS, 'logs', 'notificacoes.jsonl')),
   };
 
   // --- Rotinas diárias (rotinas.js / benura-rotinas) ---
   cfg.rotinas = {
     porta: envNum('ROTINAS_PORT', 3003),
     intervaloMs: envNum('ROTINAS_INTERVALO_MS', 60_000),
-    arquivoTrava: env('ROTINAS_LOCK_FILE', path.join(RAIZ, 'rotinas.lock')),
-    arquivoEstado: env('ROTINAS_STATE_FILE', path.join(RAIZ, 'state-rotinas.json')),
+    arquivoTrava: env('ROTINAS_LOCK_FILE', path.join(DADOS, 'rotinas.lock')),
+    arquivoEstado: env('ROTINAS_STATE_FILE', path.join(DADOS, 'state-rotinas.json')),
     fimExpediente: {
       ativo: envBool('FIM_EXPEDIENTE_ATIVO', true),
       // relatar = só avisa quem ficou logado; deslogar = também desconecta
       acao: env('FIM_EXPEDIENTE_ACAO', 'relatar'),
       margemMin: envNum('FIM_EXPEDIENTE_MARGEM_MIN', 10),
       ignorarRamais: envLista('FIM_EXPEDIENTE_IGNORAR_RAMAIS', ''),
-      arquivoLog: env('FIM_EXPEDIENTE_LOG_FILE', path.join(RAIZ, 'logs', 'fim-expediente.jsonl')),
+      arquivoLog: env('FIM_EXPEDIENTE_LOG_FILE', path.join(DADOS, 'logs', 'fim-expediente.jsonl')),
     },
   };
 
@@ -322,7 +326,7 @@ function carregarConfig(overrides = {}) {
     porta: envNum('PAINEL_PORT', 3010),
     senha: env('PAINEL_SENHA', ''),
     segredo: env('PAINEL_SEGREDO', ''),
-    arquivoSegredo: env('PAINEL_SEGREDO_FILE', path.join(RAIZ, 'painel-segredo.key')),
+    arquivoSegredo: env('PAINEL_SEGREDO_FILE', path.join(DADOS, 'painel-segredo.key')),
     sessaoHoras: envNum('PAINEL_SESSAO_HORAS', 12),
     servicos: {
       roteador: semBarraFinal(env('PAINEL_ROTEADOR_URL', local(cfg.http.porta))),
@@ -340,16 +344,16 @@ function carregarConfig(overrides = {}) {
   // --- Botão "Desligar automação" do painel ---
   // Desligada: roteador, rodízio e rotinas param e, se subirem de novo, esperam sem tocar na Argus.
   cfg.automacao = {
-    arquivo: env('AUTOMACAO_FILE', path.join(RAIZ, 'state-automacao.json')),
+    arquivo: env('AUTOMACAO_FILE', path.join(DADOS, 'state-automacao.json')),
     // Ao desligar: quanto esperar os robôs em ligação terminarem antes de derrubar os que sobrarem.
     esperaRobosMs: envNum('AUTOMACAO_ESPERA_ROBOS_MS', 90_000),
     intervaloMs: envNum('AUTOMACAO_VERIFICAR_MS', 5000),
     arquivoSimulacao,
     // [NOVO] "Alocar Todos no Ativo": todos ficam no Ativo (rodízio e roteador não sobem ninguém)
     // até "Retomar rodízio da URA". O rodízio grava, o roteador lê.
-    arquivoRetencao: env('RETENCAO_ATIVO_FILE', path.join(RAIZ, 'state-retencao-ativo.json')),
+    arquivoRetencao: env('RETENCAO_ATIVO_FILE', path.join(DADOS, 'state-retencao-ativo.json')),
     // [NOVO] quem a supervisão mexeu à mão pelo painel: o rodízio e o roteador respeitam até liberar (ou virar o dia)
-    arquivoTravas: env('TRAVAS_MANUAIS_FILE', path.join(RAIZ, 'state-travas-manuais.json')),
+    arquivoTravas: env('TRAVAS_MANUAIS_FILE', path.join(DADOS, 'state-travas-manuais.json')),
   };
 
   // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---
@@ -359,8 +363,8 @@ function carregarConfig(overrides = {}) {
     janelaHoras: envNum('RETORNO_JANELA_HORAS', 4),
     incluirForaHorario: envBool('RETORNO_INCLUIR_FORA_HORARIO', true),
     origem: env('RETORNO_ORIGEM', 'RETORNO_URA'),
-    arquivoEstado: env('RETORNO_STATE_FILE', path.join(RAIZ, 'state-retorno-fila.json')),
-    arquivoLog: env('RETORNO_LOG_FILE', path.join(RAIZ, 'logs', 'retorno-fila.jsonl')),
+    arquivoEstado: env('RETORNO_STATE_FILE', path.join(DADOS, 'state-retorno-fila.json')),
+    arquivoLog: env('RETORNO_LOG_FILE', path.join(DADOS, 'logs', 'retorno-fila.jsonl')),
   };
 
   return Object.freeze(mesclarProfundo(cfg, overrides));

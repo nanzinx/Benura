@@ -1,0 +1,41 @@
+# BenURA no Docker (alternativa ao PM2 como serviço do Windows). README: "Docker (alternativa)".
+#
+#   docker compose up -d --build          sobe (e reconstrói depois de um git pull)
+#   docker compose logs -f                acompanha
+#   docker compose exec benura npx pm2 list
+#   docker compose down                   para (o estado fica em ./dados)
+#
+# Túnel da Cloudflare junto (opcional): ponha TUNNEL_TOKEN no .env e use
+#   docker compose --profile tunel up -d
+services:
+  benura:
+    build: .
+    image: benura:local
+    container_name: benura
+    restart: unless-stopped
+    # A mesma configuração do servidor. DADOS_DIR, LOGS_DIR e as travas vêm do Dockerfile.
+    env_file: .env
+    volumes:
+      # Estado do dia, chaves (painel-segredo.key, perfis-segredo.key), logs e os JSON da esteira.
+      - ./dados:/dados
+    tmpfs:
+      - /run/benura
+    ports:
+      - "3000:3000" # rodízio: webhooks da Argus
+      - "3001:3001" # roteador: webhook de venda
+      - "3010:3010" # painel da supervisão
+    stop_grace_period: 30s
+
+  # Cloudflare Tunnel: benura-api.benconsig.com.br → o painel. Usa a rede do container do
+  # BenURA (network_mode), então o painel vê o túnel pelo localhost, como no servidor.
+  tunel:
+    image: cloudflare/cloudflared:2026.9.3
+    profiles: ["tunel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # O token do túnel (Zero Trust → Networks → Tunnels → o túnel → Install connector), no .env.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    network_mode: "service:benura"
+    depends_on:
+      - benura
