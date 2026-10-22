@@ -56,6 +56,22 @@ jobs:
       - run: npm ci
       - run: npm run test:cenarios
 
+  # [NOVO] Imagem Docker (alternativa ao PM2 como serviço): constrói e sobe com uma Argus
+  # falsa: os quatro serviços no ar, estado no volume, Desligar/Religar pelo painel e restart.
+  docker:
+    name: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: docker build -t benura:ci .
+      - run: node test/docker/fumaca.js
+        env:
+          IMAGEM: benura:ci
+
   # Interface do painel (painel-web/: React + TypeScript + Tailwind): tipos, testes
   # e build. O build fica no git (src/painel/publico): tem de estar em dia com o código.
   painel-web:

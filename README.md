@@ -591,7 +591,81 @@ npm run pm2:parar
 
 - Sem configuração válida o serviço não sobe: o motivo aparece em `logs/*.err.log` e o PM2 tenta de novo com espera crescente.
 - O desligamento é gracioso (o estado do dia é salvo antes de sair), inclusive no Windows.
-- Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, veja o passo 6 de [Servidor + Cloudflare Pages](#servidor).
+- Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, veja [PM2 como serviço do Windows](#servico-windows).
+
+<a id="servico-windows"></a>
+### 🪟 PM2 como serviço do Windows
+
+Faz o BenURA subir sozinho quando o servidor liga, **mesmo sem ninguém logado**, e voltar sozinho se o PM2 cair. No **PowerShell como administrador**, na pasta do BenURA (`C:\BenURA\app`), rode:
+
+```powershell
+npm run servico:instalar
+```
+
+**O que ele faz:**
+1. Sobe os serviços (`ecosystem.config.js`) e o atualizador automático, e salva a lista (`pm2 save`).
+2. Pede a **senha do usuário do Windows**. É o mesmo usuário que roda o `npx pm2` no servidor, porque o PM2 guarda a lista na pasta dele (`%USERPROFILE%\.pm2`).
+3. Cria a tarefa **"BenURA"** no Agendador de Tarefas, com dois gatilhos:
+   - **ao ligar o PC**, 1 min depois: restaura os serviços salvos (`pm2 resurrect`);
+   - **a cada 5 min** (o vigia, `scripts\windows\vigia-pm2.ps1`): se o PM2 caiu ou perdeu a lista, restaura de novo. Serviço parado de propósito, como no **Desligar automação** do painel, continua parado. O que o vigia faz fica em `logs\servico-windows.log`.
+
+**Para conferir** (não precisa ser administrador), rode `npm run servico:verificar`. Ele mostra:
+- a tarefa, com a última e a próxima execução;
+- cada serviço no PM2, se responde no `/health`;
+- o túnel, se houver.
+
+**Outros comandos:**
+
+| Para… | Rode |
+|---|---|
+| Fazer a mudança na lista de serviços valer no próximo boot (subiu ou tirou algum) | `npx pm2 save` |
+| Rodar de novo (trocou a senha do Windows ou a pasta) | `npm run servico:instalar` (atualiza a tarefa, não duplica) |
+| Sair do início automático (os serviços continuam rodando) | `npm run servico:desinstalar` |
+| Sair do início automático e parar tudo | `powershell -ExecutionPolicy Bypass -File scripts\windows\desinstalar-servico.ps1 -PararServicos` |
+
+> [!NOTE]
+> Esta tarefa substitui o `schtasks … npx pm2 resurrect` das versões anteriores (mesmo nome, `BenURA`). Rodar `servico:instalar` troca a tarefa antiga pela nova.
+
+---
+
+<a id="docker"></a>
+### 🐳 Docker (alternativa)
+
+A produção segue no **PM2 como serviço do Windows**, que tem o atualizador automático e sobe sem ninguém logado. O Docker fica pronto para quando quiserem migrar ou rodar o BenURA em outra máquina.
+
+**Como roda:**
+- **Um container só,** com os quatro serviços no PM2 (`pm2-runtime`): roteador, rodízio, rotinas e painel conversam pelo `localhost`, como no servidor. Os botões **Desligar/Religar automação** e **Modo simulação** do painel funcionam igual.
+- **Estado no volume `./dados`** (`DADOS_DIR=/dados`). Ficam lá os `state*.json`, as chaves (`painel-segredo.key`, `perfis-segredo.key`), os logs e o `supervisores-grupos.json`. Recriar o container não perde nada.
+- **Travas de instância única num `tmpfs`** (`/run/benura`). Num container novo os PIDs se repetem, e uma trava velha impediria a subida.
+- **Portas:** `3000` (webhooks da Argus), `3001` (webhook de venda) e `3010` (painel).
+- **Configuração:** o mesmo `.env` do servidor (`env_file`).
+
+**No Windows 10/11 Pro:**
+1. Instale o Docker Desktop: `winget install Docker.DockerDesktop`. Ele usa o WSL2, então reinicie se pedir.
+2. Em *Settings → General*, ligue **Start Docker Desktop when you sign in**.
+   > [!WARNING]
+   > O Docker Desktop só sobe **com alguém logado** no Windows. Para um servidor que precisa voltar sozinho depois de queda de energia, o PM2 como serviço é o caminho.
+3. **Na pasta do BenURA:** copie para `dados\` o que hoje está na raiz:
+   - os `state*.json`;
+   - `painel-segredo.key` e `perfis-segredo.key`;
+   - `supervisores-grupos.json` e `vendedores-ramais.json`, se existirem.
+
+   **Pare o PM2 antes** (`npx pm2 stop all`), porque os dois juntos mexeriam na Argus ao mesmo tempo.
+4. Suba com:
+   ```powershell
+   docker compose up -d --build
+   ```
+
+**Comandos do dia a dia:**
+
+| Para… | Rode |
+|---|---|
+| Acompanhar os logs | `docker compose logs -f` (ou `dados\logs\`) |
+| Ver os serviços no PM2 | `docker compose exec benura npx pm2 list` |
+| Atualizar | `git pull` e `docker compose up -d --build` (o atualizador automático não roda no Docker) |
+| Parar (o estado fica em `dados\`) | `docker compose down` |
+
+**Teste da imagem:** o job `docker` do CI constrói a imagem e sobe com uma Argus falsa. Ele confere os quatro serviços no ar, o estado no volume, o Desligar/Religar pelo painel e um `docker restart`. Para rodar o mesmo teste no seu PC: `docker build -t benura:ci .` e depois `node test/docker/fumaca.js`.
 
 ---
 
@@ -638,10 +712,7 @@ flowchart LR
    1. **No PC antigo:** `npx pm2 stop all`, `npx pm2 delete all` e `npx pm2 save --force`. Remova a tarefa ou o serviço que o iniciava com o Windows, para ele não voltar sozinho.
    2. **De novo para o servidor:** copie os `state*.json` do dia.
    3. **No servidor:** `DRY_RUN=0` no `.env` (ou o botão "Modo simulação" do painel), depois `npx pm2 restart all` e `npx pm2 save`.
-6. **Iniciar junto com o Windows:** no **Prompt de Comando como administrador**, rode o comando abaixo. Ele pede a senha do usuário do Windows e sobe o BenURA 1 min depois de o servidor ligar, mesmo sem ninguém logado:
-   ```bat
-   schtasks /create /tn "BenURA" /sc onstart /delay 0001:00 /ru "%USERDOMAIN%\%USERNAME%" /rp * /tr "cmd /c cd /d C:\BenURA\app && npx pm2 resurrect"
-   ```
+6. **Iniciar junto com o Windows:** veja [PM2 como serviço do Windows](#servico-windows): `npm run servico:instalar`, no PowerShell como administrador.
 7. **Webhooks da Argus** (e o de venda, se houver): onde estiver o endereço do PC antigo, troque pelo do servidor (`http://IP-DO-SERVIDOR:3000/webhook?token=…`). Se a Argus chama de fora da rede, libere a porta 3000 no Firewall do Windows.
 
 ### 2. Temporário e grátis: Pages + Tailscale Funnel (conta Cloudflare própria, sem domínio)
@@ -692,10 +763,33 @@ Depois rode `npx pm2 restart benura-painel`.
 
 ### 3. Definitivo: Cloudflare com o `benconsig.com.br`
 
-1. **Túnel:**
-   - Em **Zero Trust → Networks → Tunnels → Create a tunnel** (tipo *Cloudflared*), crie o túnel `benura`.
-   - Rode **no servidor** o comando de instalação que o painel mostra. Isso instala o `cloudflared` como serviço do Windows.
-   - Em **Public Hostname**, aponte `benura-api.benconsig.com.br` para `http://localhost:3010`. O modelo por arquivo é `cloudflared/config.example.yml`.
+<a id="dominio-cloudflare"></a>
+**0. Pôr o `benconsig.com.br` na Cloudflare** (uma vez só; plano Free).
+
+O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estão**: a Cloudflare copia os registros que já existem.
+
+> [!WARNING]
+> Faça com quem cuida do site e do e-mail da Benconsig. Se um registro (principalmente **MX** e **TXT** do e-mail) ficar de fora na cópia, o e-mail para de chegar até alguém corrigir.
+
+1. **Antes de mexer**, tire um print ou anote os registros atuais. Onde fica o DNS hoje: no [Registro.br](https://registro.br), em **Domínios → benconsig.com.br → DNS**, ou no provedor que estiver lá.
+2. **Na Cloudflare** ([dash.cloudflare.com](https://dash.cloudflare.com)):
+   1. Clique em **Add a domain**, digite `benconsig.com.br` e escolha **Quick scan for DNS records**. Depois escolha o plano **Free**.
+   2. **Compare** a lista que a Cloudflare achou com o que você anotou:
+      - adicione o que faltar;
+      - deixe os registros de **e-mail** (MX, TXT/SPF, DKIM) em **DNS only** (nuvem cinza).
+3. **No Registro.br:** em **Domínios → benconsig.com.br → DNS → Alterar servidores DNS**, troque pelos **dois servidores que a Cloudflare mostrou** (algo como `xxx.ns.cloudflare.com`).
+4. **Espere** a Cloudflare mostrar o domínio como **Active**. Costuma levar menos de 1 hora; pode chegar a 24 h. A Cloudflare manda um e-mail quando terminar.
+5. **Confira** que o site e o e-mail continuam funcionando. Só depois siga para o túnel.
+
+**1. Túnel** (com o domínio já **Active**):
+   - Em [one.dash.cloudflare.com](https://one.dash.cloudflare.com), vá em **Networks → Tunnels → Create a tunnel**, escolha o tipo **Cloudflared** e crie o túnel `benura`. Na tela de instalação, escolha **Windows** e **copie o token**: é o texto longo depois de `service install`.
+   - No servidor, no **PowerShell como administrador**, na pasta do BenURA, rode `npm run tunel:instalar` e cole o token (ele não aparece na tela).
+     - O script instala o `cloudflared` (winget) e o serviço do Windows "cloudflared", que sobe sozinho com o PC.
+     - Depois confere se o painel responde no `localhost:3010`.
+     - Rodar de novo troca o token.
+   - Ainda no túnel, em **Public Hostname**, aponte `benura-api.benconsig.com.br` para `http://localhost:3010`. O túnel deve aparecer como **HEALTHY**.
+   - **No Docker:** em vez do script, ponha `TUNNEL_TOKEN=<token>` no `.env` e rode `docker compose --profile tunel up -d`. O `cloudflared` usa a rede do container, então o painel o vê pelo localhost, como no servidor.
+   - O modelo por arquivo, para quem preferir, é `cloudflared/config.example.yml`.
 2. **Service token:** em **Zero Trust → Access → Service Auth → Create Service Token**, crie o `benura-pages`. Guarde o *Client ID* e o *Client Secret*: o Secret só aparece uma vez.
 3. **Fechar a API:** em **Access → Applications → Add (Self-hosted)**, use o domínio `benura-api.benconsig.com.br`, com uma política de ação **Service Auth** que inclui só o token `benura-pages`.
 4. **Pages:**
@@ -715,6 +809,14 @@ Depois rode `npx pm2 restart benura-painel`.
    ```
    Depois rode `npx pm2 restart benura-painel`.
 7. **Pronto:** `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois a senha do painel (BenURA).
+
+**Conferir o caminho todo:** `npm run servico:verificar` mostra o serviço "cloudflared" rodando. Depois:
+- `https://benura-api.benconsig.com.br/health`, aberto direto no navegador, é barrado pelo Access. Isso é o certo: só a página entra.
+- `https://benura.benconsig.com.br` pede o e-mail e depois a senha do painel.
+
+**Desligar o Tailscale** (quando o definitivo estiver no ar):
+1. No servidor, `tailscale funnel --https=443 off`.
+2. No Pages, troque o `BENURA_API_URL` para `https://benura-api.benconsig.com.br` e use **Retry deployment**.
 
 **Atualizações:**
 - **Página:** cada merge no `main` publica a página sozinho, porque o Pages lê o build do git.

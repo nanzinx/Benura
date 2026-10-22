@@ -21,7 +21,8 @@
 
 const path = require('path');
 
-const LOGS = path.join(__dirname, 'logs');
+// Os logs do PM2 vão junto com os do BenURA (no Docker, LOGS_DIR=/dados/logs).
+const LOGS = process.env.LOGS_DIR || path.join(process.env.DADOS_DIR || __dirname, 'logs');
 
 const comum = {
   cwd: __dirname,

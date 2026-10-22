@@ -1,0 +1,22 @@
+# Nada de segredo, estado ou log dentro da imagem: tudo isso fica no volume /dados.
+.git
+.github
+node_modules
+painel-web
+.env
+.env.*
+!.env.example
+state*.json
+state*.json.bak
+state*.json.tmp
+*.lock
+argus-pausa.json
+auditoria*.jsonl
+logs
+dados
+.simulacao
+*.key
+supervisores-grupos.json
+vendedores-ramais.json
+*.tsbuildinfo
+test
