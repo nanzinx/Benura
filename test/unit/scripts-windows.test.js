@@ -31,9 +31,9 @@ test('scripts do Windows: sintaxe válida no PowerShell', { skip: process.platfo
   }
 });
 
-test('package.json: os comandos servico:* apontam para scripts que existem', () => {
+test('package.json: os comandos servico:* e tunel:instalar apontam para scripts que existem', () => {
   const { scripts: npm } = require('../../package.json');
-  for (const nome of ['servico:instalar', 'servico:verificar', 'servico:desinstalar']) {
+  for (const nome of ['servico:instalar', 'servico:verificar', 'servico:desinstalar', 'tunel:instalar']) {
     const arquivo = /-File (\S+\.ps1)/.exec(npm[nome])?.[1];
     assert.ok(arquivo && fs.existsSync(path.join(__dirname, '..', '..', arquivo)), nome);
   }

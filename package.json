@@ -23,6 +23,7 @@
     "servico:instalar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/instalar-servico.ps1 -ComAtualizador",
     "servico:verificar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/verificar-servico.ps1",
     "servico:desinstalar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/desinstalar-servico.ps1",
+    "tunel:instalar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/instalar-tunel.ps1",
     "test:cenarios": "node test/rodizio/cenarios.js",
     "atualizador:iniciar": "pm2 start ecosystem.atualizador.config.js",
     "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",

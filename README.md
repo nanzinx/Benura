@@ -763,10 +763,33 @@ Depois rode `npx pm2 restart benura-painel`.
 
 ### 3. Definitivo: Cloudflare com o `benconsig.com.br`
 
-1. **Túnel:**
-   - Em **Zero Trust → Networks → Tunnels → Create a tunnel** (tipo *Cloudflared*), crie o túnel `benura`.
-   - Rode **no servidor** o comando de instalação que o painel mostra. Isso instala o `cloudflared` como serviço do Windows.
-   - Em **Public Hostname**, aponte `benura-api.benconsig.com.br` para `http://localhost:3010`. O modelo por arquivo é `cloudflared/config.example.yml`.
+<a id="dominio-cloudflare"></a>
+**0. Pôr o `benconsig.com.br` na Cloudflare** (uma vez só; plano Free).
+
+O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estão**: a Cloudflare copia os registros que já existem.
+
+> [!WARNING]
+> Faça com quem cuida do site e do e-mail da Benconsig. Se um registro (principalmente **MX** e **TXT** do e-mail) ficar de fora na cópia, o e-mail para de chegar até alguém corrigir.
+
+1. **Antes de mexer**, tire um print ou anote os registros atuais. Onde fica o DNS hoje: no [Registro.br](https://registro.br), em **Domínios → benconsig.com.br → DNS**, ou no provedor que estiver lá.
+2. **Na Cloudflare** ([dash.cloudflare.com](https://dash.cloudflare.com)):
+   1. Clique em **Add a domain**, digite `benconsig.com.br` e escolha **Quick scan for DNS records**. Depois escolha o plano **Free**.
+   2. **Compare** a lista que a Cloudflare achou com o que você anotou:
+      - adicione o que faltar;
+      - deixe os registros de **e-mail** (MX, TXT/SPF, DKIM) em **DNS only** (nuvem cinza).
+3. **No Registro.br:** em **Domínios → benconsig.com.br → DNS → Alterar servidores DNS**, troque pelos **dois servidores que a Cloudflare mostrou** (algo como `xxx.ns.cloudflare.com`).
+4. **Espere** a Cloudflare mostrar o domínio como **Active**. Costuma levar menos de 1 hora; pode chegar a 24 h. A Cloudflare manda um e-mail quando terminar.
+5. **Confira** que o site e o e-mail continuam funcionando. Só depois siga para o túnel.
+
+**1. Túnel** (com o domínio já **Active**):
+   - Em [one.dash.cloudflare.com](https://one.dash.cloudflare.com), vá em **Networks → Tunnels → Create a tunnel**, escolha o tipo **Cloudflared** e crie o túnel `benura`. Na tela de instalação, escolha **Windows** e **copie o token**: é o texto longo depois de `service install`.
+   - No servidor, no **PowerShell como administrador**, na pasta do BenURA, rode `npm run tunel:instalar` e cole o token (ele não aparece na tela).
+     - O script instala o `cloudflared` (winget) e o serviço do Windows "cloudflared", que sobe sozinho com o PC.
+     - Depois confere se o painel responde no `localhost:3010`.
+     - Rodar de novo troca o token.
+   - Ainda no túnel, em **Public Hostname**, aponte `benura-api.benconsig.com.br` para `http://localhost:3010`. O túnel deve aparecer como **HEALTHY**.
+   - **No Docker:** em vez do script, ponha `TUNNEL_TOKEN=<token>` no `.env` e rode `docker compose --profile tunel up -d`. O `cloudflared` usa a rede do container, então o painel o vê pelo localhost, como no servidor.
+   - O modelo por arquivo, para quem preferir, é `cloudflared/config.example.yml`.
 2. **Service token:** em **Zero Trust → Access → Service Auth → Create Service Token**, crie o `benura-pages`. Guarde o *Client ID* e o *Client Secret*: o Secret só aparece uma vez.
 3. **Fechar a API:** em **Access → Applications → Add (Self-hosted)**, use o domínio `benura-api.benconsig.com.br`, com uma política de ação **Service Auth** que inclui só o token `benura-pages`.
 4. **Pages:**
@@ -786,6 +809,14 @@ Depois rode `npx pm2 restart benura-painel`.
    ```
    Depois rode `npx pm2 restart benura-painel`.
 7. **Pronto:** `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois a senha do painel (BenURA).
+
+**Conferir o caminho todo:** `npm run servico:verificar` mostra o serviço "cloudflared" rodando. Depois:
+- `https://benura-api.benconsig.com.br/health`, aberto direto no navegador, é barrado pelo Access. Isso é o certo: só a página entra.
+- `https://benura.benconsig.com.br` pede o e-mail e depois a senha do painel.
+
+**Desligar o Tailscale** (quando o definitivo estiver no ar):
+1. No servidor, `tailscale funnel --https=443 off`.
+2. No Pages, troque o `BENURA_API_URL` para `https://benura-api.benconsig.com.br` e use **Retry deployment**.
 
 **Atualizações:**
 - **Página:** cada merge no `main` publica a página sozinho, porque o Pages lê o build do git.
