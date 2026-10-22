@@ -9,11 +9,42 @@ export interface OperadorNaUra {
   livreDesde: string | null;
   emCarencia: boolean;
   fixo: boolean;
+  /** [NOVO] robô (operador virtual) na lista da URA: fora das contagens de humanos */
+  virtual?: boolean;
+  /** [NOVO] tipo da pausa (descricaoPausa da Argus), quando em pausa */
+  pausa?: string | null;
+  /** [NOVO] desde quando está no status (tempoStatus da Argus; livre: desde que ficou livre) */
+  statusDesde?: string | null;
 }
 
 export interface Interruptor {
   ligado: boolean;
   desde: string | null;
+}
+
+export type EstadoTermometro = 'medindo' | 'calma' | 'normal' | 'agressiva';
+export type StatusDaUra = 'calma' | 'normal' | 'agressiva';
+
+/** Termômetro automático (src/rodizio/termometro-ura.js; faixas em src/config/uraThresholds.js). */
+export interface Termometro {
+  estado: EstadoTermometro;
+  desde: string | null;
+  /** espera média dos humanos livres por uma ligação, em segundos (null = sem dado) */
+  esperaSeg: number | null;
+  atendimentos: number;
+  livresAgora: number;
+  callbacks: number;
+  janelaMin: number;
+  faixas: { estado: StatusDaUra; deSeg: number }[];
+}
+
+/** [NOVO] Status da URA que vale para o pânico (src/rodizio/status-ura.js). */
+export interface StatusUra {
+  status: EstadoTermometro;
+  modo: 'automatico' | 'manual';
+  desde: string | null;
+  por: string | null;
+  automatico: Termometro | null;
 }
 
 export interface SaudeRodizio {
@@ -32,31 +63,16 @@ export interface SaudeRodizio {
     antesDeSairMs?: number;
     fixoOciosoMs?: number | null;
     fixoReduzirMs?: number | null;
-    uraPassiva?: Interruptor;
-    /** "Passiva automática": com o termômetro em calma, age como a URA passiva. */
-    passivaAuto?: Interruptor | null;
-    /** A regra do fixo está relaxada agora (passiva manual ou automática). */
+    /** A regra do fixo está relaxada agora (URA calma). */
     passivaAgora?: boolean;
   };
   termometro?: Termometro | null;
+  statusUra?: StatusUra | null;
+  /** [NOVO] quantos o "Alocar Todos no Ativo" moveria (o filtro é do backend) */
+  transferenciaUraAtivo?: { elegiveis: number; fixos: number; uraCheiaLigada: boolean };
+  /** [NOVO] limites das pausas em minutos (src/config/pausas.js) */
+  pausasLimitesMin?: Record<string, number>;
   relatorio?: RelatorioDoDia | null;
-}
-
-export type EstadoTermometro = 'medindo' | 'calma' | 'normal' | 'agressiva';
-
-/** Termômetro da URA (src/rodizio/termometro-ura.js). */
-export interface Termometro {
-  estado: EstadoTermometro;
-  desde: string | null;
-  /** null = sem medida; -1 = nenhuma derivação com gente livre esperando */
-  minutosPorDerivacao: number | null;
-  derivacoes: number;
-  callbacks: number;
-  observadoMin: number;
-  janelaMin: number;
-  calmaMin: number;
-  agressivaSeg: number;
-  minObservadoMin: number;
 }
 
 export interface HoraDoRelatorio {
@@ -68,6 +84,8 @@ export interface HoraDoRelatorio {
   panicoMin: number;
   calmaMin: number;
   agressivaMin: number;
+  leadsDerivados?: number;
+  transbordos?: number;
 }
 
 /** Relatório do dia (src/rodizio/estatisticas-dia.js). Minutos com uma casa. */
@@ -80,7 +98,34 @@ export interface RelatorioDoDia {
   panicoMin: Record<'zero' | 'saindo' | 'fixo', number>;
   panicoVezes: Record<'zero' | 'saindo' | 'fixo', number>;
   termometroMin: Record<EstadoTermometro, number>;
+  leadsDerivados?: number;
+  transbordos?: number;
+  transbordosPorMotivo?: Record<string, number>;
+  filaMediaSeg?: number | null;
+  /** [NOVO] minutos em pausa por tipo, hoje */
+  pausasMin?: Record<string, number>;
   horas: HoraDoRelatorio[];
+}
+
+/** [NOVO] GET /api/metricas/hoje (00:00 até agora). */
+export interface MetricasHoje {
+  dia: string | null;
+  leadsDerivadosHoje: number | null;
+  transbordosHoje: number | null;
+  transbordosPorMotivo: Record<string, number>;
+  filaClienteMediaSeg: number | null;
+  esperaLivresSeg: number | null;
+  /** a API da Argus não traz a fila em tempo real: null até haver fonte */
+  emFilaAgora: number | null;
+  ultimoWebhookEncerramento: string | null;
+}
+
+/** [NOVO] POST /api/operadores/transferir-ura-ativo */
+export interface ResultadoTransferencia {
+  movidos: string[];
+  ignorados: { ramal: string; nome: string | null; motivo: string }[];
+  erros: { ramal: string; nome: string | null; erro: string }[];
+  uraCheiaDesligada: boolean;
 }
 
 export interface SaudeRoteador { uptime?: number; cargaInicialFeita?: boolean; ultimoMonitoramento?: string | null }

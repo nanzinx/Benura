@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 import type { ComandoUra } from '../api';
 import { useComandoUra, useRisco, useVisao } from '../dados';
 import { dataBr, horaCurta, motivoLegivel } from '../formatos';
-import { ESTADOS_TERMOMETRO, MedidorTermometro, medidaDoTermometro } from '../componentes/Termometro';
+import { StatusUra } from '../componentes/StatusUra';
 import { ativarAvisos, avisosAtivos } from '../notificacoes';
 import { Botao, Cartao, Esqueleto, Selo, Vazio, type Tom } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
@@ -101,19 +101,19 @@ export function Ura() {
     );
   }
   const p = r.panico;
-  const passiva = p?.uraPassiva;
   const cheia = r.uraCheia;
   const risco = v?.alertas;
   const antesDeSair = Math.round((p?.antesDeSairMs ?? 60_000) / 1000);
   const passoFixo = Math.round((p?.fixoReduzirMs ?? 60_000) / 1000);
   const fixoOcioso = Math.round((p?.fixoOciosoMs ?? 180_000) / 60_000);
-  const t = r.termometro;
-  const auto = p?.passivaAuto;
 
   return (
     <>
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-bold tracking-tight">URA e robôs</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-tight">URA e robôs</h1>
+          <StatusUra />
+        </div>
         <p className="text-sm text-slate-500 dark:text-slate-400">Quem liga os robôs é a supervisão, pelo painel da Argus. O BenURA só desliga.</p>
       </div>
       <div className="mb-5 grid gap-5 lg:grid-cols-2">
@@ -125,37 +125,11 @@ export function Ura() {
             <ul className="grid list-disc gap-1.5 pl-5">
               <li><b>Nenhum livre:</b> desliga todos os robôs na hora, inclusive os em ligação.</li>
               <li><b>1 livre:</b> os robôs seguem até <b>{antesDeSair} s</b> antes de ele sair por ociosidade; aí os parados desligam e os em ligação terminam a chamada.</li>
-              <li><b>1 livre fixo</b> (equipe do Robson): desliga <b>metade</b> dos robôs ligados e de novo a cada <b>{passoFixo} s</b> (quem está em ligação termina; fica pelo menos 1). Livre há <b>{fixoOcioso} min</b>, ou com a URA passiva (manual ou calma), os robôs seguem até ele atender.</li>
+              <li><b>1 livre fixo</b> (equipe do Robson): desliga <b>metade</b> dos robôs ligados e de novo a cada <b>{passoFixo} s</b> (quem está em ligação termina; fica pelo menos 1). Livre há <b>{fixoOcioso} min</b>, ou com a URA em <b>CALMA</b> (status da URA, automático ou manual), os robôs seguem até ele atender.</li>
             </ul>
             {p.motivo && <p className="rounded-lg bg-red-50 px-3 py-2 font-semibold text-red-700 dark:bg-red-950/60 dark:text-red-300">Agora: {motivoLegivel(p.motivo)}</p>}
           </Interruptor>
         )}
-        {t && p?.modo && (
-          <Interruptor comando="ura/passiva-auto" titulo="Termômetro da URA"
-            estado={{ texto: ESTADOS_TERMOMETRO[t.estado].texto, tom: ESTADOS_TERMOMETRO[t.estado].tom }}
-            ligar={{ texto: 'Ligar passiva automática' }}
-            desligar={{ texto: 'Desligar', confirmar: { titulo: 'Desligar a passiva automática?', texto: 'Com a URA calma, 1 fixo livre volta a reduzir os robôs. Só o botão "URA passiva hoje" relaxa a regra.' } }}>
-            <MedidorTermometro t={t} />
-            <p><b>Agora:</b> {medidaDoTermometro(t)} · {t.derivacoes} derivação(ões) em {t.janelaMin} min · {t.observadoMin.toLocaleString('pt-BR')} min observados com robô ligado{t.desde ? ` · ${ESTADOS_TERMOMETRO[t.estado].texto} desde ${horaCurta(t.desde)}` : ''}.</p>
-            <p className="text-slate-500 dark:text-slate-400">{ESTADOS_TERMOMETRO[t.estado].explicacao}</p>
-            <p className="flex flex-wrap items-center gap-2">
-              <b>Passiva automática:</b>
-              {auto?.ligado
-                ? <Selo tom={p?.passivaAgora && !passiva?.ligado ? 'ok' : 'neutro'}>{p?.passivaAgora && !passiva?.ligado ? 'agindo agora (URA calma)' : 'ligada: age quando a URA ficar calma'}</Selo>
-                : <Selo tom="neutro">desligada</Selo>}
-            </p>
-            {passiva?.ligado && t.estado === 'agressiva' && (
-              <p className="rounded-lg bg-amber-50 px-3 py-2 font-semibold text-amber-900 dark:bg-amber-950/60 dark:text-amber-100">A URA está agressiva e a URA passiva hoje está ligada: considere desligá-la.</p>
-            )}
-          </Interruptor>
-        )}
-        <Interruptor comando="ura/passiva" titulo="URA passiva hoje"
-          estado={passiva?.ligado ? { texto: `ligada desde ${horaCurta(passiva.desde)}`, tom: 'ok' } : { texto: 'desligada', tom: 'neutro' }}
-          ligar={{ texto: 'Ligar' }} desligar={{ texto: 'Desligar' }}>
-          <p>Para os dias em que a URA não está agressiva. Ligada, com só um <b>fixo</b> livre os robôs seguem até ele atender; aí sobra nenhum livre e eles desligam.</p>
-          <p>O termômetro faz o mesmo sozinho quando a URA fica calma; este botão vale o dia todo, seja qual for o termômetro.</p>
-          <p className="text-slate-500 dark:text-slate-400">Vale até desligar ou até virar o dia.</p>
-        </Interruptor>
         <Interruptor comando="ura/cheia" titulo="URA cheia"
           estado={cheia?.ligada ? { texto: `ligada desde ${horaCurta(cheia.desde)}`, tom: 'alerta' } : { texto: 'rodízio normal', tom: 'neutro' }}
           ligar={{ texto: 'Colocar todos na URA', confirmar: { titulo: 'Colocar todos na URA?', texto: 'Todos os operadores do Ativo vão para a URA em até 5 s, atendendo ou não.' } }}

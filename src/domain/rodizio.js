@@ -277,6 +277,32 @@ function interpretarCallback(evento) {
   return { motivo, chave: partes.length ? partes.join('|') : null };
 }
 
+/**
+ * [NOVO] Conclusões da derivação por tipo de webhook (a numeração muda entre os dois):
+ * tipo 4 = robô (operador virtual) com o cliente pedindo humano; tipo 5 = fim da URA receptiva.
+ */
+const CONCLUSOES_ENCERRAMENTO = Object.freeze({
+  4: Object.freeze({ 1: 'derivou', 2: 'abandonou a fila', 4: 'sem agente', 5: 'time-out na fila' }),
+  5: Object.freeze({ 1: 'derivou', 2: 'abandonou a fila', 3: 'sem agente', 4: 'time-out na fila' }),
+});
+
+/**
+ * [NOVO] Ligação da URA que terminou: foi para um humano (lead derivado) ou não
+ * (transbordo: abandonou, sem agente, time-out). Cada ligação conta em uma só.
+ * @returns {{ chave: string|null, derivou: boolean, motivo: string, filaSeg: number|null }|null}
+ */
+function interpretarEncerramentoUra(evento) {
+  const conclusoes = CONCLUSOES_ENCERRAMENTO[evento?.idTipoWebhook];
+  if (!conclusoes) return null;
+  if (evento.idTipoWebhook === 4 && evento.acionouDerivacao === false) return null;
+  const motivo = conclusoes[evento.idConclusaoDerivacao ?? evento.FidConclusaoDerivacao];
+  if (!motivo) return null;
+  const fila = Number(evento.tempoSegundosFila ?? evento.tempoFilaSegundos);
+  const partes = [evento.telefone, evento.dataInicioUra ?? evento.dataInicioOperVirtual].filter((p) => p != null && p !== '');
+  const chave = evento.idLigacao != null && evento.idLigacao !== '' ? `ligacao:${evento.idLigacao}` : partes.length ? partes.join('|') : null;
+  return { chave, derivou: motivo === 'derivou', motivo, filaSeg: Number.isFinite(fila) && fila >= 0 ? fila : null };
+}
+
 /** Robô respondeu que já estava deslogado: para nós, é sucesso. */
 function jaEstavaDeslogado(descricao) {
   const d = String(descricao || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -301,5 +327,6 @@ module.exports = {
   reconciliarMovidos,
   interpretarWebhook,
   interpretarCallback,
+  interpretarEncerramentoUra,
   jaEstavaDeslogado,
 };

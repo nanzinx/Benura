@@ -104,7 +104,7 @@ function criarServidor({ controllers, rotas = rotasDoRoteador(controllers), cfg,
   async function atender(req) {
     const rota = encontrarRota(rotas, req);
     autorizar(rota, req, cfg.tokenAdmin);
-    const corpo = req.method === 'POST' ? await lerCorpoJson(req, rota.limiteCorpoBytes ?? cfg.limiteCorpoBytes) : null;
+    const corpo = req.method === 'POST' || req.method === 'PUT' ? await lerCorpoJson(req, rota.limiteCorpoBytes ?? cfg.limiteCorpoBytes) : null;
     return rota.handler({ req, corpo });
   }
 

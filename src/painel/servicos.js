@@ -7,14 +7,20 @@
  * sem passar por aqui).
  */
 
-/** Comandos do painel → serviço e rota. Os de escrita ficam no log do painel. */
+/**
+ * Comandos do painel → serviço e rota. Os de escrita ficam no log do painel.
+ * comQuem: o painel põe no corpo quem pediu (`por`: e-mail do Access e IP), para o log do serviço.
+ */
 const ACOES = Object.freeze([
   { metodo: 'POST', caminho: '/api/rodizio/panico', servico: 'rodizio', destino: '/panico', nome: 'ligar o pânico' },
   { metodo: 'DELETE', caminho: '/api/rodizio/panico', servico: 'rodizio', destino: '/panico', nome: 'desligar o pânico' },
-  { metodo: 'POST', caminho: '/api/rodizio/ura/passiva', servico: 'rodizio', destino: '/ura/passiva', nome: 'ligar a URA passiva hoje' },
-  { metodo: 'DELETE', caminho: '/api/rodizio/ura/passiva', servico: 'rodizio', destino: '/ura/passiva', nome: 'desligar a URA passiva' },
-  { metodo: 'POST', caminho: '/api/rodizio/ura/passiva-auto', servico: 'rodizio', destino: '/ura/passiva-auto', nome: 'ligar a passiva automática' },
-  { metodo: 'DELETE', caminho: '/api/rodizio/ura/passiva-auto', servico: 'rodizio', destino: '/ura/passiva-auto', nome: 'desligar a passiva automática' },
+  // [NOVO] status da URA (manual ou automático), métricas do dia e "Alocar Todos no Ativo"
+  { metodo: 'PUT', caminho: '/api/ura/status', servico: 'rodizio', destino: '/ura/status', nome: 'mudar o status da URA', comQuem: true, limiteBytes: 1024 },
+  { metodo: 'GET', caminho: '/api/metricas/hoje', servico: 'rodizio', destino: '/metricas/hoje' },
+  {
+    metodo: 'POST', caminho: '/api/operadores/transferir-ura-ativo', servico: 'rodizio', destino: '/operadores/transferir-ura-ativo',
+    nome: 'alocar todos da URA no Ativo', comQuem: true, limiteBytes: 1024, timeoutMs: 60_000,
+  },
   { metodo: 'POST', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'ligar a URA cheia' },
   { metodo: 'DELETE', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'desligar a URA cheia' },
   { metodo: 'POST', caminho: '/api/rodizio/risco/desligar', servico: 'rodizio', destino: '/risco/desligar', nome: 'ligar "desligar robôs com cliente de risco"' },

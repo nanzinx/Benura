@@ -246,3 +246,23 @@ test('config do painel: avisa o Pages pela metade e a origem que não é https',
   assert.match(validar({ origensPermitidas: [PAGES], proxySegredo: 'curto' }).avisos.join(), /curto demais/);
   assert.match(validar({ origensPermitidas: ['http://benura.benconsig.com.br/painel'], proxySegredo: SEGREDO }).avisos.join(), /https sem caminho/);
 });
+
+test('painel [NOVO]: PUT /api/ura/status e "alocar todos no Ativo" levam quem pediu; métricas por GET', async (t) => {
+  const { servidor, chamadas, pedir } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
+  t.after(() => servidor.close());
+  const pelaPagina = { 'X-Forwarded-For': '100.64.0.1', 'X-Benura-Proxy': SEGREDO, 'X-Benura-Cliente-IP': '200.1.2.3', 'X-Benura-Cliente-Email': 'ana@empresa.com' };
+  const cookie = (await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: pelaPagina })).headers.get('set-cookie').split(';')[0];
+
+  assert.equal((await pedir('PUT', '/api/ura/status', { cookie, origem: PAGES, extras: pelaPagina, corpo: { status: 'calma', modo: 'manual', por: 'falso' } })).status, 200);
+  const status = chamadas.find((c) => c.url === 'http://rodizio/ura/status');
+  assert.equal(status.metodo, 'PUT');
+  assert.deepEqual(JSON.parse(status.corpo), { status: 'calma', modo: 'manual', por: 'ana@empresa.com (200.1.2.3)' }, 'o "por" é o do painel, não o do navegador');
+
+  await pedir('POST', '/api/operadores/transferir-ura-ativo', { cookie, origem: PAGES, extras: pelaPagina });
+  assert.deepEqual(JSON.parse(chamadas.find((c) => c.url === 'http://rodizio/operadores/transferir-ura-ativo').corpo), { por: 'ana@empresa.com (200.1.2.3)' });
+  assert.equal((await pedir('POST', '/api/operadores/transferir-ura-ativo', { cookie, painel: false })).status, 403, 'escrita exige o cabeçalho do painel');
+
+  assert.equal((await pedir('GET', '/api/metricas/hoje', { cookie, origem: PAGES, extras: pelaPagina })).status, 200);
+  assert.ok(chamadas.some((c) => c.url === 'http://rodizio/metricas/hoje' && c.metodo === 'GET'));
+  assert.equal((await pedir('PUT', '/api/ura/status', { cookie, origem: PAGES, extras: pelaPagina, corpo: [1] })).status, 400);
+});

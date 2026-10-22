@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dataBr, degraus, duracao, horaDeSegundos, minutos, motivoLegivel, reais, segundosDoDia } from './formatos';
+import { cronometro, dataBr, degraus, duracao, horaDeSegundos, limiteDaPausa, minutos, motivoLegivel, ordenarOperadores, reais, segundosDoDia } from './formatos';
 
 describe('formatos', () => {
   it('minutos para leitura rápida', () => {
@@ -33,5 +33,30 @@ describe('formatos', () => {
       { t: segundosDoDia('09:30:00'), y: 1 }, { t: segundosDoDia('10:00:00'), y: 3 }, { t: agora, y: 3 },
     ]);
     expect(degraus([{ hora: '08:00:00', n: null }], (p) => p.n, { agora, janelaSeg: null })).toEqual([]);
+  });
+});
+
+describe('receptivo [NOVO]', () => {
+  it('ordena por grupo, tempo no status (mais tempo primeiro) e nome; tira os robôs', () => {
+    const op = (ramal: string, classe: string, desde: string | null, nome = ramal, virtual = false) => ({ ramal, nome, classe, statusDesde: desde, virtual });
+    const lista = [
+      op('1', 'livre', '2026-10-22T10:05:00Z'), op('2', 'atendimento', '2026-10-22T10:00:00Z'), op('3', 'livre', '2026-10-22T10:01:00Z', 'Bruno'),
+      op('4', 'offline', null), op('5', 'outro', '2026-10-22T09:00:00Z'), op('6', 'livre', '2026-10-22T10:01:00Z', 'Aline'),
+      op('9', 'livre', '2026-10-22T08:00:00Z', 'OPER VIRTUAL 1', true),
+    ];
+    expect(ordenarOperadores(lista).map((o) => o.ramal)).toEqual(['2', '6', '3', '1', '5', '4']);
+  });
+
+  it('limite da pausa pelo nome da Argus, sem acento nem maiúscula', () => {
+    const limites = { 'almoço': 60, banheiro: 5 };
+    expect(limiteDaPausa('ALMOCO 1', limites)).toBe(60);
+    expect(limiteDaPausa('Banheiro', limites)).toBe(5);
+    expect(limiteDaPausa('Treinamento', limites)).toBeNull();
+    expect(limiteDaPausa(null, limites)).toBeNull();
+  });
+
+  it('cronômetro', () => {
+    expect(cronometro(65)).toBe('1:05');
+    expect(cronometro(3725)).toBe('1:02:05');
   });
 });

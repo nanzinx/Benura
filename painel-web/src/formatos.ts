@@ -63,3 +63,36 @@ export function minutos(min: number | null | undefined): string {
   if (m < 60) return `${m} min`;
   return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
 }
+
+/** [NOVO] Ordem dos grupos na Visão Geral: em atendimento na URA → livres → pausa → sem resposta → offline. */
+const ORDEM_DOS_GRUPOS: Record<string, number> = { atendimento: 0, livre: 1, outro: 2, erro: 3, offline: 4 };
+
+/**
+ * [NOVO] Operadores humanos (sem robô) na ordem da Visão Geral: pelo grupo; dentro dele,
+ * quem está há mais tempo no status primeiro; empate pelo nome (A–Z).
+ */
+export function ordenarOperadores<T extends { ramal: string; nome: string | null; classe: string | null; statusDesde?: string | null; virtual?: boolean }>(lista: T[]): T[] {
+  const desde = (o: T) => (o.statusDesde ? new Date(o.statusDesde).getTime() : Number.POSITIVE_INFINITY);
+  return lista.filter((o) => !o.virtual).sort((a, b) => (ORDEM_DOS_GRUPOS[a.classe ?? 'erro']! - ORDEM_DOS_GRUPOS[b.classe ?? 'erro']!)
+    || desde(a) - desde(b)
+    || String(a.nome ?? a.ramal).localeCompare(String(b.nome ?? b.ramal), 'pt-BR'));
+}
+
+const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+/** [NOVO] Limite (min) da pausa pelo tipo da Argus: casa pelo começo do nome, sem acento ("ALMOÇO 1" → almoço). */
+export function limiteDaPausa(tipo: string | null | undefined, limites: Record<string, number> = {}): number | null {
+  if (!tipo) return null;
+  const t = semAcento(tipo);
+  const chave = Object.keys(limites).find((k) => t.startsWith(semAcento(k)));
+  return chave ? limites[chave]! : null;
+}
+
+/** [NOVO] "1:05" (m:ss) ou "1:02:05" (h:mm:ss). */
+export function cronometro(seg: number): string {
+  const s = Math.max(0, Math.floor(seg));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}

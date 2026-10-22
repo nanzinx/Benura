@@ -1,6 +1,6 @@
 /** Cliente da API do benura-painel. Escrita leva o cabeçalho X-Painel (o servidor exige). */
 
-import type { ClienteDeRisco, Dia, EstadoAutomacao, RespostaInterruptor, ResultadoEsteira, StatusRoteador, Visao } from './tipos';
+import type { ClienteDeRisco, Dia, EstadoAutomacao, MetricasHoje, RespostaInterruptor, ResultadoEsteira, ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao } from './tipos';
 
 /** A sessão venceu ou não existe: a página volta para a entrada. */
 export class SemSessao extends Error {
@@ -9,7 +9,7 @@ export class SemSessao extends Error {
   }
 }
 
-export type Metodo = 'GET' | 'POST' | 'DELETE';
+export type Metodo = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 export async function pedir<T>(metodo: Metodo, url: string, corpo?: unknown): Promise<T> {
   const resposta = await fetch(url, {
@@ -30,7 +30,7 @@ export async function pedir<T>(metodo: Metodo, url: string, corpo?: unknown): Pr
 }
 
 /** Comandos da URA (lista fechada no servidor: src/painel/servicos.js). */
-export type ComandoUra = 'panico' | 'ura/passiva' | 'ura/passiva-auto' | 'ura/cheia' | 'risco/desligar';
+export type ComandoUra = 'panico' | 'ura/cheia' | 'risco/desligar';
 
 export const api = {
   sessao: () => pedir<{ ok: true }>('GET', '/api/sessao'),
@@ -46,4 +46,8 @@ export const api = {
   recarregarVendas: () => pedir<{ mensagem: string }>('POST', '/api/roteador/recarregar'),
   automacao: (ligar: boolean) => pedir<EstadoAutomacao>('POST', ligar ? '/api/automacao/religar' : '/api/automacao/desligar'),
   simulacao: (ligada: boolean) => pedir<EstadoAutomacao>('POST', '/api/simulacao', { ligada }),
+  // [NOVO]
+  metricasHoje: () => pedir<MetricasHoje>('GET', '/api/metricas/hoje'),
+  statusUra: (pedido: { status?: StatusDaUra; modo: 'manual' | 'automatico' }) => pedir<StatusUra & { mudou: boolean }>('PUT', '/api/ura/status', pedido),
+  transferirUraAtivo: () => pedir<ResultadoTransferencia>('POST', '/api/operadores/transferir-ura-ativo', {}),
 };
