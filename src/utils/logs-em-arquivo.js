@@ -66,7 +66,8 @@ const mascarar = (segredos) => {
  * @param {string} [opcoes.cabecalho] - primeira linha (scripts: "=== execução ===")
  * @param {() => Date} [opcoes.agora]
  * @param {{ stdout: object, stderr: object }} [opcoes.saidas] - para os testes
- * @returns {{ parar(): void }} devolve o stdout/stderr originais e fecha os arquivos
+ * @returns {{ parar(): Promise<void> }} devolve o stdout/stderr originais e fecha os arquivos
+ *          (a Promise resolve quando tudo foi gravado, inclusive os arquivos fechados na virada do dia)
  */
 function gravarLogsEmArquivo({
   servico, pasta, fuso, dias = 30, segredos = [], cabecalho = '', agora = () => new Date(),
@@ -75,6 +76,8 @@ function gravarLogsEmArquivo({
   const relogio = relogioLocal(fuso);
   const limpar = mascarar(segredos);
   const abertos = new Map(); // arquivo → WriteStream do dia atual
+  /** Gravações ainda em andamento (os arquivos do dia anterior também, até terminarem). */
+  const gravando = new Set();
   let diaAtual = null;
 
   const virarDia = (dia) => {
@@ -89,6 +92,9 @@ function gravarLogsEmArquivo({
     if (!abertos.has(arquivo)) {
       const stream = fs.createWriteStream(path.join(pasta, diaAtual, arquivo), { flags: 'a' });
       stream.on('error', () => {}); // disco cheio ou arquivo aberto: o serviço não pode cair por causa do log
+      const terminou = new Promise((ok) => stream.once('close', ok));
+      gravando.add(terminou);
+      terminou.then(() => gravando.delete(terminou));
       abertos.set(arquivo, stream);
     }
     abertos.get(arquivo).write(`${linha}\n`);
@@ -132,13 +138,14 @@ function gravarLogsEmArquivo({
       for (const restaurar of originais) restaurar();
       for (const s of abertos.values()) s.end();
       abertos.clear();
+      return Promise.all([...gravando]).then(() => undefined);
     },
   };
 }
 
 /**
  * Liga os arquivos de log de um serviço a partir da configuração (cfg.logs).
- * @returns {{ parar(): void }|null} null se LOGS_ARQUIVOS=0
+ * @returns {{ parar(): Promise<void> }|null} null se LOGS_ARQUIVOS=0
  */
 function ativarLogsEmArquivo(cfg, servico, extras = {}) {
   if (!cfg.logs?.arquivos) return null;
