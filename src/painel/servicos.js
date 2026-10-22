@@ -21,6 +21,10 @@ const ACOES = Object.freeze([
     metodo: 'POST', caminho: '/api/operadores/transferir-ura-ativo', servico: 'rodizio', destino: '/operadores/transferir-ura-ativo',
     nome: 'alocar todos da URA no Ativo', comQuem: true, limiteBytes: 1024, timeoutMs: 60_000,
   },
+  {
+    metodo: 'POST', caminho: '/api/operadores/retomar-rodizio', servico: 'rodizio', destino: '/operadores/retomar-rodizio',
+    nome: 'retomar o rodízio da URA', comQuem: true, limiteBytes: 1024, timeoutMs: 60_000,
+  },
   { metodo: 'POST', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'ligar a URA cheia' },
   { metodo: 'DELETE', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'desligar a URA cheia' },
   { metodo: 'POST', caminho: '/api/rodizio/risco/desligar', servico: 'rodizio', destino: '/risco/desligar', nome: 'ligar "desligar robôs com cliente de risco"' },

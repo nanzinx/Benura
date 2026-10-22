@@ -5,11 +5,11 @@
  */
 
 import { clsx } from 'clsx';
-import { ArrowRightLeft, Coffee, Hourglass, PhoneForwarded, PhoneIncoming, UserCheck, Users } from 'lucide-react';
+import { ArrowRightLeft, Coffee, RotateCcw, Hourglass, PhoneForwarded, PhoneIncoming, UserCheck, Users } from 'lucide-react';
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { StatusUra } from '../componentes/StatusUra';
-import { useMetricasHoje, useTransferirUraAtivo, useVisao } from '../dados';
-import { cronometro, limiteDaPausa, minutos, ordenarOperadores } from '../formatos';
+import { useMetricasHoje, useRetomarRodizio, useTransferirUraAtivo, useVisao } from '../dados';
+import { cronometro, horaCurta, limiteDaPausa, minutos, ordenarOperadores } from '../formatos';
 import type { OperadorNaUra, SaudeRodizio } from '../tipos';
 import { Botao, Cartao, Esqueleto, Selo, Vazio } from '../ui/base';
 import { useFlip } from '../ui/flip';
@@ -38,28 +38,54 @@ function Resumo({ rotulo, valor, Icone, nota, dica }: { rotulo: string; valor: R
   );
 }
 
-/** Botão "Alocar Todos no Ativo": confirma com os números do backend e mostra o resultado. */
+/**
+ * Botão "Alocar Todos no Ativo": confirma com os números do backend e mostra o resultado.
+ * Depois, todos ficam no Ativo até "Retomar rodízio da URA" (o mesmo lugar vira esse botão).
+ */
 function AlocarTodosNoAtivo({ r }: { r: SaudeRodizio }) {
-  const mutacao = useTransferirUraAtivo();
+  const alocar = useTransferirUraAtivo();
+  const retomar = useRetomarRodizio();
   const { confirmar } = useRetorno();
   const t = r.transferenciaUraAtivo;
+  const ret = r.retencaoAtivo;
   const elegiveis = t?.elegiveis ?? 0;
+
+  if (ret?.ativa) {
+    const voltam = ret.elegiveisParaVoltar;
+    const clicarRetomar = async () => {
+      const ok = await confirmar({
+        titulo: 'Retomar o rodízio da URA?',
+        texto: voltam == null
+          ? <p>O rodízio volta ao normal: quem atender no Ativo sobe para a URA (sem a lista do dia do roteador, ninguém é movido agora).</p>
+          : <p><b>{voltam} operador(es)</b> que venderam hoje ou bateram a meta ontem voltam para a URA agora. Os outros ficam no Ativo e o rodízio segue normal.</p>,
+        confirmar: 'Retomar rodízio',
+      });
+      if (ok) retomar.mutate();
+    };
+    return (
+      <Botao variante="primario" icone={<RotateCcw className="size-4" />} carregando={retomar.isPending} disabled={retomar.isPending} onClick={clicarRetomar}>
+        Retomar rodízio da URA{voltam ? ` (${voltam})` : ''}
+      </Botao>
+    );
+  }
+
   const clicar = async () => {
     const ok = await confirmar({
       titulo: `Mover ${elegiveis} operador(es) da URA para o Ativo?`,
       texto: (
         <>
-          <p>{t?.fixos ?? 0} fixo(s) serão mantidos na URA. Cada um volta ao seu grupo do Ativo; quem é elegível sobe de novo ao atender lá (regra do rodízio).</p>
+          <p>{t?.fixos ?? 0} fixo(s) serão mantidos na URA. Cada um volta ao seu grupo do Ativo.</p>
+          <p className="mt-2 font-semibold">Eles ficam no Ativo até alguém clicar em "Retomar rodízio da URA" (inclusive amanhã): nem o rodízio nem venda nova sobem ninguém.</p>
           {t?.uraCheiaLigada && <p className="mt-2 font-semibold">A URA cheia está ligada e será desligada junto.</p>}
         </>
       ),
       confirmar: 'Alocar no Ativo',
       perigo: true,
     });
-    if (ok) mutacao.mutate();
+    if (ok) alocar.mutate();
   };
   return (
-    <Botao variante="perigo" icone={<ArrowRightLeft className="size-4" />} carregando={mutacao.isPending} disabled={!elegiveis || mutacao.isPending}
+    <Botao variante="perigo" icone={<ArrowRightLeft className="size-4" />} carregando={alocar.isPending} disabled={!elegiveis || alocar.isPending}
       title={elegiveis ? undefined : 'Ninguém elegível: só fixos (ou ninguém) na URA.'} onClick={clicar}>
       Alocar Todos no Ativo{elegiveis ? ` (${elegiveis})` : ''}
     </Botao>
@@ -169,6 +195,9 @@ export function Receptivo() {
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">Receptivo URA</h1>
           <StatusUra />
+          {r.retencaoAtivo?.ativa && (
+            <Selo tom="alerta">Todos no Ativo desde {horaCurta(r.retencaoAtivo.desde)}{r.retencaoAtivo.por ? ` · ${r.retencaoAtivo.por}` : ''}</Selo>
+          )}
         </div>
         <AlocarTodosNoAtivo r={r} />
       </div>

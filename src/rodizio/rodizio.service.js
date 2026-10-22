@@ -70,14 +70,16 @@ class RodizioService {
    *        [NOVO] status que vale para o pânico: o do termômetro ou o manual do painel.
    *        Calma: com 1 fixo livre, os robôs seguem até ele atender
    * @param {import('./estatisticas-dia').EstatisticasDia} [deps.estatisticas] - relatório do dia (painel)
+   * @param {import('./retencao-ativo').RetencaoAtivo} [deps.retencao]
+   *        [NOVO] "Alocar Todos no Ativo": ninguém sobe para a URA até "Retomar rodízio da URA"
    */
   constructor({
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
-    panico = null, fixos = null, termometro = null, statusDaUra = null, estatisticas = null,
+    panico = null, fixos = null, termometro = null, statusDaUra = null, estatisticas = null, retencao = null,
   }) {
     Object.assign(this, {
       client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, fixos,
-      termometro, statusDaUra, estatisticas,
+      termometro, statusDaUra, estatisticas, retencao,
     });
     /** Fixos na URA de vez (FIXOS_PERMANENTES_URA): a regra do ocioso não vale para eles. */
     this.permanentes = new Set();
@@ -175,6 +177,7 @@ class RodizioService {
     this.ajuste?.carregar();
     this.panico?.carregar();
     this.statusDaUra?.carregar();
+    this.retencao?.carregar();
     this.estatisticas?.carregar();
     return this;
   }
@@ -249,6 +252,8 @@ class RodizioService {
 
   async cicloAtivo() {
     if (this.desligandoAutomacao) return;
+    // "Alocar Todos no Ativo": ninguém sobe até "Retomar rodízio da URA".
+    if (this.retencao?.ativa) return;
     const cheia = this.emUraCheia();
     if (cheia) await this.levarTodosParaUra();
     else await this.elegiveis?.atualizar();
@@ -958,6 +963,34 @@ class RodizioService {
     return { ...this.statusDaUra.resumo(this.termometro), mudou };
   }
 
+  /** [NOVO] Quem do Ativo pode voltar para a URA ao retomar (vendeu hoje, meta de ontem ou fixo). null = sem lista. */
+  elegiveisNoAtivo() {
+    if (!this.elegiveis) return null;
+    return this.operadoresDoAtivo().filter(({ ramal }) => this.elegiveis.permite(ramal));
+  }
+
+  /**
+   * [NOVO] POST /operadores/retomar-rodizio: desliga a retenção e leva para a URA, na
+   * hora, quem do Ativo é elegível. Daí em diante o rodízio segue normal. Sem lista
+   * de elegíveis (RODIZIO_SO_ELEGIVEIS=0), ninguém é movido: o rodízio gira todos.
+   * @returns {Promise<{ movidos: string[], erros: Array<{ ramal, erro }>, semLista: boolean, mudou: boolean }>}
+   */
+  async retomarRodizio(por = null) {
+    const mudou = Boolean(await this.retencao?.desligar(por));
+    await this.elegiveis?.atualizar();
+    const alvos = this.elegiveisNoAtivo();
+    if (!alvos) return { movidos: [], erros: [], semLista: true, mudou };
+    const movidos = [];
+    const erros = [];
+    await mapearComLimite(alvos, this.cfg.concorrencia ?? 5, async ({ ramal, grupo }) => {
+      if (await this.moverParaUra(ramal, grupo)) movidos.push(ramal);
+      else erros.push({ ramal, erro: 'a transferência não foi aceita agora' });
+    });
+    this.log.aviso(`Retomar rodízio da URA${por ? ` (${por})` : ''}: ${movidos.length} voltaram para a URA${erros.length ? `, ${erros.length} erro(s)` : ''}.`);
+    if (movidos.length) this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após retomar o rodízio: ${e.message}`));
+    return { movidos, erros, semLista: false, mudou };
+  }
+
   /** POST/DELETE /ura/passiva (página /ura antiga): o mesmo que o status manual CALMA / automático. */
   definirUraPassiva(ligado) {
     const r = this.definirStatusUra(ligado ? { status: 'calma', modo: 'manual' } : { modo: 'automatico' }, 'página /ura');
@@ -985,12 +1018,15 @@ class RodizioService {
 
   /**
    * [NOVO] POST /operadores/transferir-ura-ativo: todos os humanos da URA que não são
-   * fixos voltam ao Ativo (cada um ao seu grupo de volta, como na regra do ocioso).
-   * Com a URA cheia ligada, desliga antes (senão o rodízio traria todos de volta).
+   * fixos voltam ao Ativo (cada um ao seu grupo de volta, como na regra do ocioso) e
+   * ficam lá: liga a retenção (ninguém sobe até "Retomar rodízio da URA").
+   * Com a URA cheia ligada, desliga antes.
    * Respeita o DRY_RUN (transferencias.js).
    * @returns {Promise<{ movidos: string[], ignorados: Array<{ ramal, motivo }>, erros: Array<{ ramal, erro }>, uraCheiaDesligada: boolean }>}
    */
   async transferirUraParaAtivo(por = null) {
+    // Antes de mover: o ciclo do Ativo não traz ninguém de volta no meio (nem o roteador, que lê o mesmo arquivo).
+    await this.retencao?.ligar(por);
     const uraCheiaDesligada = Boolean(this.uraCheia && this.emUraCheia() && this.desligarUraCheia().mudou);
     const robos = new Set(this.ramaisRobos.map(String));
     const movidos = [];
@@ -1077,6 +1113,7 @@ class RodizioService {
 
   /** POST /ura/cheia. @returns {{ ligada: boolean, desde: string|null, mudou: boolean }} */
   ligarUraCheia() {
+    if (this.retencao?.ativa) throw new Error('Rodízio pausado (todos no Ativo): retome o rodízio da URA antes de ligar a URA cheia.');
     const mudou = this.uraCheia.ligar();
     if (mudou) this.naoLevarNaUraCheia.clear();
     return { ...this.uraCheia.resumo(), mudou };
@@ -1177,6 +1214,8 @@ class RodizioService {
         const { elegiveis, fixos } = this.candidatosAoAtivo();
         return { elegiveis: elegiveis.length, fixos: fixos.length, uraCheiaLigada: this.emUraCheia() };
       })(),
+      // [NOVO] "Alocar Todos no Ativo" segura todos lá até retomar; quantos voltariam ao retomar
+      retencaoAtivo: { ...(this.retencao ? this.retencao.resumo() : { ativa: false, desde: null, por: null }), elegiveisParaVoltar: this.elegiveisNoAtivo()?.length ?? null },
       // [NOVO] limites das pausas (src/config/pausas.js), para o painel marcar a pausa excedida
       pausasLimitesMin: LIMITES_PAUSA,
       relatorio: this.estatisticas ? this.estatisticas.resumo() : null,

@@ -1,7 +1,7 @@
 /** Faixas do topo, em qualquer aba: automação desligada, cliente de risco, pânico, serviço fora do ar, Argus. */
 
 import { clsx } from 'clsx';
-import { CircleAlert, LoaderCircle, PhoneCall, Power, ShieldAlert, TriangleAlert } from 'lucide-react';
+import { CircleAlert, LoaderCircle, Pause, PhoneCall, Power, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useAutomacao, useVisao } from '../dados';
 import type { EstadoAutomacao } from '../tipos';
@@ -75,6 +75,12 @@ export function Faixas() {
   for (const a of alertas) {
     faixas.push(<Faixa key={`risco-${a.id}`} tom="perigo" icone={<PhoneCall className="size-5" />}
       titulo={`Cliente de risco em ligação com ${a.robo ?? 'robô'}: ${a.mascara}`} detalhe={`${a.motivos.join(', ')} nos últimos dias · desde ${horaCurta(a.inicio)}`} />);
+  }
+  if (r?.retencaoAtivo?.ativa) {
+    const ret = r.retencaoAtivo;
+    faixas.push(<Faixa key="retencao" tom="alerta" icone={<Pause className="size-5" />}
+      titulo={`Rodízio pausado: todos no Ativo desde ${horaCurta(ret.desde)}${ret.por ? ` (${ret.por})` : ''}`}
+      detalhe='Ninguém sobe para a URA (nem quem vender) até "Retomar rodízio da URA", na aba Receptivo. Os fixos continuam na URA.' />);
   }
   if (r?.panico?.ativoAgora) {
     const titulo = r.panico.tipo === 'fixo' ? 'Pânico ativo: o BenURA está reduzindo os robôs à metade' : 'Pânico ativo: o BenURA está desligando os robôs';

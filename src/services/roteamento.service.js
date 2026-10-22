@@ -76,8 +76,12 @@ class RoteamentoService {
    * @param {{ hoje(): string }} deps.relogio
    * @param {{ metaDiaria: number, fixosUra?: string[] }} deps.regras - fixosUra: ramais ou nomes
    * @param {object} deps.logger
+   * @param {() => { ativa: boolean }} [deps.retencao] - [NOVO] "todos no Ativo" pelo painel: não sobe ninguém para a URA
    */
-  constructor({ carrossel, discadora, repositorio, diretorio, relogio, regras, logger }) {
+  constructor({ carrossel, discadora, repositorio, diretorio, relogio, regras, logger, retencao = () => ({ ativa: false }) }) {
+    this.retencao = retencao;
+    /** Ramais já avisados como retidos no Ativo (avisa uma vez por ramal). */
+    this.retidosAvisados = new Set();
     this.carrossel = carrossel;
     this.discadora = discadora;
     this.repositorio = repositorio;
@@ -380,6 +384,18 @@ class RoteamentoService {
    * @returns {Promise<boolean>} true se a discadora ficou consistente com a decisão
    */
   async sincronizar(ramal, registro, motivo) {
+    // "Todos no Ativo" pelo painel: a decisão fica registrada (fila URA) e pendente, sem gastar
+    // tentativa; quando retomarem o rodízio, o reprocessamento (ou o próprio rodízio) a leva à URA.
+    // Os fixos continuam indo para a URA.
+    if (registro.fila === Fila.URA && !registro.fixo && this.retencao().ativa) {
+      Object.assign(registro, { sincronizado: false, ultimoResultado: 'RETIDO_NO_ATIVO', atualizadoEm: new Date().toISOString() });
+      if (!this.retidosAvisados.has(ramal)) {
+        this.retidosAvisados.add(ramal);
+        this.log.info(`${registro.nome} (ramal ${ramal}) → URA registrado (${motivo}), mas fica no Ativo: rodízio pausado pelo painel até retomarem.`);
+      }
+      return false;
+    }
+    this.retidosAvisados.delete(ramal);
     const r = await this.discadora.moverPara(ramal, registro.fila);
     Object.assign(registro, {
       tentativasSync: (registro.tentativasSync || 0) + 1,
@@ -412,6 +428,8 @@ class RoteamentoService {
     const pendentes = Object.entries(this.estado.vendedores)
       .filter(([, r]) => !r.sincronizado && (r.tentativasSync || 0) < MAX_TENTATIVAS_SYNC);
     if (!pendentes.length) return;
+    // Retidos no Ativo pelo painel: nada a re-tentar até retomarem.
+    if (this.retencao().ativa && pendentes.every(([, r]) => r.fila === Fila.URA && !r.fixo)) return;
 
     this.log.info(`Re-tentando ${pendentes.length} transferência(s) pendente(s).`);
     for (const [ramal, registro] of pendentes) {

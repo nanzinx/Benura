@@ -70,6 +70,8 @@ export interface SaudeRodizio {
   statusUra?: StatusUra | null;
   /** [NOVO] quantos o "Alocar Todos no Ativo" moveria (o filtro é do backend) */
   transferenciaUraAtivo?: { elegiveis: number; fixos: number; uraCheiaLigada: boolean };
+  /** [NOVO] "Alocar Todos no Ativo" segura todos lá até "Retomar rodízio da URA" (null = sem lista de elegíveis) */
+  retencaoAtivo?: { ativa: boolean; desde: string | null; por: string | null; elegiveisParaVoltar: number | null };
   /** [NOVO] limites das pausas em minutos (src/config/pausas.js) */
   pausasLimitesMin?: Record<string, number>;
   relatorio?: RelatorioDoDia | null;
@@ -118,6 +120,15 @@ export interface MetricasHoje {
   /** a API da Argus não traz a fila em tempo real: null até haver fonte */
   emFilaAgora: number | null;
   ultimoWebhookEncerramento: string | null;
+}
+
+/** [NOVO] POST /api/operadores/retomar-rodizio */
+export interface ResultadoRetomada {
+  movidos: string[];
+  erros: { ramal: string; erro: string }[];
+  /** sem lista de elegíveis: ninguém foi movido, o rodízio gira todos */
+  semLista: boolean;
+  mudou: boolean;
 }
 
 /** [NOVO] POST /api/operadores/transferir-ura-ativo */

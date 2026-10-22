@@ -1,6 +1,6 @@
 /** Cliente da API do benura-painel. Escrita leva o cabeçalho X-Painel (o servidor exige). */
 
-import type { ClienteDeRisco, Dia, EstadoAutomacao, MetricasHoje, RespostaInterruptor, ResultadoEsteira, ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao } from './tipos';
+import type { ClienteDeRisco, Dia, EstadoAutomacao, MetricasHoje, RespostaInterruptor, ResultadoEsteira, ResultadoRetomada, ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao } from './tipos';
 
 /** A sessão venceu ou não existe: a página volta para a entrada. */
 export class SemSessao extends Error {
@@ -50,4 +50,5 @@ export const api = {
   metricasHoje: () => pedir<MetricasHoje>('GET', '/api/metricas/hoje'),
   statusUra: (pedido: { status?: StatusDaUra; modo: 'manual' | 'automatico' }) => pedir<StatusUra & { mudou: boolean }>('PUT', '/api/ura/status', pedido),
   transferirUraAtivo: () => pedir<ResultadoTransferencia>('POST', '/api/operadores/transferir-ura-ativo', {}),
+  retomarRodizio: () => pedir<ResultadoRetomada>('POST', '/api/operadores/retomar-rodizio', {}),
 };
