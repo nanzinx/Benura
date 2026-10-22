@@ -340,6 +340,10 @@ function carregarConfig(overrides = {}) {
       atualizador: semBarraFinal(env('PAINEL_ATUALIZADOR_URL', local(cfg.atualizador.porta))),
     },
     timeoutMs: envNum('PAINEL_TIMEOUT_MS', 4000),
+    // Página no Cloudflare Pages (functions/api repassa o /api para cá pelo túnel): o endereço
+    // dela (ex.: https://benura.benconsig.com.br) e o segredo combinado com a Function.
+    origensPermitidas: envLista('PAINEL_ORIGENS_PERMITIDAS', '').map(semBarraFinal),
+    proxySegredo: env('PAINEL_PROXY_SEGREDO', ''),
   };
 
   // --- Botão "Desligar automação" do painel ---
@@ -421,6 +425,11 @@ function validarPainel(cfg) {
   const avisos = [];
   if ((cfg.painel.senha || '').length < 8) avisos.push('PAINEL_SENHA não configurada (8 caracteres ou mais): ninguém consegue entrar no painel até colocá-la no .env.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: os serviços aceitam os comandos do painel (e de qualquer um na rede) sem token.');
+  const { origensPermitidas, proxySegredo } = cfg.painel;
+  if (origensPermitidas.length && !proxySegredo) avisos.push('PAINEL_ORIGENS_PERMITIDAS sem PAINEL_PROXY_SEGREDO: a página no Cloudflare Pages não consegue entrar (o túnel exige o segredo da Function).');
+  if (proxySegredo && !origensPermitidas.length) avisos.push('PAINEL_PROXY_SEGREDO sem PAINEL_ORIGENS_PERMITIDAS: pela página no Cloudflare Pages, os comandos serão recusados (origem não permitida).');
+  if (proxySegredo && proxySegredo.length < 32) avisos.push('PAINEL_PROXY_SEGREDO curto demais: use 32 caracteres ou mais (veja o .env.example).');
+  if (origensPermitidas.some((o) => !/^https:\/\/[^/]+$/.test(o))) avisos.push('PAINEL_ORIGENS_PERMITIDAS: use endereços https sem caminho, ex.: https://benura.benconsig.com.br (os outros nunca batem com a página).');
   return { fatais, avisos };
 }
 

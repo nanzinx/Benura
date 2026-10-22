@@ -34,7 +34,7 @@ function montarPainel(overrides) {
       cfg: { ...cfg.automacao, dryRunPeloEnv: cfg.argus.dryRunPeloEnv }, servicos, executar: criarExecutor({ cwd: cfg.atualizador.diretorio, logger: log }), logger: log,
     }),
     dados: new DadosDoDia({ pasta: cfg.logs.pasta, fuso: cfg.agenda.fusoHorario }),
-    cfg: { fuso: cfg.agenda.fusoHorario },
+    cfg: { fuso: cfg.agenda.fusoHorario, origensPermitidas: p.origensPermitidas, proxySegredo: p.proxySegredo },
     logger: log,
   });
   return { cfg, log, servidor };
@@ -42,7 +42,7 @@ function montarPainel(overrides) {
 
 async function iniciarPainel() {
   const { cfg, log, servidor } = montarPainel();
-  ativarLogsEmArquivo(cfg, 'painel', { segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha] });
+  ativarLogsEmArquivo(cfg, 'painel', { segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha, cfg.painel.proxySegredo] });
   // Sem a senha o painel sobe assim mesmo (avisa na tela): o atualizador pode reiniciá-lo sem risco.
   validarConfig(cfg, { escopo: 'painel' }).avisos.forEach((a) => log.aviso(a));
 

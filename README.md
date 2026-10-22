@@ -34,6 +34,7 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 - [🌙 Fim de expediente limpo](#fim-de-expediente)
 - [🛡️ Conflitos e proteções](#conflitos)
 - [🧰 Rodando com PM2](#pm2)
+- [🏢 Servidor + Cloudflare Pages](#servidor)
 - [🚀 Esteira automática](#esteira)
 
 <a id="visao-geral"></a>
@@ -443,12 +444,7 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 - **Build:** vai para `src/painel/publico/` e entra no git, então o PC do BenURA não compila nada (o `git pull` de sempre basta). O CI confere que o build está em dia com o código.
 - **Mudar a interface:** `npm run painel:dev` abre em `http://localhost:5173` com o painel (3010) rodando por trás; `npm run painel:build` gera o build para o commit.
 
-**Publicar em `https://benura.benconsig.com.br` (Cloudflare Tunnel + Access)**, sem abrir porta no roteador da empresa e sem expor os outros serviços:
-1. Na Cloudflare (conta onde está o `benconsig.com.br`): **Zero Trust → Networks → Tunnels → Create a tunnel** (tipo *Cloudflared*), nome `benura`.
-2. No PC do BenURA, instale o `cloudflared` (o próprio painel da Cloudflare mostra o comando para Windows) e rode o comando de instalação que ele mostra. Isso já cria o serviço do Windows.
-3. Em **Public Hostname**: subdomínio `benura`, domínio `benconsig.com.br`, serviço `http://localhost:3010`. Se preferir configurar por arquivo, o modelo é `cloudflared/config.example.yml`.
-4. Em **Zero Trust → Access → Applications → Add (Self-hosted)**: domínio `benura.benconsig.com.br`, política *Allow* com os e-mails da supervisão (login por código no e-mail).
-5. Pronto: `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois a senha do painel (BenURA). Pela Cloudflare o cookie sai com `Secure`, e o log registra o endereço real de quem acessou.
+**Ver de fora da empresa:** a página fica no Cloudflare Pages (`https://benura.benconsig.com.br`) e o backend continua no servidor. Passo a passo em [Servidor + Cloudflare Pages](#servidor).
 
 ---
 
@@ -551,7 +547,135 @@ npm run pm2:parar
 
 - Sem configuração válida o serviço não sobe: o motivo aparece em `logs/*.err.log` e o PM2 tenta de novo com espera crescente.
 - O desligamento é gracioso (o estado do dia é salvo antes de sair), inclusive no Windows.
-- Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, use o pacote `pm2-installer`.
+- Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, veja o passo 6 de [Servidor + Cloudflare Pages](#servidor).
+
+---
+
+<a id="servidor"></a>
+## 🏢 Servidor + Cloudflare Pages
+
+O backend inteiro (roteador, rodízio, rotinas e painel) roda **no servidor da empresa**. A página do painel fica no **Cloudflare Pages**, em `https://benura.benconsig.com.br` (no temporário, `https://benura.pages.dev`), e conversa com o servidor por um túnel: o **Cloudflare Tunnel** ou, no temporário, o **Tailscale Funnel**. Não é preciso abrir porta no roteador da empresa.
+
+```mermaid
+flowchart LR
+    N["Navegador<br/>(supervisão, de qualquer lugar)"] -->|"e-mail (Access)<br/>+ senha do painel"| P["Cloudflare Pages<br/>benura.benconsig.com.br<br/>página + functions/api"]
+    P -->|"/api/* com service token<br/>e PAINEL_PROXY_SEGREDO"| T["Túnel<br/>benura-api.benconsig.com.br<br/>(Access: só o service token)"]
+    T --> S["Servidor<br/>benura-painel :3010"]
+    S --> R["roteador · rodízio · rotinas<br/>(só localhost)"]
+```
+
+- **Mesmo endereço para o navegador:** a página e o `/api` saem do mesmo endereço. A Function do Pages (`functions/api/[[caminho]].js`) repassa o `/api` ao servidor. Por isso o cookie de sessão, a conferência de origem e a CSP seguem como no servidor.
+- **Endereço do túnel fechado:** o `benura-api` fica fechado no Cloudflare Access e só entra quem traz o *service token*, ou seja, a Function. O servidor ainda exige o `PAINEL_PROXY_SEGREDO`: pelo túnel, sem ele, a resposta é `403`.
+- **No próprio servidor e na rede:** `http://localhost:3010` e `http://IP-DO-SERVIDOR:3010` continuam funcionando como antes.
+- **Log com o e-mail de quem pediu:** a Function repassa o e-mail com que a pessoa entrou no Cloudflare Access e o IP dela. O log mostra, por exemplo, `Painel: supervisão pediu para ligar o pânico (ana@empresa.com (200.1.2.3)) — ok`, e a faixa "Automação desligada (por …)" mostra o mesmo.
+- **Bloqueio por senha errada:** continua contando por IP. Um erro não trava os outros que vêm pela Cloudflare.
+- **Dois caminhos para o servidor:**
+  - **temporário e grátis:** sem domínio, pelo Tailscale Funnel (parte 2);
+  - **definitivo:** com o `benconsig.com.br`, pelo túnel da Cloudflare (parte 3).
+
+  A página e o código são os mesmos nos dois; muda só o `BENURA_API_URL`.
+
+### 1. Instalar no servidor (Windows)
+
+1. **Node.js:** no PowerShell, rode `winget install OpenJS.NodeJS.LTS` (ou baixe o instalador LTS em nodejs.org). Feche e abra o PowerShell de novo e confira com `node -v` (22 ou mais).
+2. **Projeto:**
+   ```powershell
+   git clone https://github.com/nanzinx/Benura.git C:\BenURA\app
+   cd C:\BenURA\app
+   npm ci
+   ```
+3. **Do PC antigo para `C:\BenURA\app`** (pendrive ou pasta de rede; nada disso vai para o git):
+   - `.env`;
+   - `painel-segredo.key`;
+   - `perfis-segredo.key`. **Vai junto com os `state-perfis-*.json`**: sem a chave, os perfis de clientes de risco se perdem;
+   - os outros `state*.json`.
+4. **Teste sem mexer em nada:** no `.env` do servidor, ponha `DRY_RUN=1` e rode `npm run pm2:iniciar`. Abra `http://localhost:3010` e confira se os serviços estão no ar e se a Argus responde. Em simulação ele só lê, então pode rodar alguns minutos junto com o PC antigo.
+5. **Virada** (de preferência fora do horário de pico):
+   1. **No PC antigo:** `npx pm2 stop all`, `npx pm2 delete all` e `npx pm2 save --force`. Remova a tarefa ou o serviço que o iniciava com o Windows, para ele não voltar sozinho.
+   2. **De novo para o servidor:** copie os `state*.json` do dia.
+   3. **No servidor:** `DRY_RUN=0` no `.env` (ou o botão "Modo simulação" do painel), depois `npx pm2 restart all` e `npx pm2 save`.
+6. **Iniciar junto com o Windows:** no **Prompt de Comando como administrador**, rode o comando abaixo. Ele pede a senha do usuário do Windows e sobe o BenURA 1 min depois de o servidor ligar, mesmo sem ninguém logado:
+   ```bat
+   schtasks /create /tn "BenURA" /sc onstart /delay 0001:00 /ru "%USERDOMAIN%\%USERNAME%" /rp * /tr "cmd /c cd /d C:\BenURA\app && npx pm2 resurrect"
+   ```
+7. **Webhooks da Argus** (e o de venda, se houver): onde estiver o endereço do PC antigo, troque pelo do servidor (`http://IP-DO-SERVIDOR:3000/webhook?token=…`). Se a Argus chama de fora da rede, libere a porta 3000 no Firewall do Windows.
+
+### 2. Temporário e grátis: Pages + Tailscale Funnel (conta Cloudflare própria, sem domínio)
+
+A página fica em `https://<projeto>.pages.dev`. O servidor ganha um endereço fixo e grátis, `https://<servidor>.<rede>.ts.net`, pelo **Tailscale Funnel**. O plano grátis do Tailscale é "pessoal": serve para o período temporário, e o definitivo é a parte 3.
+
+**Tailscale no servidor:**
+1. Crie a conta em [tailscale.com](https://tailscale.com) (entra com Google ou Microsoft).
+2. No servidor, rode `winget install tailscale.tailscale`, abra o Tailscale e entre com a conta.
+3. No [admin console](https://login.tailscale.com/admin/dns), em **DNS**, ligue **MagicDNS** e **HTTPS Certificates**.
+4. No PowerShell **como administrador**, rode:
+   ```powershell
+   tailscale funnel --bg 3010
+   ```
+   - Na primeira vez, ele mostra um link para liberar o Funnel na sua rede: abra, aprove e rode de novo.
+   - Ele mostra o endereço `https://<servidor>.<rede>.ts.net`. Anote, porque é o `BENURA_API_URL`.
+   - O `--bg` deixa o Funnel ligado, inclusive depois de reiniciar.
+   - `tailscale funnel status` mostra o que está publicado, e `tailscale funnel --https=443 off` desliga.
+
+**Cloudflare Pages (conta própria):**
+1. Em [dash.cloudflare.com](https://dash.cloudflare.com), vá em **Workers & Pages → Create → Pages → Connect to Git**.
+   - Autorize o GitHub para o repositório `nanzinx/Benura` e escolha a branch `main`.
+   - Dê ao projeto o nome `benura` (fica `benura.pages.dev`; se o nome já existir, use outro e troque nos passos abaixo).
+2. **Build:** framework *None*, build command vazio, **output directory `src/painel/publico`**. Clique em *Save and Deploy*.
+3. Em **Settings → Variables and Secrets → Production**, adicione como *Secret*:
+   - `BENURA_API_URL` = `https://<servidor>.<rede>.ts.net`;
+   - `PAINEL_PROXY_SEGREDO`, gerado no servidor com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+
+   Depois vá em **Deployments → ⋯ → Retry deployment**, para as variáveis valerem.
+4. Em **Settings → Builds → Preview deployments**, escolha **None**. Sem isso, cada branch vira um site.
+
+**Login por e-mail (Cloudflare Access, grátis até 50 pessoas):**
+1. Em [one.dash.cloudflare.com](https://one.dash.cloudflare.com), escolha um nome de equipe e o plano **Free**. O Cloudflare pode pedir um cartão, mas não cobra.
+2. Em **Access → Applications → Add an application → Self-hosted**, ponha o domínio `benura.pages.dev`.
+3. Crie a política *Allow* → *Include* → **Emails**, com os e-mails da supervisão. O login é por código enviado ao e-mail (*One-time PIN*).
+
+**No `.env` do servidor:**
+```ini
+PAINEL_ORIGENS_PERMITIDAS=https://benura.pages.dev
+PAINEL_PROXY_SEGREDO=<o mesmo do Pages>
+```
+Depois rode `npx pm2 restart benura-painel`.
+
+**Conferir:**
+- `https://benura.pages.dev` pede o e-mail e depois a senha do painel.
+- Ao ligar um interruptor, o log do painel (`logs/AAAA-MM-DD/painel.txt`) mostra o seu e-mail.
+- O endereço `ts.net` aberto direto responde 403, porque só a página entra.
+
+### 3. Definitivo: Cloudflare com o `benconsig.com.br`
+
+1. **Túnel:**
+   - Em **Zero Trust → Networks → Tunnels → Create a tunnel** (tipo *Cloudflared*), crie o túnel `benura`.
+   - Rode **no servidor** o comando de instalação que o painel mostra. Isso instala o `cloudflared` como serviço do Windows.
+   - Em **Public Hostname**, aponte `benura-api.benconsig.com.br` para `http://localhost:3010`. O modelo por arquivo é `cloudflared/config.example.yml`.
+2. **Service token:** em **Zero Trust → Access → Service Auth → Create Service Token**, crie o `benura-pages`. Guarde o *Client ID* e o *Client Secret*: o Secret só aparece uma vez.
+3. **Fechar a API:** em **Access → Applications → Add (Self-hosted)**, use o domínio `benura-api.benconsig.com.br`, com uma política de ação **Service Auth** que inclui só o token `benura-pages`.
+4. **Pages:**
+   - Em **Workers & Pages → Create → Pages → Connect to Git**, escolha `nanzinx/Benura`, branch `main`.
+   - **Build:** framework *None*, build command vazio, **output directory `src/painel/publico`**, root directory `/`. O build já vai pronto no git e a Function vem da pasta `functions/`.
+   - **Settings → Variables and Secrets → Production**, todas como *Secret*:
+     - `BENURA_API_URL` = `https://benura-api.benconsig.com.br`;
+     - `CF_ACCESS_CLIENT_ID` e `CF_ACCESS_CLIENT_SECRET` (do passo 2);
+     - `PAINEL_PROXY_SEGREDO` (o mesmo do `.env`, gerado com o comando do `.env.example`).
+   - **Custom domains:** `benura.benconsig.com.br`.
+   - **Previews:** desligue as *preview deployments* (Settings → Builds) ou proteja `*.pages.dev` com Access.
+5. **Fechar a página:** em **Access → Applications → Add (Self-hosted)**, use o domínio `benura.benconsig.com.br`, com política *Allow* para os e-mails da supervisão (login por código no e-mail).
+6. **No `.env` do servidor:**
+   ```ini
+   PAINEL_ORIGENS_PERMITIDAS=https://benura.benconsig.com.br
+   PAINEL_PROXY_SEGREDO=<o mesmo do Pages>
+   ```
+   Depois rode `npx pm2 restart benura-painel`.
+7. **Pronto:** `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois a senha do painel (BenURA).
+
+**Atualizações:**
+- **Página:** cada merge no `main` publica a página sozinho, porque o Pages lê o build do git.
+- **Backend:** no servidor, rode `git pull` e `npx pm2 restart all`.
+- **Sem servidor:** se ele cair, a página mostra "Servidor do BenURA fora do ar".
 
 ---
 

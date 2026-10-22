@@ -78,7 +78,7 @@ test('painel: lê os logs do dia aos poucos e recomeça na virada do dia', () =>
 });
 
 /** Painel de verdade (porta aleatória) com os serviços respondendo por um fetch falso. */
-async function subir() {
+async function subir(cfgExtra = {}) {
   const chamadas = [];
   const fetchFalso = async (url, opcoes) => {
     chamadas.push({ url, metodo: opcoes.method, auth: opcoes.headers.Authorization, corpo: opcoes.body });
@@ -97,18 +97,95 @@ async function subir() {
       religar: () => ({ iniciado: false, motivo: 'Espere terminar o que está em andamento.' }),
       definirSimulacao: (ligada, por) => { chamadas.push({ url: 'simulacao', ligada, por }); return { iniciado: true }; },
     },
-    cfg: { fuso: 'America/Sao_Paulo' },
-    logger: loggerNulo,
+    cfg: { fuso: 'America/Sao_Paulo', ...cfgExtra },
+    logger: { ...loggerNulo, info: (m) => logs.push(m), aviso: (m) => logs.push(m) },
   });
+  const logs = [];
   await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${servidor.address().port}`;
-  const pedir = (metodo, caminho, { corpo, cookie, painel = true, origem } = {}) => fetch(base + caminho, {
+  const pedir = (metodo, caminho, { corpo, cookie, painel = true, origem, extras = {} } = {}) => fetch(base + caminho, {
     method: metodo,
-    headers: { ...(painel ? { 'X-Painel': '1' } : {}), ...(cookie ? { Cookie: cookie } : {}), ...(origem ? { Origin: origem } : {}), 'Content-Type': 'application/json' },
+    headers: { ...(painel ? { 'X-Painel': '1' } : {}), ...(cookie ? { Cookie: cookie } : {}), ...(origem ? { Origin: origem } : {}), 'Content-Type': 'application/json', ...extras },
     body: corpo ? JSON.stringify(corpo) : undefined,
   });
-  return { servidor, chamadas, pedir };
+  return { servidor, chamadas, pedir, logs };
 }
+
+const PAGES = 'https://benura.benconsig.com.br';
+const SEGREDO = 'segredo-do-proxy-com-32-caracteres!!';
+/** Como chega pela Function do Pages: pelo túnel (localhost + CF-Connecting-IP), com o segredo e o IP de quem abriu. */
+const pelaFunction = (ip = '200.1.2.3', segredo = SEGREDO) => ({ 'CF-Connecting-IP': '172.70.0.1', 'X-Benura-Proxy': segredo, 'X-Benura-Cliente-IP': ip });
+
+test('painel pelo Cloudflare Pages: só pela Function, com a origem do Pages e o IP de quem abriu', async (t) => {
+  const { servidor, chamadas, pedir, logs } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
+  t.after(() => servidor.close());
+
+  const semSegredo = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: { 'CF-Connecting-IP': '200.1.2.3' } });
+  assert.equal(semSegredo.status, 403, 'pelo túnel sem o segredo: recusa');
+  assert.equal((await pedir('GET', '/', { extras: pelaFunction('200.1.2.3', 'errado') })).status, 403, 'segredo errado: recusa');
+
+  const entrada = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: pelaFunction() });
+  assert.equal(entrada.status, 200);
+  assert.ok(logs.includes('Painel: entrada da supervisão (200.1.2.3).'), 'o log traz quem abriu a página, não a Cloudflare');
+  const cookie = entrada.headers.get('set-cookie').split(';')[0];
+
+  const r = await pedir('POST', '/api/rodizio/panico', { cookie, origem: PAGES, extras: pelaFunction() });
+  assert.equal(r.status, 200, 'escrita com a origem do Pages passa');
+  assert.ok(chamadas.some((c) => c.url === 'http://rodizio/panico'));
+  assert.equal((await pedir('POST', '/api/rodizio/panico', { cookie, origem: 'https://outro.com.br', extras: pelaFunction() })).status, 403, 'outra origem: recusa');
+
+  // No próprio servidor (localhost, sem túnel), continua como antes.
+  const local = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA } });
+  assert.equal(local.status, 200);
+  assert.ok(logs.includes('Painel: entrada da supervisão (127.0.0.1).'));
+});
+
+test('painel pelo Pages: o e-mail do Cloudflare Access vai para o log e para o "por"; o cookie sai com Secure', async (t) => {
+  const { servidor, chamadas, pedir, logs } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
+  t.after(() => servidor.close());
+  // Pelo Tailscale Funnel a Function chega sem CF-Connecting-IP: o segredo basta.
+  const funnel = (extras = {}) => ({ 'X-Forwarded-For': '100.64.0.1', 'X-Benura-Proxy': SEGREDO, 'X-Benura-Cliente-IP': '200.1.2.3', 'X-Benura-Cliente-Email': 'ana@empresa.com', ...extras });
+
+  const entrada = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: funnel() });
+  assert.equal(entrada.status, 200);
+  assert.match(entrada.headers.get('set-cookie'), /; Secure/, 'a página no Pages é https');
+  assert.ok(logs.includes('Painel: entrada da supervisão (ana@empresa.com (200.1.2.3)).'));
+  const cookie = entrada.headers.get('set-cookie').split(';')[0];
+
+  await pedir('POST', '/api/rodizio/panico', { cookie, origem: PAGES, extras: funnel() });
+  assert.ok(logs.some((l) => l === 'Painel: supervisão pediu para ligar o pânico (ana@empresa.com (200.1.2.3)) — ok.'));
+  await pedir('POST', '/api/automacao/desligar', { cookie, origem: PAGES, extras: funnel() });
+  assert.equal(chamadas.find((c) => c.url === 'desligar').por, 'ana@empresa.com (200.1.2.3)', 'a faixa "desligada por" mostra o e-mail');
+
+  // Sem e-mail (página sem Access): só o IP, como antes.
+  await pedir('POST', '/api/rodizio/panico', { cookie, origem: PAGES, extras: funnel({ 'X-Benura-Cliente-Email': '' }) });
+  assert.ok(logs.some((l) => l === 'Painel: supervisão pediu para ligar o pânico (200.1.2.3) — ok.'));
+});
+
+test('painel com o Tailscale Funnel: pelo túnel sem o segredo, 403; e-mail sem o segredo não vale', async (t) => {
+  const { servidor, pedir, logs } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
+  t.after(() => servidor.close());
+  assert.equal((await pedir('GET', '/', { extras: { 'X-Forwarded-For': '8.8.8.8', 'X-Forwarded-Proto': 'https' } })).status, 403, 'direto no endereço ts.net');
+  assert.equal((await pedir('GET', '/api/sessao', { extras: { 'Tailscale-Funnel-Request': '?1' } })).status, 403);
+  const falso = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, extras: { 'X-Benura-Cliente-Email': 'chefe@empresa.com' } });
+  assert.equal(falso.status, 200, 'no localhost puro continua entrando');
+  assert.ok(logs.includes('Painel: entrada da supervisão (127.0.0.1).'), 'sem o segredo, o e-mail mandado é ignorado');
+});
+
+test('painel pelo Pages: senha errada bloqueia quem errou, não todo mundo que vem pela Cloudflare', async (t) => {
+  const { servidor, pedir } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
+  t.after(() => servidor.close());
+  for (let i = 0; i < 5; i += 1) await pedir('POST', '/api/entrar', { corpo: { senha: 'errada' }, origem: PAGES, extras: pelaFunction('200.9.9.9') });
+  assert.equal((await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: pelaFunction('200.9.9.9') })).status, 429);
+  assert.equal((await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: pelaFunction('200.1.1.1') })).status, 200);
+});
+
+test('painel: sem PAINEL_PROXY_SEGREDO, o X-Benura-Cliente-IP é ignorado (não dá para fugir do bloqueio)', async (t) => {
+  const { servidor, pedir, logs } = await subir();
+  t.after(() => servidor.close());
+  await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, extras: { 'X-Benura-Cliente-IP': '1.2.3.4', 'X-Benura-Proxy': 'x' } });
+  assert.ok(logs.includes('Painel: entrada da supervisão (127.0.0.1).'));
+});
 
 test('painel: exige sessão, leva o token aos serviços e só passa os comandos da lista', async (t) => {
   const { servidor, chamadas, pedir } = await subir();
@@ -158,4 +235,14 @@ test('painel: exige sessão, leva o token aos serviços e só passa os comandos 
 
   assert.equal((await pedir('POST', '/api/sair', { cookie })).status, 200);
   assert.equal((await pedir('GET', '/api/visao', { cookie })).status, 401, 'saiu');
+});
+
+test('config do painel: avisa o Pages pela metade e a origem que não é https', () => {
+  const { carregarConfig, validarConfig } = require('../../src/config');
+  const validar = (painel) => validarConfig(carregarConfig({ painel: { senha: SENHA, ...painel } }), { escopo: 'painel' });
+  assert.deepEqual(validar({ origensPermitidas: [PAGES], proxySegredo: SEGREDO }).fatais, []);
+  assert.match(validar({ origensPermitidas: [PAGES], proxySegredo: '' }).avisos.join(), /sem PAINEL_PROXY_SEGREDO/);
+  assert.match(validar({ origensPermitidas: [], proxySegredo: SEGREDO }).avisos.join(), /sem PAINEL_ORIGENS_PERMITIDAS/);
+  assert.match(validar({ origensPermitidas: [PAGES], proxySegredo: 'curto' }).avisos.join(), /curto demais/);
+  assert.match(validar({ origensPermitidas: ['http://benura.benconsig.com.br/painel'], proxySegredo: SEGREDO }).avisos.join(), /https sem caminho/);
 });
