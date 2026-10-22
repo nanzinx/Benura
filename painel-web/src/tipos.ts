@@ -28,9 +28,59 @@ export interface SaudeRodizio {
     modo: boolean;
     ativoAgora: string | null;
     motivo: string | null;
+    tipo?: 'zero' | 'saindo' | 'fixo' | null;
     antesDeSairMs?: number;
+    fixoOciosoMs?: number | null;
+    fixoReduzirMs?: number | null;
     uraPassiva?: Interruptor;
+    /** "Passiva automática": com o termômetro em calma, age como a URA passiva. */
+    passivaAuto?: Interruptor | null;
+    /** A regra do fixo está relaxada agora (passiva manual ou automática). */
+    passivaAgora?: boolean;
   };
+  termometro?: Termometro | null;
+  relatorio?: RelatorioDoDia | null;
+}
+
+export type EstadoTermometro = 'medindo' | 'calma' | 'normal' | 'agressiva';
+
+/** Termômetro da URA (src/rodizio/termometro-ura.js). */
+export interface Termometro {
+  estado: EstadoTermometro;
+  desde: string | null;
+  /** null = sem medida; -1 = nenhuma derivação com gente livre esperando */
+  minutosPorDerivacao: number | null;
+  derivacoes: number;
+  callbacks: number;
+  observadoMin: number;
+  janelaMin: number;
+  calmaMin: number;
+  agressivaSeg: number;
+  minObservadoMin: number;
+}
+
+export interface HoraDoRelatorio {
+  hora: string;
+  livresMin: number;
+  derivacoes: number;
+  esperaPorDerivacaoSeg: number | null;
+  ociosoSemRobosMin: number;
+  panicoMin: number;
+  calmaMin: number;
+  agressivaMin: number;
+}
+
+/** Relatório do dia (src/rodizio/estatisticas-dia.js). Minutos com uma casa. */
+export interface RelatorioDoDia {
+  dia: string;
+  livresMin: number;
+  derivacoes: number;
+  esperaPorDerivacaoSeg: number | null;
+  ociosoSemRobosMin: number;
+  panicoMin: Record<'zero' | 'saindo' | 'fixo', number>;
+  panicoVezes: Record<'zero' | 'saindo' | 'fixo', number>;
+  termometroMin: Record<EstadoTermometro, number>;
+  horas: HoraDoRelatorio[];
 }
 
 export interface SaudeRoteador { uptime?: number; cargaInicialFeita?: boolean; ultimoMonitoramento?: string | null }

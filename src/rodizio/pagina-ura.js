@@ -72,7 +72,7 @@ const PAGINA_URA = `<!doctype html>
       <button id="desligarPassiva" class="secundario">Desligar</button>
       <span id="situacaoPassiva"></span>
     </div>
-    <p class="sub">Ligada, com só um fixo livre os robôs seguem até ele atender (aí sobra nenhum livre e desligam todos). Vale até desligar ou virar o dia.</p>
+    <p class="sub">Ligada, com só um fixo livre os robôs seguem até ele atender (aí sobra nenhum livre e desligam todos). Desligada, 1 fixo livre reduz os robôs à metade, aos poucos. Vale até desligar ou virar o dia.</p>
   </div>
 
   <div class="cartao" id="cartaoRisco" hidden>

@@ -62,6 +62,7 @@ export function useRisco() {
 const DESCRICAO: Record<ComandoUra, [string, string]> = {
   panico: ['Pânico ligado.', 'Pânico desligado.'],
   'ura/passiva': ['URA passiva hoje: com um fixo livre, os robôs seguem até ele atender.', 'URA passiva desligada.'],
+  'ura/passiva-auto': ['Passiva automática ligada: com a URA calma, o BenURA age como na URA passiva.', 'Passiva automática desligada: só o botão manual relaxa a regra do fixo.'],
   'ura/cheia': ['URA cheia: os operadores do Ativo vão para a URA em até 5 s.', 'Rodízio de volta ao normal.'],
   'risco/desligar': ['Os robôs desligam quando um cliente de risco estiver em ligação.', 'Cliente de risco: só avisa.'],
 };

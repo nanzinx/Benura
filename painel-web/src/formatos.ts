@@ -55,3 +55,11 @@ export function degraus<T extends { hora: string }>(pontos: T[], valor: (p: T) =
   const dentro = serie.filter((p) => p.t > inicio);
   return antes ? [{ t: inicio, y: antes.y }, ...dentro] : dentro;
 }
+
+/** Minutos para leitura rápida: "0 min", "12 min", "1 h 05 min". */
+export function minutos(min: number | null | undefined): string {
+  if (min == null || !Number.isFinite(min) || min < 0) return '–';
+  const m = Math.round(min);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
+}

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { dataBr, degraus, duracao, horaDeSegundos, motivoLegivel, reais, segundosDoDia } from './formatos';
+import { dataBr, degraus, duracao, horaDeSegundos, minutos, motivoLegivel, reais, segundosDoDia } from './formatos';
 
 describe('formatos', () => {
+  it('minutos para leitura rápida', () => {
+    expect(minutos(0)).toBe('0 min');
+    expect(minutos(12.4)).toBe('12 min');
+    expect(minutos(65)).toBe('1 h 05 min');
+    expect(minutos(null)).toBe('–');
+  });
+
   it('duração em português', () => {
     expect(duracao(45)).toBe('45 s');
     expect(duracao(185)).toBe('3 min 05 s');

@@ -2,6 +2,8 @@ import { clsx } from 'clsx';
 import { ArrowDownUp, Bot, PhoneMissed, Search, ShieldCheck, Users, UserCheck } from 'lucide-react';
 import { useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { GraficoDegraus } from '../componentes/GraficoDegraus';
+import { Relatorio } from '../componentes/Relatorio';
+import { ESTADOS_TERMOMETRO } from '../componentes/Termometro';
 import { useDia, useRoteador, useVisao } from '../dados';
 import { agoraEmSegundos, degraus, duracao, horaCurta, reais, segundosDoDia } from '../formatos';
 import type { Callback, Classe, OperadorNaUra, SaudeRodizio } from '../tipos';
@@ -48,7 +50,11 @@ function Kpis({ r, callbacks }: { r: SaudeRodizio | null | undefined; callbacks:
   const livres = ura.filter((u) => u.classe === 'livre' && !u.emCarencia).length;
   const humanos = ura.filter((u) => u.classe && u.classe !== 'offline').length;
   const p = r.panico;
-  const panico = !p?.modo ? 'automático' : p.ativoAgora ? 'desligando' : p.ligado ? 'ligado' : 'desligado';
+  const panico = !p?.modo ? 'automático' : p.ativoAgora ? (p.tipo === 'fixo' ? 'reduzindo' : 'desligando') : p.ligado ? 'ligado' : 'desligado';
+  const t = r.termometro;
+  const notaPanico = p?.uraPassiva?.ligado ? 'URA passiva hoje'
+    : p?.passivaAgora ? 'URA calma (passiva automática)'
+      : t && t.estado !== 'medindo' ? `URA ${ESTADOS_TERMOMETRO[t.estado].texto}` : r.uraCheia?.ligada ? 'URA cheia ligada' : undefined;
   return (
     <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Kpi destaque rotulo="Livres na URA" valor={livres} Icone={UserCheck} tom={livres <= 1 ? 'perigo' : undefined} nota={livres <= 1 ? 'atenção: poucos livres' : 'prontos para receber'} />
@@ -57,7 +63,7 @@ function Kpis({ r, callbacks }: { r: SaudeRodizio | null | undefined; callbacks:
       <Kpi rotulo="Callbacks hoje" valor={callbacks?.length ?? '–'} Icone={PhoneMissed} nota={callbacks?.length ? `último às ${callbacks[callbacks.length - 1]!.hora.slice(0, 5)}` : 'nenhum até agora'} />
       <div className="col-span-2 lg:col-span-1">
         <Kpi rotulo="Pânico" valor={<span className="text-2xl">{panico}</span>} Icone={ShieldCheck} tom={p?.ativoAgora ? 'perigo' : p?.ligado ? 'ok' : undefined}
-          nota={p?.uraPassiva?.ligado ? 'URA passiva hoje' : r.uraCheia?.ligada ? 'URA cheia ligada' : undefined} />
+          nota={notaPanico} />
       </div>
     </div>
   );
@@ -221,6 +227,7 @@ export function Visao({ escuro }: { escuro: boolean }) {
         <TabelaUra ura={r?.uraAgora ?? []} />
         <ListaCallbacks callbacks={dia?.callbacks ?? []} />
       </div>
+      <Relatorio r={r?.relatorio} callbacks={dia?.callbacks} />
       <Graficos escuro={escuro} />
       <Roteador />
     </>

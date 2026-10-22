@@ -77,7 +77,8 @@ export function Faixas() {
       titulo={`Cliente de risco em ligação com ${a.robo ?? 'robô'}: ${a.mascara}`} detalhe={`${a.motivos.join(', ')} nos últimos dias · desde ${horaCurta(a.inicio)}`} />);
   }
   if (r?.panico?.ativoAgora) {
-    faixas.push(<Faixa key="panico" tom="perigo" icone={<ShieldAlert className="size-5" />} titulo="Pânico ativo: o BenURA está desligando os robôs" detalhe={motivoLegivel(r.panico.motivo)} />);
+    const titulo = r.panico.tipo === 'fixo' ? 'Pânico ativo: o BenURA está reduzindo os robôs à metade' : 'Pânico ativo: o BenURA está desligando os robôs';
+    faixas.push(<Faixa key="panico" tom="perigo" icone={<ShieldAlert className="size-5" />} titulo={titulo} detalhe={motivoLegivel(r.panico.motivo)} />);
   }
   if (fora.length && !automacaoParada) {
     faixas.push(<Faixa key="fora" tom="alerta" icone={<TriangleAlert className="size-5" />} titulo={`Fora do ar: ${fora.join(', ')}`} detalhe="No PC do BenURA: npx pm2 status (e npx pm2 logs para ver o motivo)." />);
