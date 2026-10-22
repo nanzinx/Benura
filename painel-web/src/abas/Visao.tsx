@@ -1,28 +1,35 @@
 import { clsx } from 'clsx';
-import { ArrowDownUp, Bot, PhoneMissed, Search, ShieldCheck, Users, UserCheck } from 'lucide-react';
+import { Bot, Info, PhoneForwarded, PhoneOff, Search, ShieldCheck, Users, UserCheck } from 'lucide-react';
 import { useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { GraficoDegraus } from '../componentes/GraficoDegraus';
 import { Relatorio } from '../componentes/Relatorio';
-import { ESTADOS_TERMOMETRO } from '../componentes/Termometro';
-import { useDia, useRoteador, useVisao } from '../dados';
-import { agoraEmSegundos, degraus, duracao, horaCurta, reais, segundosDoDia } from '../formatos';
-import type { Callback, Classe, OperadorNaUra, SaudeRodizio, Vendedor } from '../tipos';
+import { useDia, useMetricasHoje, useRoteador, useVisao } from '../dados';
+import { StatusUra } from '../componentes/StatusUra';
+import { useFlip } from '../ui/flip';
+import { agoraEmSegundos, degraus, duracao, horaCurta, ordenarOperadores, reais, segundosDoDia } from '../formatos';
+import type { Callback, Classe, MetricasHoje, OperadorNaUra, SaudeRodizio, Vendedor } from '../tipos';
 import { diaCurto, metaBatidaOntem, subiramHoje } from '../vendas';
 import { Cartao, Esqueleto, Segmentado, Selo, Vazio, type Tom } from '../ui/base';
 
-const CLASSES: Record<Classe, { texto: string; tom: Tom; ordem: number }> = {
-  livre: { texto: 'Livre', tom: 'ok', ordem: 0 },
-  atendimento: { texto: 'Em atendimento', tom: 'info', ordem: 1 },
-  outro: { texto: 'Pausa / outro', tom: 'alerta', ordem: 2 },
-  erro: { texto: 'Sem resposta', tom: 'neutro', ordem: 3 },
-  offline: { texto: 'Offline', tom: 'neutro', ordem: 4 },
+export const CLASSES: Record<Classe, { texto: string; tom: Tom }> = {
+  livre: { texto: 'Livre', tom: 'ok' },
+  atendimento: { texto: 'Em atendimento', tom: 'info' },
+  outro: { texto: 'Pausa / outro', tom: 'alerta' },
+  erro: { texto: 'Sem resposta', tom: 'neutro' },
+  offline: { texto: 'Offline', tom: 'neutro' },
 };
 
-function Kpi({ rotulo, valor, nota, Icone, tom, destaque }: { rotulo: string; valor: ReactNode; nota?: ReactNode; Icone: ComponentType<{ className?: string }>; tom?: 'perigo' | 'ok'; destaque?: boolean }) {
+/** Definições da Regra Global 4 (tooltip dos cards [NOVO]). */
+export const DEFINICOES = {
+  leads: 'Leads Derivados: ligações da URA encaminhadas a um operador humano, de 00:00 até agora. Cada ligação conta em uma só métrica (lead ou transbordo).',
+  transbordos: 'Transbordos: ligações da URA que NÃO foram encaminhadas a operador (abandono, sem operador disponível ou time-out na fila), de 00:00 até agora. Cada ligação conta em uma só métrica.',
+};
+
+function Kpi({ rotulo, valor, nota, Icone, tom, destaque, dica }: { rotulo: string; valor: ReactNode; nota?: ReactNode; Icone: ComponentType<{ className?: string }>; tom?: 'perigo' | 'ok'; destaque?: boolean; dica?: string }) {
   return (
-    <div className={clsx('cartao relative overflow-hidden p-4', destaque && 'before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-amarelo-500')}>
+    <div title={dica} className={clsx('cartao relative overflow-hidden p-4', destaque && 'before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-amarelo-500', dica && 'cursor-help')}>
       <div className="flex items-center justify-between">
-        <span className="rotulo">{rotulo}</span>
+        <span className="rotulo inline-flex items-center gap-1">{rotulo}{dica && <><Info className="size-3.5" aria-hidden /><span className="sr-only">. {dica}</span></>}</span>
         <Icone className="size-4 text-slate-400 dark:text-slate-500" aria-hidden />
       </div>
       <div className={clsx('mt-1 text-3xl font-bold tabular-nums', tom === 'perigo' && 'text-red-700 dark:text-red-400', tom === 'ok' && 'text-emerald-700 dark:text-emerald-400')}>{valor}</div>
@@ -31,59 +38,71 @@ function Kpi({ rotulo, valor, nota, Icone, tom, destaque }: { rotulo: string; va
   );
 }
 
-function Kpis({ r, callbacks }: { r: SaudeRodizio | null | undefined; callbacks: Callback[] | undefined }) {
+/** [NOVO] Leads derivados (destaque positivo) e transbordos (sempre em vermelho), de GET /api/metricas/hoje. */
+function KpisDoDia({ m }: { m: MetricasHoje | undefined }) {
+  const valor = (n: number | null | undefined) => (n == null ? '–' : n);
+  const motivos = Object.entries(m?.transbordosPorMotivo ?? {}).map(([k, n]) => `${n} ${k}`).join(' · ');
+  return (
+    <>
+      <Kpi rotulo="Leads Derivados Hoje" valor={valor(m?.leadsDerivadosHoje)} Icone={PhoneForwarded} tom="ok" dica={DEFINICOES.leads}
+        nota={m?.ultimoWebhookEncerramento ? `último às ${horaCurta(m.ultimoWebhookEncerramento)}` : 'sem webhook da Argus hoje'} />
+      <Kpi rotulo="Transbordos Hoje" valor={valor(m?.transbordosHoje)} Icone={PhoneOff} tom="perigo" dica={DEFINICOES.transbordos} nota={motivos || 'nenhum até agora'} />
+    </>
+  );
+}
+
+function Kpis({ r, metricas }: { r: SaudeRodizio | null | undefined; metricas: MetricasHoje | undefined }) {
+  const grade = 'mb-5 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6';
   // undefined = carregando; null = rodízio sem resposta (ou automação desligada): mostra traços.
   if (r === undefined) {
-    return <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-5">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="cartao h-28 p-4"><Esqueleto className="h-4 w-24" /><Esqueleto className="mt-3 h-8 w-12" /></div>)}</div>;
+    return <div className={grade}>{[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="cartao h-28 p-4"><Esqueleto className="h-4 w-24" /><Esqueleto className="mt-3 h-8 w-12" /></div>)}</div>;
   }
   if (r === null) {
     return (
-      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <Kpi destaque rotulo="Livres na URA" valor="–" Icone={UserCheck} nota="rodízio parado" />
-        <Kpi rotulo="Humanos na URA" valor="–" Icone={Users} />
+      <div className={grade}>
+        <Kpi destaque rotulo="Humanos na URA" valor="–" Icone={Users} nota="rodízio parado" />
+        <Kpi rotulo="Livres na URA" valor="–" Icone={UserCheck} />
         <Kpi rotulo="Robôs ligados" valor="–" Icone={Bot} />
-        <Kpi rotulo="Callbacks hoje" valor={callbacks?.length ?? '–'} Icone={PhoneMissed} />
-        <div className="col-span-2 lg:col-span-1"><Kpi rotulo="Pânico" valor={<span className="text-2xl">–</span>} Icone={ShieldCheck} /></div>
+        <KpisDoDia m={metricas} />
+        <Kpi rotulo="Pânico" valor={<span className="text-2xl">–</span>} Icone={ShieldCheck} />
       </div>
     );
   }
-  const ura = r.uraAgora ?? [];
+  const ura = (r.uraAgora ?? []).filter((u) => !u.virtual);
   const livres = ura.filter((u) => u.classe === 'livre' && !u.emCarencia).length;
   const humanos = ura.filter((u) => u.classe && u.classe !== 'offline').length;
   const p = r.panico;
   const panico = !p?.modo ? 'automático' : p.ativoAgora ? (p.tipo === 'fixo' ? 'reduzindo' : 'desligando') : p.ligado ? 'ligado' : 'desligado';
-  const t = r.termometro;
-  const notaPanico = p?.uraPassiva?.ligado ? 'URA passiva hoje'
-    : p?.passivaAgora ? 'URA calma (passiva automática)'
-      : t && t.estado !== 'medindo' ? `URA ${ESTADOS_TERMOMETRO[t.estado].texto}` : r.uraCheia?.ligada ? 'URA cheia ligada' : undefined;
+  const notaPanico = r.statusUra?.status === 'calma' ? `URA calma${r.statusUra.modo === 'manual' ? ' (manual)' : ''}` : r.uraCheia?.ligada ? 'URA cheia ligada' : undefined;
   return (
-    <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-5">
-      <Kpi destaque rotulo="Livres na URA" valor={livres} Icone={UserCheck} tom={livres <= 1 ? 'perigo' : undefined} nota={livres <= 1 ? 'atenção: poucos livres' : 'prontos para receber'} />
-      <Kpi rotulo="Humanos na URA" valor={humanos} Icone={Users} nota={`${ura.filter((u) => u.classe === 'atendimento').length} em atendimento`} />
+    <div className={grade}>
+      <Kpi destaque rotulo="Humanos na URA" valor={humanos} Icone={Users} nota={`${ura.filter((u) => u.classe === 'atendimento').length} em atendimento`} />
+      <Kpi rotulo="Livres na URA" valor={livres} Icone={UserCheck} tom={livres <= 1 ? 'perigo' : undefined} nota={livres <= 1 ? 'atenção: poucos livres' : 'prontos para receber'} />
       <Kpi rotulo="Robôs ligados" valor={r.robos?.ligados ?? '?'} Icone={Bot} nota={`de ${r.robos?.total ?? '?'} robôs`} />
-      <Kpi rotulo="Callbacks hoje" valor={callbacks?.length ?? '–'} Icone={PhoneMissed} nota={callbacks?.length ? `último às ${callbacks[callbacks.length - 1]!.hora.slice(0, 5)}` : 'nenhum até agora'} />
-      <div className="col-span-2 lg:col-span-1">
-        <Kpi rotulo="Pânico" valor={<span className="text-2xl">{panico}</span>} Icone={ShieldCheck} tom={p?.ativoAgora ? 'perigo' : p?.ligado ? 'ok' : undefined}
-          nota={notaPanico} />
-      </div>
+      <KpisDoDia m={metricas} />
+      <Kpi rotulo="Pânico" valor={<span className="text-2xl">{panico}</span>} Icone={ShieldCheck} tom={p?.ativoAgora ? 'perigo' : p?.ligado ? 'ok' : undefined} nota={notaPanico} />
     </div>
   );
 }
 
 type FiltroUra = 'todos' | 'livre' | 'atendimento' | 'outros';
 
+/**
+ * Quem está na URA (só humanos), na ordem: em atendimento → livres → pausa → sem resposta → offline;
+ * dentro do grupo, há mais tempo no status primeiro, depois o nome. A troca de posição é animada (FLIP).
+ */
 function TabelaUra({ ura }: { ura: OperadorNaUra[] }) {
   const [filtro, setFiltro] = useState<FiltroUra>('todos');
   const [busca, setBusca] = useState('');
-  const [porNome, setPorNome] = useState(false);
   const agora = Date.now();
-  const lista = useMemo(() => ura
+  const humanos = useMemo(() => ordenarOperadores(ura), [ura]);
+  const lista = humanos
     .filter((u) => filtro === 'todos' || (filtro === 'outros' ? !['livre', 'atendimento'].includes(u.classe ?? '') : u.classe === filtro))
-    .filter((u) => !busca || `${u.ramal} ${u.nome ?? ''}`.toLowerCase().includes(busca.toLowerCase()))
-    .sort((a, b) => (porNome ? 0 : (CLASSES[a.classe ?? 'erro'].ordem - CLASSES[b.classe ?? 'erro'].ordem)) || String(a.nome).localeCompare(String(b.nome))), [ura, filtro, busca, porNome]);
+    .filter((u) => !busca || `${u.ramal} ${u.nome ?? ''}`.toLowerCase().includes(busca.toLowerCase()));
+  const corpo = useFlip<HTMLTableSectionElement>(lista.map((u) => u.ramal));
 
   return (
-    <Cartao titulo="Quem está na URA" extra={<span>{ura.length} na lista</span>}>
+    <Cartao titulo="Quem está na URA" extra={<span>{humanos.length} humano(s)</span>}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Segmentado rotulo="Filtrar por status" valor={filtro} aoMudar={setFiltro}
           opcoes={[{ valor: 'todos', texto: 'Todos' }, { valor: 'livre', texto: 'Livres' }, { valor: 'atendimento', texto: 'Atendendo' }, { valor: 'outros', texto: 'Outros' }]} />
@@ -97,27 +116,23 @@ function TabelaUra({ ura }: { ura: OperadorNaUra[] }) {
       {lista.length ? (
         <div className="overflow-x-auto">
           <table className="tabela">
-            <thead><tr>
-              <th>Ramal</th>
-              <th><button type="button" className="inline-flex cursor-pointer items-center gap-1 uppercase" onClick={() => setPorNome((v) => !v)} title="Ordenar por nome ou por status">Operador<ArrowDownUp className="size-3" aria-hidden /></button></th>
-              <th>Status</th><th className="text-right">Livre há</th>
-            </tr></thead>
-            <tbody>
+            <thead><tr><th>Ramal</th><th>Operador</th><th>Status</th><th className="text-right">No status há</th></tr></thead>
+            <tbody ref={corpo}>
               {lista.map((u) => {
                 const c = CLASSES[u.classe ?? 'erro'];
                 return (
-                  <tr key={u.ramal} className="hover:bg-slate-50 dark:hover:bg-noite-800/50">
+                  <tr key={u.ramal} data-flip={u.ramal} className="hover:bg-slate-50 dark:hover:bg-noite-800/50">
                     <td className="numero">{u.ramal}</td>
                     <td>{u.nome ?? '—'}{u.fixo && <span className="ml-2 rounded-md bg-amarelo-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-950 dark:text-amber-200">fixo</span>}</td>
-                    <td><Selo tom={c.tom}>{c.texto}{u.emCarencia ? ' · carência' : ''}</Selo></td>
-                    <td className="numero text-right">{u.livreDesde ? duracao((agora - new Date(u.livreDesde).getTime()) / 1000) : ''}</td>
+                    <td><Selo tom={c.tom}>{u.classe === 'outro' && u.pausa ? u.pausa : c.texto}{u.emCarencia ? ' · carência' : ''}</Selo></td>
+                    <td className="numero text-right">{u.statusDesde ? duracao((agora - new Date(u.statusDesde).getTime()) / 1000) : ''}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-      ) : <Vazio>{ura.length ? 'Ninguém com esse filtro.' : 'Ninguém na URA agora.'}</Vazio>}
+      ) : <Vazio>{humanos.length ? 'Ninguém com esse filtro.' : 'Ninguém na URA agora.'}</Vazio>}
     </Cartao>
   );
 }
@@ -240,19 +255,23 @@ function Roteador() {
 export function Visao({ escuro }: { escuro: boolean }) {
   const { data: v, dataUpdatedAt } = useVisao();
   const { data: dia } = useDia();
+  const { data: metricas } = useMetricasHoje();
   const r = v ? v.servicos.rodizio.dados : undefined;
   return (
     <>
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-bold tracking-tight">Visão geral</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-tight">Visão geral</h1>
+          <StatusUra />
+        </div>
         <p className="text-sm text-slate-500 dark:text-slate-400">{dataUpdatedAt ? `Atualizado às ${new Date(dataUpdatedAt).toLocaleTimeString('pt-BR')}` : 'Carregando…'}</p>
       </div>
-      <Kpis r={r} callbacks={dia?.callbacks} />
+      <Kpis r={r} metricas={metricas} />
       <div className="mb-5 grid gap-5 lg:grid-cols-2">
         <TabelaUra ura={r?.uraAgora ?? []} />
         <ListaCallbacks callbacks={dia?.callbacks ?? []} />
       </div>
-      <Relatorio r={r?.relatorio} callbacks={dia?.callbacks} />
+      <Relatorio r={r?.relatorio} statusAtual={r?.statusUra?.status} />
       <Graficos escuro={escuro} />
       <Roteador />
     </>

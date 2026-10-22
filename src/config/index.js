@@ -126,21 +126,12 @@ function carregarConfig(overrides = {}) {
       panicoPadrao: envBool('PANICO_PADRAO', true),
       // Pânico com 1 livre comum: os robôs só param quando ele está a isso de sair por ociosidade.
       panicoAntesDeSairMs: envNum('PANICO_ANTES_DE_SAIR_MS', 60_000),
-      // "URA passiva hoje" (interruptor na /ura, vale só no dia): com 1 fixo livre, os robôs seguem até ele atender.
-      arquivoUraPassiva: env('RODIZIO_URA_PASSIVA_FILE', path.join(RAIZ, 'state-ura-passiva.json')),
       // Pânico com 1 fixo livre: desliga a metade dos robôs ligados a cada N s; livre há M min, os robôs seguem até ele atender.
       panicoFixoReduzirMs: envNum('PANICO_FIXO_REDUZIR_A_CADA_S', 60) * 1000,
       panicoFixoOciosoMs: envNum('PANICO_FIXO_OCIOSO_MIN', 3) * 60_000,
-      // Termômetro da URA (minutos-livres por derivação na janela): calma = age como a URA passiva
-      // ("Passiva automática", interruptor na /ura do painel); agressiva (ou callback na janela) = normal.
-      arquivoPassivaAuto: env('RODIZIO_PASSIVA_AUTO_FILE', path.join(RAIZ, 'state-passiva-auto.json')),
-      passivaAutoPadrao: envBool('TERMOMETRO_AUTO', true),
-      termometro: {
-        janelaMs: envNum('TERMOMETRO_JANELA_MIN', 15) * 60_000,
-        calmaMs: envNum('TERMOMETRO_CALMA_MIN', 3) * 60_000,
-        agressivaMs: envNum('TERMOMETRO_AGRESSIVA_S', 45) * 1000,
-        minObservadoMs: envNum('TERMOMETRO_MIN_OBSERVADO_MIN', 5) * 60_000,
-      },
+      // [NOVO] Status da URA escolhido no painel (manual: calma, normal ou agressiva; ou automático, pelo
+      // termômetro com as faixas de src/config/uraThresholds.js). Calma: com 1 fixo livre, os robôs seguem.
+      arquivoStatusUra: env('RODIZIO_STATUS_URA_FILE', path.join(RAIZ, 'state-status-ura.json')),
       // Relatório do dia (painel): gravado para um reinício no mesmo dia continuar.
       arquivoEstatisticas: env('RODIZIO_ESTATISTICAS_FILE', path.join(RAIZ, 'state-estatisticas-dia.json')),
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.

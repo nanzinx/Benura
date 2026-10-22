@@ -1,17 +1,19 @@
 import { clsx } from 'clsx';
-import { Activity, LayoutDashboard, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
+import { Activity, Headset, LayoutDashboard, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
 import { useEffect, useState, type ComponentType } from 'react';
 import { useVisao } from '../dados';
 import type { Tema } from '../tema';
 import { Marca } from './Marca';
 import { BotaoDesligarAutomacao } from './DesligarAutomacao';
 
-export type Aba = 'visao' | 'ura' | 'esteira' | 'servicos';
-export const ABAS: { id: Aba; texto: string; Icone: ComponentType<{ className?: string }> }[] = [
-  { id: 'visao', texto: 'Visão geral', Icone: LayoutDashboard },
-  { id: 'ura', texto: 'URA e robôs', Icone: Activity },
-  { id: 'esteira', texto: 'Esteira manual', Icone: Upload },
-  { id: 'servicos', texto: 'Serviços', Icone: Server },
+export type Aba = 'visao' | 'receptivo' | 'ura' | 'esteira' | 'servicos';
+/** `curto`: o rótulo nas telas até 1536 px (com 5 abas, o completo quebraria o topo em duas linhas). */
+export const ABAS: { id: Aba; texto: string; curto: string; Icone: ComponentType<{ className?: string }> }[] = [
+  { id: 'visao', texto: 'Visão geral', curto: 'Visão geral', Icone: LayoutDashboard },
+  { id: 'receptivo', texto: 'Receptivo URA', curto: 'Receptivo', Icone: Headset },
+  { id: 'ura', texto: 'URA e robôs', curto: 'Robôs', Icone: Activity },
+  { id: 'esteira', texto: 'Esteira manual', curto: 'Esteira', Icone: Upload },
+  { id: 'servicos', texto: 'Serviços', curto: 'Serviços', Icone: Server },
 ];
 
 const TEMAS: { id: Tema; texto: string; Icone: ComponentType<{ className?: string }> }[] = [
@@ -50,7 +52,7 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 px-4 sm:px-6">
         <a href="#visao" className="py-3.5" aria-label="BenURA, visão geral"><Marca /></a>
         <nav aria-label="Seções" className="order-3 -mb-[3px] flex basis-full gap-1 overflow-x-auto [scrollbar-width:none] lg:order-none lg:basis-auto lg:flex-1">
-          {ABAS.map(({ id, texto, Icone }) => (
+          {ABAS.map(({ id, texto, curto, Icone }) => (
             <a
               key={id}
               href={`#${id}`}
@@ -58,7 +60,7 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
               className={clsx('flex items-center gap-2 whitespace-nowrap border-b-[3px] px-3 pt-3 pb-2.5 text-sm font-semibold transition-colors lg:py-5',
                 aba === id ? 'border-white text-white' : 'border-transparent text-azul-100/80 hover:text-white')}
             >
-              <Icone className="size-4" aria-hidden />{texto}
+              <Icone className="size-4" aria-hidden /><span className="2xl:hidden">{curto}</span><span className="hidden 2xl:inline">{texto}</span>
             </a>
           ))}
         </nav>

@@ -23,6 +23,7 @@ const { resolverFixos } = require('../integrations/argus/fixos');
 const { UraCheia } = require('./ura-cheia');
 const { Interruptor } = require('./interruptor');
 const { TermometroUra } = require('./termometro-ura');
+const { StatusUra } = require('./status-ura');
 const { EstatisticasDia } = require('./estatisticas-dia');
 const { AjusteRobos } = require('./ajuste-robos');
 const { VigiaCallbacks } = require('./vigia-callbacks');
@@ -75,13 +76,9 @@ function montarRodizio(overrides) {
     panico: new Interruptor({
       nome: 'Pânico dos robôs', arquivo: cfgRodizio.arquivoPanico, padrao: cfgRodizio.panicoPadrao, logger: log.filho('robos'),
     }),
-    uraPassiva: new Interruptor({
-      nome: 'URA passiva hoje', arquivo: cfgRodizio.arquivoUraPassiva, padrao: false, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('robos'),
-    }),
-    passivaAuto: new Interruptor({
-      nome: 'Passiva automática (termômetro da URA)', arquivo: cfgRodizio.arquivoPassivaAuto, padrao: cfgRodizio.passivaAutoPadrao, logger: log.filho('robos'),
-    }),
-    termometro: new TermometroUra({ cfg: cfgRodizio.termometro, logger: log.filho('robos') }),
+    // Termômetro (faixas em src/config/uraThresholds.js) e o status manual do painel, que vale por cima dele.
+    termometro: new TermometroUra({ logger: log.filho('robos') }),
+    statusDaUra: new StatusUra({ arquivo: cfgRodizio.arquivoStatusUra, logger: log.filho('robos') }),
     estatisticas: new EstatisticasDia({
       repositorio: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoEstatisticas, logger: log.filho('estado') }), fusoHorario: cfg.agenda.fusoHorario,
     }),

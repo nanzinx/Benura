@@ -28,6 +28,7 @@ const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
 const { raioXDoCallback, horaNoFuso } = require('../domain/raio-x-callback');
 const { mapearComLimite } = require('../utils/concorrencia');
+const { limitesMin: LIMITES_PAUSA } = require('../config/pausas');
 
 /** Quanto tempo de fotos da URA o raio-x dos callbacks guarda (o relatório chega com até alguns minutos de atraso). */
 const FOTOS_MS = 15 * 60_000;
@@ -36,6 +37,15 @@ const INTERVALO_ALINHAMENTO_MS = 60_000;
 
 /** Depois de quanto tempo sem webhook avisar (e de quanto em quanto repetir). */
 const AVISO_SEM_WEBHOOK_MS = 60 * 60_000;
+
+/** [NOVO] Operador virtual (robô) pelo nome da Argus: "OPER VIRT…" (ex.: "Oper Virtual 7"). */
+const ehOperadorVirtual = (nome) => /^oper\s*virt/i.test(String(nome || '').trim());
+
+/** [NOVO] Desde quando o operador está no status: livre e offline pelo que o rodízio mediu; o resto pelo tempoStatus da Argus. */
+function desdeDoStatus(s) {
+  const desde = s?.classe === Classe.LIVRE ? s.livreDesde : s?.classe === Classe.OFFLINE ? s.offlineDesde : s?.detalhe?.statusDesde;
+  return desde != null ? new Date(desde).toISOString() : null;
+}
 
 class RodizioService {
   /**
@@ -55,20 +65,19 @@ class RodizioService {
    * @param {import('./ajuste-robos').AjusteRobos} [deps.ajuste]
    *        robôs por livre que baixam no callback e sobem com a URA passiva (sem: sempre ROBOS_POR_LIVRE)
    * @param {import('./interruptor').Interruptor} [deps.panico] - pânico dos robôs (ROBOS_MODO=panico)
-   * @param {import('./interruptor').Interruptor} [deps.uraPassiva]
-   *        "URA passiva hoje": com 1 fixo livre, os robôs seguem até ele atender
-   * @param {import('./termometro-ura').TermometroUra} [deps.termometro] - URA calma, normal ou agressiva
-   * @param {import('./interruptor').Interruptor} [deps.passivaAuto]
-   *        "Passiva automática": com o termômetro em calma, age como a URA passiva
+   * @param {import('./termometro-ura').TermometroUra} [deps.termometro] - URA calma, normal ou agressiva (automático)
+   * @param {import('./status-ura').StatusUra} [deps.statusDaUra]
+   *        [NOVO] status que vale para o pânico: o do termômetro ou o manual do painel.
+   *        Calma: com 1 fixo livre, os robôs seguem até ele atender
    * @param {import('./estatisticas-dia').EstatisticasDia} [deps.estatisticas] - relatório do dia (painel)
    */
   constructor({
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
-    panico = null, uraPassiva = null, fixos = null, termometro = null, passivaAuto = null, estatisticas = null,
+    panico = null, fixos = null, termometro = null, statusDaUra = null, estatisticas = null,
   }) {
     Object.assign(this, {
-      client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, uraPassiva, fixos,
-      termometro, passivaAuto, estatisticas,
+      client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, fixos,
+      termometro, statusDaUra, estatisticas,
     });
     /** Fixos na URA de vez (FIXOS_PERMANENTES_URA): a regra do ocioso não vale para eles. */
     this.permanentes = new Set();
@@ -165,8 +174,7 @@ class RodizioService {
     this.uraCheia?.carregar();
     this.ajuste?.carregar();
     this.panico?.carregar();
-    this.uraPassiva?.carregar();
-    this.passivaAuto?.carregar();
+    this.statusDaUra?.carregar();
     this.estatisticas?.carregar();
     return this;
   }
@@ -380,11 +388,28 @@ class RodizioService {
     const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? agora) : undefined;
     const offlineDesde = classe === Classe.OFFLINE ? (anterior?.offlineDesde ?? agora) : undefined;
     const emCarencia = agora - (this.trocouEm.get(ramal) ?? -Infinity) < (this.cfg.carenciaTrocaMs ?? 0);
-    const detalhe = lido.status
-      ? { grupo: lido.status.idGrupo ?? null, origem: lido.status.origemDerivacao ?? null, nome: lido.status.nome ?? null }
-      : null;
-    if (classe === Classe.ATENDIMENTO && anterior?.classe !== Classe.ATENDIMENTO) this.registrarDerivacao(agora);
+    const detalhe = lido.status ? this.detalheDoStatus(lido.status, agora) : null;
+    if (classe === Classe.ATENDIMENTO && anterior?.classe !== Classe.ATENDIMENTO) {
+      this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null);
+    }
     this.statusUra.set(ramal, { classe, ts: agora, livreDesde, offlineDesde, emCarencia, detalhe });
+  }
+
+  /**
+   * O que guardar do statusoperador (só dados do operador). [NOVO] pausa e
+   * statusDesde: o tipo da pausa (descricaoPausa) e desde quando está no status
+   * (agora − tempoStatus, em ms), para o painel do receptivo.
+   */
+  detalheDoStatus(status, agora) {
+    const tempoStatus = Number(status.tempoStatus);
+    return {
+      grupo: status.idGrupo ?? null,
+      origem: status.origemDerivacao ?? null,
+      nome: status.nome ?? null,
+      descricao: status.descricaoStatus ?? null,
+      pausa: status.descricaoPausa ? String(status.descricaoPausa).trim() : null,
+      statusDesde: Number.isFinite(tempoStatus) && tempoStatus >= 0 ? agora - tempoStatus : null,
+    };
   }
 
   /**
@@ -488,12 +513,23 @@ class RodizioService {
   }
 
   async devolverAoAtivo(ramal) {
+    await this.moverParaAtivo(ramal);
+  }
+
+  /**
+   * URA → Ativo, ao grupo de volta dele. @param {string} [motivo] - para o log (padrão: o da regra do ocioso)
+   * @returns {Promise<{ ok: boolean, erro?: string }>}
+   */
+  async moverParaAtivo(ramal, motivo = null) {
     const info = this.statusUra.get(ramal) || {};
     const destino = await this.grupoDeVolta(ramal);
-    if (destino == null) return this.avisarSemGrupo(ramal);
+    if (destino == null) {
+      this.avisarSemGrupo(ramal);
+      return { ok: false, erro: 'sem grupo do Ativo identificável' };
+    }
 
     const ok = await this.comTrava(ramal, () => this.transferencias.transferir(ramal, destino));
-    if (!ok) return undefined;
+    if (!ok) return { ok: false, erro: 'a transferência não foi aceita agora' };
 
     delete this.movidos[ramal];
     this.ramaisUra.delete(ramal);
@@ -503,8 +539,8 @@ class RodizioService {
     if (this.emUraCheia()) this.naoLevarNaUraCheia.add(ramal); // sobe de novo ao atender no Ativo
     this.vigiarNoAtivo(ramal, destino);
     this.salvar();
-    this.log.info(`URA→ATIVO ramal=${ramal} destino=${destino} (motivo: ${motivoDaVolta({ ...info, agora: Date.now() })})`);
-    return undefined;
+    this.log.info(`URA→ATIVO ramal=${ramal} destino=${destino} (motivo: ${motivo ?? motivoDaVolta({ ...info, agora: Date.now() })})`);
+    return { ok: true };
   }
 
   /**
@@ -641,7 +677,7 @@ class RodizioService {
 
   /** 1 livre e ele é fixo: reduz à metade, a não ser que a URA esteja passiva ou ele já espere há muito. */
   motivoDoFixo(ramal, agora) {
-    if (this.uraPassivaAgora()) return null;
+    if (this.uraPassivaAgora()) return null; // URA calma (termômetro ou escolha da supervisão)
     const ociosoMs = this.cfg.panicoFixoOciosoMs ?? Infinity;
     const livreDesde = this.statusUra.get(ramal)?.livreDesde ?? agora;
     if (agora - livreDesde >= ociosoMs) {
@@ -659,10 +695,10 @@ class RodizioService {
     };
   }
 
-  /** "URA passiva": a de hoje (manual) ou o termômetro em calma com a passiva automática ligada. */
+  /** URA calma agora? (o status manual do painel, se houver; senão, o termômetro) */
   uraPassivaAgora() {
-    if (this.uraPassiva?.ligado()) return true;
-    return Boolean(this.passivaAuto?.ligado() && this.termometro?.calma());
+    if (this.statusDaUra) return this.statusDaUra.atual(this.termometro) === 'calma';
+    return Boolean(this.termometro?.calma());
   }
 
   /**
@@ -704,18 +740,65 @@ class RodizioService {
     this.log.info(`PÂNICO encerrado (${porque}): a supervisão pode religar os robôs pelo painel.`);
   }
 
-  /** Alguém da URA começou a atender (derivação): mede a URA passiva, o termômetro e o relatório do dia. */
-  registrarDerivacao(agora) {
+  /**
+   * Alguém da URA começou a atender (derivação): mede a URA passiva, o termômetro e o relatório do dia.
+   * @param {number|null} [esperaMs] - quanto ele esperou livre até a ligação chegar
+   */
+  registrarDerivacao(agora, esperaMs = null) {
     this.ultimoAtendimentoUraEm = agora;
-    this.termometro?.registrarDerivacao(agora);
+    this.termometro?.registrarDerivacao(agora, esperaMs);
     this.estatisticas?.registrarDerivacao(agora);
   }
 
   /** Fim do ciclo da URA: amostra para o termômetro e o relatório do dia. */
   amostrarDia(agora) {
     const amostra = { livres: this.ultimosLivres ?? 0, robosLigados: this.robos.situacao(this.ramaisRobos.length).ligados };
-    const termometro = this.termometro?.amostrar(agora, amostra) ?? null;
-    this.estatisticas?.amostrar(agora, { ...amostra, panico: this.panicoTipo, termometro });
+    // Quem está livre agora (e conta para os robôs): há quanto tempo espera uma ligação.
+    const esperasEmCursoMs = livresUteis([...this.ramaisUra], this.statusUra)
+      .map((r) => this.statusUra.get(r)?.livreDesde)
+      .filter((desde) => desde != null)
+      .map((desde) => agora - desde);
+    const termometro = this.termometro?.amostrar(agora, { esperasEmCursoMs }) ?? null;
+    const pausas = this.humanosNaUra().map((r) => this.statusUra.get(r)).filter((s) => s?.classe === Classe.OUTRO && s.detalhe?.pausa)
+      .map((s) => s.detalhe.pausa);
+    this.estatisticas?.amostrar(agora, { ...amostra, panico: this.panicoTipo, termometro: this.statusAtualDaUra() ?? termometro, pausas });
+  }
+
+  /** [NOVO] Status da URA que vale agora (manual ou do termômetro). */
+  statusAtualDaUra() {
+    return this.statusDaUra ? this.statusDaUra.atual(this.termometro) : this.termometro?.estado ?? null;
+  }
+
+  /** [NOVO] Humanos da lista da URA (sem robô e sem operador virtual). */
+  humanosNaUra() {
+    const robos = new Set(this.ramaisRobos.map(String));
+    return [...this.ramaisUra].filter((r) => !robos.has(String(r)) && !ehOperadorVirtual(this.statusUra.get(r)?.detalhe?.nome));
+  }
+
+  /**
+   * [NOVO] Ligação da URA terminou (webhook 4 ou 5): lead derivado ou transbordo, para o painel.
+   * @param {{ chave: string|null, derivou: boolean, motivo: string, filaSeg: number|null }} encerramento
+   */
+  registrarEncerramentoUra(encerramento, agora = Date.now()) {
+    this.ultimoEncerramentoEm = agora;
+    this.estatisticas?.registrarEncerramento(agora, encerramento);
+  }
+
+  /** [NOVO] GET /metricas/hoje: leads derivados, transbordos e a espera, do dia (00:00 até agora). */
+  metricasHoje() {
+    const r = this.estatisticas?.resumo() ?? null;
+    return {
+      dia: r?.dia ?? null,
+      leadsDerivadosHoje: r ? r.leadsDerivados : null,
+      transbordosHoje: r ? r.transbordos : null,
+      transbordosPorMotivo: r?.transbordosPorMotivo ?? {},
+      filaClienteMediaSeg: r?.filaMediaSeg ?? null,
+      esperaLivresSeg: this.termometro ? this.termometro.resumo().esperaSeg : null,
+      // Ligações esperando na fila agora: a API da Argus não tem esse dado em tempo real
+      // (só o painel deles). Fica null até existir uma fonte (ex.: um webhook de entrada na fila).
+      emFilaAgora: null,
+      ultimoWebhookEncerramento: this.ultimoEncerramentoEm ? new Date(this.ultimoEncerramentoEm).toISOString() : null,
+    };
   }
 
   /**
@@ -758,10 +841,11 @@ class RodizioService {
       this.atenderamNoAtivo.add(ramal);
       return;
     }
-    const jaAtendendo = this.statusUra.get(ramal)?.classe === Classe.ATENDIMENTO;
-    this.statusUra.set(ramal, { classe: Classe.ATENDIMENTO, ts: Date.now(), doWebhook: true });
-    if (jaAtendendo) this.ultimoAtendimentoUraEm = Date.now();
-    else this.registrarDerivacao(Date.now());
+    const anterior = this.statusUra.get(ramal);
+    const agora = Date.now();
+    this.statusUra.set(ramal, { classe: Classe.ATENDIMENTO, ts: agora, doWebhook: true, detalhe: anterior?.detalhe ? { ...anterior.detalhe, pausa: null, statusDesde: agora } : null });
+    if (anterior?.classe === Classe.ATENDIMENTO) this.ultimoAtendimentoUraEm = agora;
+    else this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null);
     this.log.debug(`webhook: ${ramal} em atendimento na URA`);
     this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após webhook: ${e.message}`));
   }
@@ -863,18 +947,70 @@ class RodizioService {
     return { ...this.panico.resumo(), mudou };
   }
 
-  /** POST/DELETE /ura/passiva-auto: o termômetro em calma age como a URA passiva. */
-  definirPassivaAuto(ligado) {
-    const mudou = this.passivaAuto.definir(ligado);
-    this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após mudar a passiva automática: ${e.message}`));
-    return { ...this.passivaAuto.resumo(), mudou };
+  /**
+   * [NOVO] PUT /ura/status { status, modo }: a supervisão fixa o status da URA (manual)
+   * ou devolve ao termômetro (automático). Vale para todos e muda a regra do pânico.
+   * @throws {Error} status/modo inválidos
+   */
+  definirStatusUra(pedido, por = null) {
+    const { mudou } = this.statusDaUra.definir(pedido, por);
+    this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após mudar o status da URA: ${e.message}`));
+    return { ...this.statusDaUra.resumo(this.termometro), mudou };
   }
 
-  /** POST/DELETE /ura/passiva (vale só hoje). @returns {{ ligado: boolean, desde: string|null, mudou: boolean }} */
+  /** POST/DELETE /ura/passiva (página /ura antiga): o mesmo que o status manual CALMA / automático. */
   definirUraPassiva(ligado) {
-    const mudou = this.uraPassiva.definir(ligado);
-    this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após mudar a URA passiva: ${e.message}`));
-    return { ...this.uraPassiva.resumo(), mudou };
+    const r = this.definirStatusUra(ligado ? { status: 'calma', modo: 'manual' } : { modo: 'automatico' }, 'página /ura');
+    return { ...this.uraPassivaResumo(), mudou: r.mudou };
+  }
+
+  /** A "URA passiva" de antes: o status manual em calma. */
+  uraPassivaResumo() {
+    const e = this.statusDaUra?.escolha;
+    const ligado = Boolean(e && e.modo === 'manual' && e.status === 'calma');
+    return { ligado, desde: ligado ? e.desde : null };
+  }
+
+  /**
+   * [NOVO] Quem o "Alocar Todos no Ativo" moveria: humanos da URA que não são fixos.
+   * O filtro é sempre aqui (nunca no painel).
+   */
+  candidatosAoAtivo() {
+    const humanos = this.humanosNaUra();
+    return {
+      elegiveis: humanos.filter((r) => !this.permanentes.has(String(r))),
+      fixos: humanos.filter((r) => this.permanentes.has(String(r))),
+    };
+  }
+
+  /**
+   * [NOVO] POST /operadores/transferir-ura-ativo: todos os humanos da URA que não são
+   * fixos voltam ao Ativo (cada um ao seu grupo de volta, como na regra do ocioso).
+   * Com a URA cheia ligada, desliga antes (senão o rodízio traria todos de volta).
+   * Respeita o DRY_RUN (transferencias.js).
+   * @returns {Promise<{ movidos: string[], ignorados: Array<{ ramal, motivo }>, erros: Array<{ ramal, erro }>, uraCheiaDesligada: boolean }>}
+   */
+  async transferirUraParaAtivo(por = null) {
+    const uraCheiaDesligada = Boolean(this.uraCheia && this.emUraCheia() && this.desligarUraCheia().mudou);
+    const robos = new Set(this.ramaisRobos.map(String));
+    const movidos = [];
+    const ignorados = [];
+    const erros = [];
+    for (const ramal of [...this.ramaisUra]) {
+      const nome = this.statusUra.get(ramal)?.detalhe?.nome ?? null;
+      if (robos.has(String(ramal)) || ehOperadorVirtual(nome)) continue; // robô: nem conta
+      if (this.permanentes.has(String(ramal))) {
+        ignorados.push({ ramal, nome, motivo: 'fixo' });
+        continue;
+      }
+      const r = await this.moverParaAtivo(ramal, 'alocar todos no Ativo');
+      if (r.ok) movidos.push(ramal);
+      else erros.push({ ramal, nome, erro: r.erro });
+    }
+    this.log.aviso(`Alocar todos no Ativo${por ? ` (${por})` : ''}: ${movidos.length} movido(s), ${ignorados.length} fixo(s) mantido(s), `
+      + `${erros.length} erro(s)${uraCheiaDesligada ? '; URA cheia desligada' : ''}.`);
+    if (movidos.length) this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após alocar todos no Ativo: ${e.message}`));
+    return { movidos, ignorados, erros, uraCheiaDesligada };
   }
 
   /** POST /robos/por-livre: a supervisão ajusta na hora. @returns {object} resumo do ajuste */
@@ -985,6 +1121,7 @@ class RodizioService {
 
   /** Quem está na URA e como está (painel da supervisão). Só dados do operador. */
   uraAgora() {
+    const robos = new Set(this.ramaisRobos.map(String));
     return [...this.ramaisUra].map((ramal) => {
       const s = this.statusUra.get(ramal);
       return {
@@ -994,6 +1131,10 @@ class RodizioService {
         livreDesde: s?.livreDesde ? new Date(s.livreDesde).toISOString() : null,
         emCarencia: Boolean(s?.emCarencia),
         fixo: this.permanentes.has(String(ramal)),
+        // [NOVO] painel do receptivo: virtual (robô na lista), tipo da pausa e desde quando no status
+        virtual: robos.has(String(ramal)) || ehOperadorVirtual(s?.detalhe?.nome),
+        pausa: s?.classe === Classe.OUTRO ? s?.detalhe?.pausa ?? null : null,
+        statusDesde: desdeDoStatus(s),
       };
     });
   }
@@ -1025,11 +1166,19 @@ class RodizioService {
         antesDeSairMs: this.cfg.panicoAntesDeSairMs ?? 0,
         fixoOciosoMs: this.cfg.panicoFixoOciosoMs ?? null,
         fixoReduzirMs: this.cfg.panicoFixoReduzirMs ?? null,
-        uraPassiva: this.uraPassiva ? this.uraPassiva.resumo() : { ligado: false, desde: null },
-        passivaAuto: this.passivaAuto ? this.passivaAuto.resumo() : null,
+        uraPassiva: this.uraPassivaResumo(), // a página /ura antiga
         passivaAgora: this.uraPassivaAgora(),
       },
       termometro: this.termometro ? this.termometro.resumo() : null,
+      // [NOVO] status da URA (manual ou automático), o mesmo para todos no painel
+      statusUra: this.statusDaUra ? this.statusDaUra.resumo(this.termometro) : null,
+      // [NOVO] quantos o "Alocar Todos no Ativo" moveria e quantos fixos ficam (o filtro é daqui)
+      transferenciaUraAtivo: (() => {
+        const { elegiveis, fixos } = this.candidatosAoAtivo();
+        return { elegiveis: elegiveis.length, fixos: fixos.length, uraCheiaLigada: this.emUraCheia() };
+      })(),
+      // [NOVO] limites das pausas (src/config/pausas.js), para o painel marcar a pausa excedida
+      pausasLimitesMin: LIMITES_PAUSA,
       relatorio: this.estatisticas ? this.estatisticas.resumo() : null,
       ajusteRobos: this.ajuste ? this.ajuste.resumo() : null,
       dryRun: Boolean(this.cfg.dryRun),

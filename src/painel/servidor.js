@@ -12,6 +12,9 @@
  *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
  *   POST /api/simulacao     { ligada } — botão "Modo simulação" (DRY_RUN)
  *   *    /api/rodizio/...   comandos da lista ACOES (servicos.js), levados com o token
+ *   PUT  /api/ura/status                      [NOVO] status da URA (manual/automático)
+ *   GET  /api/metricas/hoje                   [NOVO] leads derivados e transbordos do dia
+ *   POST /api/operadores/transferir-ura-ativo [NOVO] "Alocar Todos no Ativo"
  *   *    /api/roteador/...
  *
  * Tudo em /api, menos entrar, exige sessão. Escrita exige também o cabeçalho
@@ -109,6 +112,19 @@ function quemPediuDoPedido(req, segredoProxy) {
 const viaHttps = (req, segredoProxy) => pelaFunction(req, segredoProxy)
   || req.headers['x-forwarded-proto'] === 'https' || /https/.test(String(req.headers['cf-visitor'] || ''));
 
+/** Corpo JSON (objeto) ou erro 400. */
+function lerJson(texto) {
+  if (!texto) return {};
+  let json;
+  try {
+    json = JSON.parse(texto);
+  } catch {
+    throw new ErroPainel(400, 'JSON inválido');
+  }
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new ErroPainel(400, 'Envie um objeto JSON');
+  return json;
+}
+
 async function lerCorpo(req, limiteBytes) {
   const partes = [];
   let tamanho = 0;
@@ -198,8 +214,9 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
 
   async function encaminhar(req, acao) {
     if (acao.metodo !== 'GET') conferirOrigem(req);
-    const corpo = acao.metodo === 'POST' ? await lerCorpo(req, acao.limiteBytes ?? LIMITE_PADRAO_BYTES) : undefined;
-    const r = await servicos.chamar(acao.servico, acao.destino, { metodo: acao.metodo, corpo: corpo || undefined });
+    let corpo = ['POST', 'PUT'].includes(acao.metodo) ? await lerCorpo(req, acao.limiteBytes ?? LIMITE_PADRAO_BYTES) : undefined;
+    if (acao.comQuem) corpo = JSON.stringify({ ...lerJson(corpo), por: quemPediu(req) });
+    const r = await servicos.chamar(acao.servico, acao.destino, { metodo: acao.metodo, corpo: corpo || undefined, ...(acao.timeoutMs ? { timeoutMs: acao.timeoutMs } : {}) });
     if (acao.nome) {
       const resultado = r.status >= 200 && r.status < 300 ? 'ok' : `falhou: ${r.corpo?.erro ?? `HTTP ${r.status}`}`;
       logger.aviso(`Painel: supervisão pediu para ${acao.nome} (${quemPediu(req)}) — ${resultado}.`);

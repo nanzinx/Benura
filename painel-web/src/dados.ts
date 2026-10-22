@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
 import { api, type ComandoUra } from './api';
+import type { ResultadoTransferencia, StatusDaUra } from './tipos';
 import { useRetorno } from './ui/retorno';
 
 /** "Ao vivo" ou pausado (o botão do topo). */
@@ -61,8 +62,6 @@ export function useRisco() {
 
 const DESCRICAO: Record<ComandoUra, [string, string]> = {
   panico: ['Pânico ligado.', 'Pânico desligado.'],
-  'ura/passiva': ['URA passiva hoje: com um fixo livre, os robôs seguem até ele atender.', 'URA passiva desligada.'],
-  'ura/passiva-auto': ['Passiva automática ligada: com a URA calma, o BenURA age como na URA passiva.', 'Passiva automática desligada: só o botão manual relaxa a regra do fixo.'],
   'ura/cheia': ['URA cheia: os operadores do Ativo vão para a URA em até 5 s.', 'Rodízio de volta ao normal.'],
   'risco/desligar': ['Os robôs desligam quando um cliente de risco estiver em ligação.', 'Cliente de risco: só avisa.'],
 };
@@ -75,6 +74,46 @@ export function useComandoUra(comando: ComandoUra) {
     mutationFn: (ligar: boolean) => api.comandoUra(comando, ligar),
     onSuccess: (r, ligar) => {
       avisar('ok', r?.mudou === false ? 'Já estava assim.' : DESCRICAO[comando][ligar ? 0 : 1]);
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
+  });
+}
+
+/** [NOVO] Leads derivados e transbordos do dia (GET /api/metricas/hoje). */
+export function useMetricasHoje() {
+  return useQuery({ queryKey: ['metricas'], queryFn: api.metricasHoje, refetchInterval: intervalo(10_000, useContext(AoVivo)) });
+}
+
+const NOMES_STATUS: Record<StatusDaUra, string> = { calma: 'URA CALMA', normal: 'URA NORMAL', agressiva: 'URA AGRESSIVA' };
+
+/** [NOVO] Status da URA: manual (calma, normal, agressiva) ou de volta ao automático. Vale para todos. */
+export function useStatusUra() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: (pedido: { status?: StatusDaUra; modo: 'manual' | 'automatico' }) => api.statusUra(pedido),
+    onSuccess: (r, pedido) => {
+      avisar('ok', r.mudou === false ? 'Já estava assim.' : pedido.modo === 'automatico'
+        ? 'Status da URA de volta ao automático (termômetro).'
+        : `${NOMES_STATUS[pedido.status!]} fixado: vale para todos até voltar ao automático.`);
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
+  });
+}
+
+/** [NOVO] "Alocar Todos no Ativo": o backend escolhe quem vai (sem fixos e sem robôs). */
+export function useTransferirUraAtivo() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: api.transferirUraAtivo,
+    onSuccess: (r: ResultadoTransferencia) => {
+      const partes = [`${r.movidos.length} movido(s)`, `${r.ignorados.length} fixo(s) mantido(s)`];
+      if (r.erros.length) partes.push(`${r.erros.length} não moveram (${r.erros.map((e) => e.nome ?? e.ramal).join(', ')})`);
+      if (r.uraCheiaDesligada) partes.push('URA cheia desligada');
+      avisar(r.erros.length ? 'erro' : 'ok', partes.join(', '));
       cliente.invalidateQueries({ queryKey: ['visao'] });
     },
     onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),

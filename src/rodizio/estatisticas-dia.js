@@ -2,7 +2,8 @@
 /**
  * Relatório do dia da URA (painel): quanto tempo houve gente livre, quantas
  * derivações, quanto tempo com gente livre e nenhum robô ligado (a ociosidade
- * que o pânico causa), tempo em pânico e em cada estado do termômetro. Tudo
+ * que o pânico causa), tempo em pânico e em cada estado do termômetro, leads
+ * derivados e transbordos (webhooks 4 e 5 da Argus) e pausas por tipo. Tudo
  * também por hora. Gravado em arquivo: um reinício no mesmo dia continua; na
  * virada do dia começa do zero.
  */
@@ -15,7 +16,7 @@ const TIPOS_PANICO = ['zero', 'saindo', 'fixo'];
 const ESTADOS_TERMOMETRO = ['medindo', 'calma', 'normal', 'agressiva'];
 
 const zerados = (chaves) => Object.fromEntries(chaves.map((k) => [k, 0]));
-const hora = () => ({ livresMs: 0, derivacoes: 0, ociosoSemRobosMs: 0, panicoMs: 0, calmaMs: 0, agressivaMs: 0 });
+const hora = () => ({ livresMs: 0, derivacoes: 0, ociosoSemRobosMs: 0, panicoMs: 0, calmaMs: 0, agressivaMs: 0, leadsDerivados: 0, transbordos: 0 });
 const diaNovo = (dia) => ({
   dia,
   livresMs: 0,
@@ -24,6 +25,14 @@ const diaNovo = (dia) => ({
   panicoMs: zerados(TIPOS_PANICO),
   panicoVezes: zerados(TIPOS_PANICO),
   termometroMs: zerados(ESTADOS_TERMOMETRO),
+  // [NOVO] ligações da URA: para um humano (lead derivado) ou não (transbordo, por motivo)
+  leadsDerivados: 0,
+  transbordos: 0,
+  transbordosPorMotivo: {},
+  filaSegSoma: 0,
+  filaQtd: 0,
+  // [NOVO] tempo em pausa dos humanos da URA, por tipo (descricaoPausa da Argus)
+  pausasMs: {},
   horas: {},
 });
 
@@ -41,6 +50,8 @@ class EstatisticasDia {
     this.estado = diaNovo(dataLocal(fusoHorario));
     this.ultimaAmostraEm = null;
     this.gravadoEm = 0;
+    /** Ligações já contadas hoje (a Argus pode reenviar o mesmo webhook). */
+    this.contadas = new Set();
   }
 
   carregar(agora = Date.now()) {
@@ -55,6 +66,7 @@ class EstatisticasDia {
     if (dia !== this.estado.dia) {
       this.estado = diaNovo(dia);
       this.ultimaAmostraEm = null;
+      this.contadas.clear();
     }
     const h = horaLocal(this.fusoHorario, new Date(agora)).slice(0, 2);
     this.estado.horas[h] ??= hora();
@@ -64,9 +76,10 @@ class EstatisticasDia {
   /**
    * Um ciclo da URA.
    * @param {number} agora
-   * @param {{ livres: number|null, robosLigados: number|null, panico: string|null, termometro: string|null }} s
+   * @param {{ livres: number|null, robosLigados: number|null, panico: string|null, termometro: string|null, pausas?: string[] }} s
+   *        pausas: o tipo da pausa de cada humano da URA em pausa agora
    */
-  amostrar(agora, { livres, robosLigados, panico, termometro }) {
+  amostrar(agora, { livres, robosLigados, panico, termometro, pausas = [] }) {
     const h = this.doDia(agora); // virou o dia: zera, e o intervalo até a última amostra não conta
     const dt = this.ultimaAmostraEm == null ? 0 : Math.min(Math.max(agora - this.ultimaAmostraEm, 0), MAX_INTERVALO_MS);
     this.ultimaAmostraEm = agora;
@@ -86,6 +99,7 @@ class EstatisticasDia {
       if (termometro && termometro in e.termometroMs) e.termometroMs[termometro] += dt;
       if (termometro === 'calma') h.calmaMs += dt;
       if (termometro === 'agressiva') h.agressivaMs += dt;
+      for (const tipo of pausas) e.pausasMs[tipo] = (e.pausasMs[tipo] ?? 0) + dt;
     }
     if (agora - this.gravadoEm >= this.gravarACadaMs) this.gravar(agora);
   }
@@ -93,6 +107,31 @@ class EstatisticasDia {
   registrarDerivacao(agora) {
     this.doDia(agora).derivacoes += 1;
     this.estado.derivacoes += 1;
+  }
+
+  /**
+   * [NOVO] Uma ligação da URA terminou (webhook 4 ou 5): lead derivado ou transbordo.
+   * @param {{ chave: string|null, derivou: boolean, motivo: string, filaSeg: number|null }} encerramento
+   * @returns {boolean} false se já tinha sido contada
+   */
+  registrarEncerramento(agora, { chave, derivou, motivo, filaSeg }) {
+    const h = this.doDia(agora);
+    if (chave && this.contadas.has(chave)) return false;
+    if (chave) this.contadas.add(chave);
+    const e = this.estado;
+    if (derivou) {
+      e.leadsDerivados += 1;
+      h.leadsDerivados += 1;
+    } else {
+      e.transbordos += 1;
+      h.transbordos += 1;
+      e.transbordosPorMotivo[motivo] = (e.transbordosPorMotivo[motivo] ?? 0) + 1;
+    }
+    if (filaSeg != null) {
+      e.filaSegSoma += filaSeg;
+      e.filaQtd += 1;
+    }
+    return true;
   }
 
   /** O pânico começou (ou trocou de motivo) agora. */
@@ -120,6 +159,11 @@ class EstatisticasDia {
       panicoMin: mapa(e.panicoMs),
       panicoVezes: { ...e.panicoVezes },
       termometroMin: mapa(e.termometroMs),
+      leadsDerivados: e.leadsDerivados,
+      transbordos: e.transbordos,
+      transbordosPorMotivo: { ...e.transbordosPorMotivo },
+      filaMediaSeg: e.filaQtd ? Math.round(e.filaSegSoma / e.filaQtd) : null,
+      pausasMin: mapa(e.pausasMs),
       horas: Object.entries(e.horas).sort(([a], [b]) => a.localeCompare(b)).map(([h, v]) => ({
         hora: h,
         livresMin: minutos(v.livresMs),
@@ -129,6 +173,8 @@ class EstatisticasDia {
         panicoMin: minutos(v.panicoMs),
         calmaMin: minutos(v.calmaMs),
         agressivaMin: minutos(v.agressivaMs),
+        leadsDerivados: v.leadsDerivados ?? 0,
+        transbordos: v.transbordos ?? 0,
       })),
     };
   }

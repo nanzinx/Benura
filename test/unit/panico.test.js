@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { RodizioService } = require('../../src/rodizio/rodizio.service');
 const { Interruptor } = require('../../src/rodizio/interruptor');
+const { StatusUra } = require('../../src/rodizio/status-ura');
 const { Classe } = require('../../src/domain/rodizio');
 const { loggerNulo } = require('../../src/utils/logger');
 
@@ -33,15 +34,16 @@ const TEMPO_MIN = 180_000;
 
 /** URA com 3 humanos: os `livres` primeiros estão livres há `livreHaMs`. */
 function montar({
-  livres, panicoLigado = true, robos = robosFalsos(), ajuste = null, livreHaMs = 0, fixos = [], passiva = false, termometro = null, passivaAuto = true,
+  livres, panicoLigado = true, robos = robosFalsos(), ajuste = null, livreHaMs = 0, fixos = [], passiva = false, termometro = null,
 }) {
   const avisos = [];
   const logger = { ...loggerNulo, aviso: (m) => avisos.push(m), info: (m) => avisos.push(m) };
   const panico = new Interruptor({ nome: 'Pânico', arquivo: null, padrao: panicoLigado, logger });
-  const uraPassiva = new Interruptor({ nome: 'URA passiva hoje', arquivo: null, padrao: passiva, logger });
-  const auto = new Interruptor({ nome: 'Passiva automática', arquivo: null, padrao: passivaAuto, logger });
+  const statusDaUra = new StatusUra({ arquivo: null, logger });
+  // "passiva": a supervisão fixou a URA em CALMA no painel (a antiga "URA passiva hoje").
+  if (passiva) statusDaUra.definir({ status: 'calma', modo: 'manual' });
   const svc = new RodizioService({
-    client: {}, transferencias: {}, robos, repositorio: {}, logger, ajuste, panico, uraPassiva, termometro, passivaAuto: auto,
+    client: {}, transferencias: {}, robos, repositorio: {}, logger, ajuste, panico, termometro, statusDaUra,
     cfg: {
       robosModo: 'panico', pollUraMs: 5000, tempoNaUraMs: TEMPO_MIN, panicoAntesDeSairMs: 60_000,
       panicoFixoReduzirMs: 60_000, panicoFixoOciosoMs: 3 * 60_000,
@@ -132,30 +134,32 @@ test('pânico: reduzindo e o fixo completa 3 min livre, para de reduzir', async 
   assert.equal(svc.reducaoFixo, null);
 });
 
-test('pânico: com a URA passiva hoje, 1 fixo livre não reduz; ao atender, desliga todos', async () => {
+test('pânico: com a URA em CALMA (manual), 1 fixo livre não reduz; ao atender, desliga todos', async () => {
   const { svc, robos } = montar({ livres: 1, fixos: ['201'], passiva: true });
   await svc.avaliarRobos();
-  assert.deepEqual(robos.chamadas, [], 'fixo livre e URA passiva: os robôs seguem até ele atender');
-  assert.equal(svc.resumo().panico.uraPassiva.ligado, true);
+  assert.deepEqual(robos.chamadas, [], 'fixo livre e URA calma: os robôs seguem até ele atender');
+  assert.equal(svc.resumo().panico.uraPassiva.ligado, true, 'a página /ura antiga vê como URA passiva');
+  assert.deepEqual([svc.resumo().statusUra.status, svc.resumo().statusUra.modo], ['calma', 'manual']);
 
   svc.statusUra.set('201', { classe: Classe.ATENDIMENTO, ts: Date.now() }); // atendeu: sobra 0 livre
   await svc.avaliarRobos();
   assert.deepEqual(robos.chamadas, ['sincronizar', 'desligar 900,901 (PÂNICO: 0 livre na URA)']);
 });
 
-test('pânico: termômetro em calma age como a URA passiva; com a passiva automática desligada, não', async () => {
-  const calma = { calma: () => true, resumo: () => ({ estado: 'calma' }) };
+test('pânico: automático com o termômetro em calma age como URA calma; o manual NORMAL vence o termômetro', async () => {
+  const calma = { estado: 'calma', calma: () => true, resumo: () => ({ estado: 'calma', desde: null }) };
   const auto = montar({ livres: 1, fixos: ['201'], termometro: calma });
   await auto.svc.avaliarRobos();
   assert.deepEqual(auto.robos.chamadas, []);
   assert.equal(auto.svc.resumo().panico.passivaAgora, true);
 
-  const semAuto = montar({ livres: 1, fixos: ['201'], termometro: calma, passivaAuto: false });
-  await semAuto.svc.avaliarRobos();
-  assert.match(semAuto.robos.chamadas[1], /^reduzirPoupando 1 /);
-  const r = semAuto.svc.definirPassivaAuto(true);
-  assert.equal(r.mudou, true);
-  assert.equal(semAuto.svc.resumo().panico.passivaAgora, true);
+  const manual = montar({ livres: 1, fixos: ['201'], termometro: calma });
+  const r = manual.svc.definirStatusUra({ status: 'normal', modo: 'manual' }, 'ana@empresa.com');
+  assert.deepEqual([r.status, r.modo, r.por, r.mudou], ['normal', 'manual', 'ana@empresa.com', true]);
+  await new Promise((r) => setImmediate(r)); // definirStatusUra já reavalia os robôs
+  assert.ok(manual.robos.chamadas.some((c) => /^reduzirPoupando 1 /.test(c)), 'NORMAL manual: a regra do fixo vale inteira');
+  assert.throws(() => manual.svc.definirStatusUra({ status: 'xyz', modo: 'manual' }), /status deve ser/);
+  assert.equal(manual.svc.definirStatusUra({ modo: 'automatico' }).status, 'calma', 'de volta ao termômetro');
 });
 
 test('pânico: sem nenhum livre, desliga todos os ligados (inclusive em ligação), mesmo com a URA passiva', async () => {

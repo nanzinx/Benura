@@ -12,11 +12,8 @@ const saidaFalsa = () => {
   return { escrito, write(pedaco) { escrito.push(String(pedaco)); return true; } };
 };
 const ler = (pasta, dia, arquivo) => fs.readFileSync(path.join(pasta, dia, arquivo), 'utf8');
-/** WriteStream é assíncrono: espera o fechamento antes de ler. */
-const fechar = async (gravador) => {
-  gravador.parar();
-  await new Promise((ok) => setTimeout(ok, 50));
-};
+/** WriteStream é assíncrono: parar() só resolve quando todos os arquivos (até os do dia anterior) foram gravados. */
+const fechar = (gravador) => gravador.parar();
 
 test('logs em arquivo: hora local, avisos à parte, callbacks à parte e segredo mascarado; a saída original continua', async () => {
   const pasta = pastaTemp();

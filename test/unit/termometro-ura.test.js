@@ -1,92 +1,53 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { TermometroUra } = require('../../src/rodizio/termometro-ura');
+const { TermometroUra, estadoDaEspera } = require('../../src/rodizio/termometro-ura');
 const { EstatisticasDia } = require('../../src/rodizio/estatisticas-dia');
+const LIMIARES = require('../../src/config/uraThresholds');
 const { loggerNulo } = require('../../src/utils/logger');
 
 const MIN = 60_000;
-const cfg = { janelaMs: 15 * MIN, calmaMs: 3 * MIN, agressivaMs: 45_000, minObservadoMs: 5 * MIN };
 
 function novo() {
   const logs = [];
-  const t = new TermometroUra({ cfg, logger: { ...loggerNulo, info: (m) => logs.push(m) } });
+  const t = new TermometroUra({ logger: { ...loggerNulo, info: (m) => logs.push(m) } });
   return { t, logs };
 }
 
-/** `minutos` de ciclos de 5 s com `livres` e `robos`; uma derivação a cada `aCadaS` segundos. */
-function rodar(t, inicio, minutos, { livres = 2, robos = 5, aCadaS = 0 } = {}) {
-  let agora = inicio;
-  for (let s = 5; s <= minutos * 60; s += 5) {
-    agora = inicio + s * 1000;
-    if (aCadaS && s % aCadaS === 0) t.registrarDerivacao(agora);
-    t.amostrar(agora, { livres, robosLigados: robos });
-  }
-  return agora;
-}
-
-test('termômetro: medindo até 5 min com robô ligado; o tempo sem robô não conta', () => {
-  const { t } = novo();
-  let agora = rodar(t, 0, 10, { robos: 0 });
-  assert.equal(t.estado, 'medindo', 'robôs desligados não medem a URA');
-  agora = rodar(t, agora, 4, { aCadaS: 30 });
-  assert.equal(t.estado, 'medindo');
-  rodar(t, agora, 2, { aCadaS: 30 });
-  assert.notEqual(t.estado, 'medindo');
+test('termômetro: as faixas de uraThresholds (0–60 agressiva, 60–120 normal, ≥120 calma)', () => {
+  assert.deepEqual([0, 59, 60, 119, 120, 600].map((s) => estadoDaEspera(s)), ['agressiva', 'agressiva', 'normal', 'normal', 'calma', 'calma']);
+  assert.equal(LIMIARES.janelaMs, 5 * MIN);
 });
 
-test('termômetro: 2 livres e 1 derivação a cada 2 min = 4 min por derivação: calma (e loga a troca)', () => {
+test('termômetro: média das esperas dos últimos 5 min (atendimentos e quem está livre agora)', () => {
   const { t, logs } = novo();
-  rodar(t, 0, 10, { aCadaS: 120 });
-  assert.equal(t.estado, 'calma');
-  assert.ok(t.calma());
-  assert.match(logs.at(-1), /^Termômetro da URA: medindo → calma \(\d+,\d min livres por derivação/);
-  assert.equal(t.resumo(10 * MIN).minutosPorDerivacao, 4);
+  assert.equal(t.estado, 'medindo');
+  t.registrarDerivacao(0, 30_000);
+  t.registrarDerivacao(10_000, 50_000);
+  assert.equal(t.amostrar(10_000), 'agressiva', 'média 40 s');
+  assert.match(logs.at(-1), /^Termômetro da URA: medindo → agressiva \(livres esperando 40 s em média/);
+
+  assert.equal(t.amostrar(20_000, { esperasEmCursoMs: [100_000] }), 'normal', '(30+50+100)/3 = 60 s');
+  assert.equal(t.amostrar(30_000, { esperasEmCursoMs: [300_000, 280_000] }), 'calma', 'livres esperando muito');
+  assert.equal(t.resumo(30_000).esperaSeg, 165);
 });
 
-test('termômetro: derivação a cada 30 s com 1 livre = agressiva; a cada 90 s = normal', () => {
-  const a = novo().t;
-  rodar(a, 0, 10, { livres: 1, aCadaS: 30 });
-  assert.equal(a.estado, 'agressiva');
-  const n = novo().t;
-  rodar(n, 0, 10, { livres: 1, aCadaS: 90 });
-  assert.equal(n.estado, 'normal');
-});
-
-test('termômetro: sem nenhuma derivação com gente livre esperando = calma', () => {
+test('termômetro: a espera sai da média depois de 5 min; sem dado, o estado fica como estava', () => {
   const { t } = novo();
-  rodar(t, 0, 6);
-  assert.equal(t.estado, 'calma');
-  assert.equal(t.resumo(6 * MIN).minutosPorDerivacao, -1);
+  t.registrarDerivacao(0, 10_000);
+  assert.equal(t.amostrar(1000), 'agressiva');
+  assert.equal(t.amostrar(6 * MIN), 'agressiva', 'ninguém livre e nada na janela: fica como estava');
+  assert.equal(t.resumo(6 * MIN).esperaSeg, null);
+  assert.equal(t.amostrar(6 * MIN + 1000, { esperasEmCursoMs: [150_000] }), 'calma');
 });
 
-test('termômetro: callback na janela = agressiva na hora; sai dela quando o callback deixa a janela', () => {
+test('termômetro: callback nos últimos 5 min = agressiva, seja qual for a espera', () => {
   const { t } = novo();
-  let agora = rodar(t, 0, 10, { aCadaS: 120 });
-  t.registrarCallback(agora - 1000, agora);
+  assert.equal(t.amostrar(0, { esperasEmCursoMs: [200_000] }), 'calma');
+  t.registrarCallback(1000, 1000);
   assert.equal(t.estado, 'agressiva');
-  agora = rodar(t, agora, 14, { aCadaS: 120 });
-  assert.equal(t.estado, 'agressiva');
-  rodar(t, agora, 2, { aCadaS: 120 });
-  assert.equal(t.estado, 'calma');
-});
-
-test('termômetro: histerese — já calma, só sai abaixo de 2 min por derivação', () => {
-  const { t } = novo();
-  let agora = rodar(t, 0, 15, { livres: 1, aCadaS: 240 });
-  assert.equal(t.estado, 'calma');
-  agora = rodar(t, agora, 15, { livres: 1, aCadaS: 150 }); // 2,5 min: entre 2 e 3
-  assert.equal(t.estado, 'calma', 'não volta a normal com 2,5 min');
-  rodar(t, agora, 15, { livres: 1, aCadaS: 90 });
-  assert.equal(t.estado, 'normal');
-});
-
-test('termômetro: derivação muito depois de desligar os robôs não conta (não é dos robôs)', () => {
-  const { t } = novo();
-  rodar(t, 0, 6, { robos: 5 });
-  t.amostrar(10 * MIN, { livres: 2, robosLigados: 0 });
-  t.registrarDerivacao(10 * MIN);
-  assert.equal(t.medida(10 * MIN).derivacoes, 0);
+  assert.equal(t.amostrar(4 * MIN, { esperasEmCursoMs: [200_000] }), 'agressiva');
+  assert.equal(t.amostrar(6 * MIN + 2000, { esperasEmCursoMs: [200_000] }), 'calma', 'o callback saiu da janela');
 });
 
 // ───────────── Relatório do dia ─────────────
