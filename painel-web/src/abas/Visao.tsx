@@ -60,8 +60,8 @@ function Kpis({ r, metricas }: { r: SaudeRodizio | null | undefined; metricas: M
   if (r === null) {
     return (
       <div className={grade}>
-        <Kpi destaque rotulo="Livres na URA" valor="–" Icone={UserCheck} nota="rodízio parado" />
-        <Kpi rotulo="Humanos na URA" valor="–" Icone={Users} />
+        <Kpi destaque rotulo="Humanos na URA" valor="–" Icone={Users} nota="rodízio parado" />
+        <Kpi rotulo="Livres na URA" valor="–" Icone={UserCheck} />
         <Kpi rotulo="Robôs ligados" valor="–" Icone={Bot} />
         <KpisDoDia m={metricas} />
         <Kpi rotulo="Pânico" valor={<span className="text-2xl">–</span>} Icone={ShieldCheck} />
@@ -76,8 +76,8 @@ function Kpis({ r, metricas }: { r: SaudeRodizio | null | undefined; metricas: M
   const notaPanico = r.statusUra?.status === 'calma' ? `URA calma${r.statusUra.modo === 'manual' ? ' (manual)' : ''}` : r.uraCheia?.ligada ? 'URA cheia ligada' : undefined;
   return (
     <div className={grade}>
-      <Kpi destaque rotulo="Livres na URA" valor={livres} Icone={UserCheck} tom={livres <= 1 ? 'perigo' : undefined} nota={livres <= 1 ? 'atenção: poucos livres' : 'prontos para receber'} />
-      <Kpi rotulo="Humanos na URA" valor={humanos} Icone={Users} nota={`${ura.filter((u) => u.classe === 'atendimento').length} em atendimento`} />
+      <Kpi destaque rotulo="Humanos na URA" valor={humanos} Icone={Users} nota={`${ura.filter((u) => u.classe === 'atendimento').length} em atendimento`} />
+      <Kpi rotulo="Livres na URA" valor={livres} Icone={UserCheck} tom={livres <= 1 ? 'perigo' : undefined} nota={livres <= 1 ? 'atenção: poucos livres' : 'prontos para receber'} />
       <Kpi rotulo="Robôs ligados" valor={r.robos?.ligados ?? '?'} Icone={Bot} nota={`de ${r.robos?.total ?? '?'} robôs`} />
       <KpisDoDia m={metricas} />
       <Kpi rotulo="Pânico" valor={<span className="text-2xl">{panico}</span>} Icone={ShieldCheck} tom={p?.ativoAgora ? 'perigo' : p?.ligado ? 'ok' : undefined} nota={notaPanico} />
