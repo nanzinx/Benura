@@ -31,7 +31,11 @@ test('Function do Pages: leva o /api ao servidor com o service token, o segredo 
 
   const request = new Request('https://benura.benconsig.com.br/api/rodizio/panico?x=1', {
     method: 'POST',
-    headers: { Cookie: 'benura_painel=sessao', 'X-Painel': '1', Origin: 'https://benura.benconsig.com.br', 'CF-Connecting-IP': '200.1.2.3', 'X-Benura-Proxy': 'tentativa-do-navegador', 'Content-Type': 'application/json' },
+    headers: {
+      Cookie: 'benura_painel=sessao', 'X-Painel': '1', Origin: 'https://benura.benconsig.com.br', 'CF-Connecting-IP': '200.1.2.3',
+      'X-Benura-Proxy': 'tentativa-do-navegador', 'X-Benura-Cliente-Email': 'falso@x.com', 'Cf-Access-Authenticated-User-Email': 'ana@empresa.com',
+      'Content-Type': 'application/json',
+    },
     body: '{"a":1}',
   });
   const resposta = await onRequest({ request, env: { ...ENV, BENURA_API_URL: url } });
@@ -42,6 +46,7 @@ test('Function do Pages: leva o /api ao servidor com o service token, o segredo 
   assert.deepEqual([p.metodo, p.url, p.corpo], ['POST', '/api/rodizio/panico?x=1', '{"a":1}']);
   assert.equal(p.headers['x-benura-proxy'], 'segredo', 'o segredo é o do Pages, não o que o navegador mandou');
   assert.equal(p.headers['x-benura-cliente-ip'], '200.1.2.3');
+  assert.equal(p.headers['x-benura-cliente-email'], 'ana@empresa.com', 'o e-mail é o do Access, não o que o navegador mandou');
   assert.deepEqual([p.headers['cf-access-client-id'], p.headers['cf-access-client-secret']], ['id.access', 'secret.access']);
   assert.deepEqual([p.headers.cookie, p.headers['x-painel'], p.headers.origin], ['benura_painel=sessao', '1', 'https://benura.benconsig.com.br']);
   assert.notEqual(p.headers.host, 'benura.benconsig.com.br', 'o host é o do servidor');
@@ -54,6 +59,8 @@ test('Function do Pages: GET sem corpo; servidor fora do ar = 502; sem configura
 
   await onRequest({ request: new Request('https://benura.benconsig.com.br/api/visao'), env: { ...ENV, BENURA_API_URL: url } });
   assert.deepEqual([pedidos[0].metodo, pedidos[0].corpo], ['GET', '']);
+  assert.equal(pedidos[0].headers['x-benura-cliente-email'], '', 'sem Access: e-mail vazio');
+  assert.equal(pedidos[0].headers['cf-access-client-id'], 'id.access');
 
   const fora = await onRequest({ request: new Request('https://benura.benconsig.com.br/api/visao'), env: { ...ENV, BENURA_API_URL: 'http://127.0.0.1:9' } });
   assert.equal(fora.status, 502);

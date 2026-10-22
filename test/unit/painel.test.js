@@ -140,6 +140,38 @@ test('painel pelo Cloudflare Pages: só pela Function, com a origem do Pages e o
   assert.ok(logs.includes('Painel: entrada da supervisão (127.0.0.1).'));
 });
 
+test('painel pelo Pages: o e-mail do Cloudflare Access vai para o log e para o "por"; o cookie sai com Secure', async (t) => {
+  const { servidor, chamadas, pedir, logs } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
+  t.after(() => servidor.close());
+  // Pelo Tailscale Funnel a Function chega sem CF-Connecting-IP: o segredo basta.
+  const funnel = (extras = {}) => ({ 'X-Forwarded-For': '100.64.0.1', 'X-Benura-Proxy': SEGREDO, 'X-Benura-Cliente-IP': '200.1.2.3', 'X-Benura-Cliente-Email': 'ana@empresa.com', ...extras });
+
+  const entrada = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: funnel() });
+  assert.equal(entrada.status, 200);
+  assert.match(entrada.headers.get('set-cookie'), /; Secure/, 'a página no Pages é https');
+  assert.ok(logs.includes('Painel: entrada da supervisão (ana@empresa.com (200.1.2.3)).'));
+  const cookie = entrada.headers.get('set-cookie').split(';')[0];
+
+  await pedir('POST', '/api/rodizio/panico', { cookie, origem: PAGES, extras: funnel() });
+  assert.ok(logs.some((l) => l === 'Painel: supervisão pediu para ligar o pânico (ana@empresa.com (200.1.2.3)) — ok.'));
+  await pedir('POST', '/api/automacao/desligar', { cookie, origem: PAGES, extras: funnel() });
+  assert.equal(chamadas.find((c) => c.url === 'desligar').por, 'ana@empresa.com (200.1.2.3)', 'a faixa "desligada por" mostra o e-mail');
+
+  // Sem e-mail (página sem Access): só o IP, como antes.
+  await pedir('POST', '/api/rodizio/panico', { cookie, origem: PAGES, extras: funnel({ 'X-Benura-Cliente-Email': '' }) });
+  assert.ok(logs.some((l) => l === 'Painel: supervisão pediu para ligar o pânico (200.1.2.3) — ok.'));
+});
+
+test('painel com o Tailscale Funnel: pelo túnel sem o segredo, 403; e-mail sem o segredo não vale', async (t) => {
+  const { servidor, pedir, logs } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
+  t.after(() => servidor.close());
+  assert.equal((await pedir('GET', '/', { extras: { 'X-Forwarded-For': '8.8.8.8', 'X-Forwarded-Proto': 'https' } })).status, 403, 'direto no endereço ts.net');
+  assert.equal((await pedir('GET', '/api/sessao', { extras: { 'Tailscale-Funnel-Request': '?1' } })).status, 403);
+  const falso = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, extras: { 'X-Benura-Cliente-Email': 'chefe@empresa.com' } });
+  assert.equal(falso.status, 200, 'no localhost puro continua entrando');
+  assert.ok(logs.includes('Painel: entrada da supervisão (127.0.0.1).'), 'sem o segredo, o e-mail mandado é ignorado');
+});
+
 test('painel pelo Pages: senha errada bloqueia quem errou, não todo mundo que vem pela Cloudflare', async (t) => {
   const { servidor, pedir } = await subir({ origensPermitidas: [PAGES], proxySegredo: SEGREDO });
   t.after(() => servidor.close());

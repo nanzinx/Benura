@@ -57,8 +57,14 @@ class ErroPainel extends Error {
 
 const LOCAL = /^(127\.|::1$|::ffff:127\.)/;
 
-/** Chegou pelo túnel da Cloudflare? (o cloudflared roda neste PC: pedido do localhost com CF-Connecting-IP) */
-const viaTunel = (req) => Boolean(req.headers['cf-connecting-ip']) && LOCAL.test(String(req.socket.remoteAddress || ''));
+/** Cabeçalhos que só um proxy põe: o cloudflared (CF-Connecting-IP) e o Tailscale Funnel (X-Forwarded-*). */
+const CABECALHOS_DE_PROXY = ['cf-connecting-ip', 'x-forwarded-for', 'x-forwarded-proto', 'tailscale-funnel-request'];
+
+/**
+ * Chegou por um túnel? (o cloudflared ou o Tailscale rodam neste PC: pedido do localhost
+ * com cabeçalho de proxy). O navegador do próprio servidor não manda nenhum deles.
+ */
+const viaTunel = (req) => LOCAL.test(String(req.socket.remoteAddress || '')) && CABECALHOS_DE_PROXY.some((h) => req.headers[h]);
 
 /** Comparação em tempo constante (o segredo do proxy não vaza pelo tempo de resposta). */
 function iguais(a, b) {
@@ -67,22 +73,41 @@ function iguais(a, b) {
   return crypto.timingSafeEqual(x, y);
 }
 
-/** Veio pela Function do Cloudflare Pages (functions/api), com o segredo combinado? */
-const pelaFunction = (req, segredo) => Boolean(segredo) && viaTunel(req) && iguais(req.headers['x-benura-proxy'] ?? '', segredo);
+/**
+ * Veio pela Function do Cloudflare Pages (functions/api), com o segredo combinado?
+ * Ela sempre chega por um túnel que roda neste PC, então pelo localhost.
+ */
+const pelaFunction = (req, segredo) => Boolean(segredo) && LOCAL.test(String(req.socket.remoteAddress || ''))
+  && iguais(req.headers['x-benura-proxy'] ?? '', segredo);
 
 /**
- * Endereço de quem pediu. Pela Function do Pages, vale o X-Benura-Cliente-IP que ela
- * repassa (o CF-Connecting-IP seria o da própria Cloudflare); pelo túnel direto, o
- * CF-Connecting-IP; de outro PC da rede, os cabeçalhos são ignorados (senão daria
- * para fugir do bloqueio de senha errada).
+ * Endereço de quem pediu (o bloqueio de senha errada conta por ele). Pela Function do
+ * Pages, vale o X-Benura-Cliente-IP que ela repassa (o do túnel seria o da própria
+ * Cloudflare); pelo túnel direto, o CF-Connecting-IP ou o X-Forwarded-For; de outro
+ * PC da rede, os cabeçalhos são ignorados (senão daria para fugir do bloqueio).
  */
 function enderecoDoPedido(req, segredoProxy) {
   const direto = String(req.socket.remoteAddress || '?');
   if (pelaFunction(req, segredoProxy) && req.headers['x-benura-cliente-ip']) return String(req.headers['x-benura-cliente-ip']);
-  return viaTunel(req) ? String(req.headers['cf-connecting-ip']) : direto;
+  if (!viaTunel(req)) return direto;
+  const encaminhado = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return String(req.headers['cf-connecting-ip'] || encaminhado || direto);
 }
-/** Chegou por HTTPS (túnel da Cloudflare)? Então o cookie vai com Secure. */
-const viaHttps = (req) => req.headers['x-forwarded-proto'] === 'https' || /https/.test(String(req.headers['cf-visitor'] || ''));
+
+/**
+ * Quem pediu, para o log e o "por" da automação: pela Function, o e-mail com que a
+ * pessoa entrou no Cloudflare Access e o IP (ex.: "ana@empresa.com (200.1.2.3)");
+ * senão, só o IP.
+ */
+function quemPediuDoPedido(req, segredoProxy) {
+  const endereco = enderecoDoPedido(req, segredoProxy);
+  const email = pelaFunction(req, segredoProxy) ? String(req.headers['x-benura-cliente-email'] || '').trim() : '';
+  return email ? `${email} (${endereco})` : endereco;
+}
+
+/** Chegou por HTTPS (túnel ou a página no Pages, que é sempre https)? Então o cookie vai com Secure. */
+const viaHttps = (req, segredoProxy) => pelaFunction(req, segredoProxy)
+  || req.headers['x-forwarded-proto'] === 'https' || /https/.test(String(req.headers['cf-visitor'] || ''));
 
 async function lerCorpo(req, limiteBytes) {
   const partes = [];
@@ -131,6 +156,8 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
   ]));
   const segredoProxy = cfg.proxySegredo || '';
   const enderecoDe = (req) => enderecoDoPedido(req, segredoProxy);
+  const quemPediu = (req) => quemPediuDoPedido(req, segredoProxy);
+  const seguro = (req) => viaHttps(req, segredoProxy);
   const conferirOrigem = (req) => conferirOrigemDoPedido(req, cfg.origensPermitidas ?? []);
 
   async function entrar(req) {
@@ -142,13 +169,12 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
       throw new ErroPainel(400, 'JSON inválido');
     }
     if (!sessoes.configurada) throw new ErroPainel(503, 'A senha do painel ainda não foi configurada: coloque PAINEL_SENHA no .env do BenURA e reinicie o benura-painel.');
-    const endereco = enderecoDe(req);
-    const r = sessoes.entrar(typeof senha === 'string' ? senha : '', endereco, { seguro: viaHttps(req) });
+    const r = sessoes.entrar(typeof senha === 'string' ? senha : '', enderecoDe(req), { seguro: seguro(req) });
     if (!r.ok) {
-      logger.aviso(`Painel: senha errada (${endereco})${r.bloqueado ? ' — bloqueado por 10 min' : ''}.`);
+      logger.aviso(`Painel: senha errada (${quemPediu(req)})${r.bloqueado ? ' — bloqueado por 10 min' : ''}.`);
       throw new ErroPainel(r.bloqueado ? 429 : 401, r.bloqueado ? 'Muitas tentativas. Espere 10 minutos.' : 'Senha incorreta');
     }
-    logger.info(`Painel: entrada da supervisão (${endereco}).`);
+    logger.info(`Painel: entrada da supervisão (${quemPediu(req)}).`);
     return { status: 200, corpo: { ok: true }, cookie: r.cookie };
   }
 
@@ -176,7 +202,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     const r = await servicos.chamar(acao.servico, acao.destino, { metodo: acao.metodo, corpo: corpo || undefined });
     if (acao.nome) {
       const resultado = r.status >= 200 && r.status < 300 ? 'ok' : `falhou: ${r.corpo?.erro ?? `HTTP ${r.status}`}`;
-      logger.aviso(`Painel: supervisão pediu para ${acao.nome} (${enderecoDe(req)}) — ${resultado}.`);
+      logger.aviso(`Painel: supervisão pediu para ${acao.nome} (${quemPediu(req)}) — ${resultado}.`);
     }
     if (r.status === 0) return { status: 502, corpo: r.corpo };
     return { status: r.status, corpo: r.corpo };
@@ -195,7 +221,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     if (!sessoes.validar(req)) throw new ErroPainel(401, 'Entre com a senha da supervisão');
     if (req.method === 'POST' && pathname === '/api/sair') {
       conferirOrigem(req);
-      return { status: 200, corpo: { ok: true }, cookie: sessoes.sair(req, { seguro: viaHttps(req) }) };
+      return { status: 200, corpo: { ok: true }, cookie: sessoes.sair(req, { seguro: seguro(req) }) };
     }
     if (req.method === 'GET' && pathname === '/api/sessao') return { status: 200, corpo: { ok: true } };
     if (req.method === 'GET' && pathname === '/api/visao') return visao();
@@ -209,14 +235,14 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
         throw new ErroPainel(400, 'JSON inválido');
       }
       if (typeof ligada !== 'boolean') throw new ErroPainel(400, 'Envie { "ligada": true | false }');
-      const r = automacao.definirSimulacao(ligada, enderecoDe(req));
+      const r = automacao.definirSimulacao(ligada, quemPediu(req));
       if (!r.iniciado) throw new ErroPainel(409, r.motivo);
       return { status: 202, corpo: automacao.estado() };
     }
     if (req.method === 'POST' && (pathname === '/api/automacao/desligar' || pathname === '/api/automacao/religar')) {
       conferirOrigem(req);
       const desligar = pathname.endsWith('/desligar');
-      const r = desligar ? automacao.desligar(enderecoDe(req)) : automacao.religar(enderecoDe(req));
+      const r = desligar ? automacao.desligar(quemPediu(req)) : automacao.religar(quemPediu(req));
       if (!r.iniciado) throw new ErroPainel(409, r.motivo);
       return { status: 202, corpo: automacao.estado() };
     }

@@ -8,10 +8,11 @@
  * service token, e o servidor ainda exige o PAINEL_PROXY_SEGREDO.
  *
  * Variáveis do projeto no Pages (Production, como "Secret"):
- *   BENURA_API_URL            https://benura-api.benconsig.com.br
- *   CF_ACCESS_CLIENT_ID       service token do Access
- *   CF_ACCESS_CLIENT_SECRET
+ *   BENURA_API_URL            https://benura-api.benconsig.com.br (túnel da Cloudflare)
+ *                             ou https://<servidor>.<rede>.ts.net (Tailscale Funnel)
  *   PAINEL_PROXY_SEGREDO      o mesmo do .env do servidor
+ *   CF_ACCESS_CLIENT_ID       service token do Access (só com o túnel da Cloudflare)
+ *   CF_ACCESS_CLIENT_SECRET
  */
 
 const SEM_CORPO = new Set(['GET', 'HEAD']);
@@ -31,6 +32,9 @@ export async function onRequest({ request, env }) {
   headers.set('X-Benura-Proxy', env.PAINEL_PROXY_SEGREDO);
   // Quem abriu a página: no servidor, o CF-Connecting-IP seria o da própria Cloudflare.
   headers.set('X-Benura-Cliente-IP', request.headers.get('CF-Connecting-IP') ?? '');
+  // Com quem a pessoa entrou no Cloudflare Access (vai para o log). Sempre sobrescrito:
+  // o navegador não consegue se passar por outro e-mail.
+  headers.set('X-Benura-Cliente-Email', request.headers.get('Cf-Access-Authenticated-User-Email') ?? '');
   if (env.CF_ACCESS_CLIENT_ID) {
     headers.set('CF-Access-Client-Id', env.CF_ACCESS_CLIENT_ID);
     headers.set('CF-Access-Client-Secret', env.CF_ACCESS_CLIENT_SECRET ?? '');

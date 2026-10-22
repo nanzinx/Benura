@@ -554,7 +554,7 @@ npm run pm2:parar
 <a id="servidor"></a>
 ## 🏢 Servidor + Cloudflare Pages
 
-O backend inteiro (roteador, rodízio, rotinas e painel) roda **no servidor da empresa**. A página do painel fica no **Cloudflare Pages**, em `https://benura.benconsig.com.br`, e conversa com o servidor pelo **Cloudflare Tunnel**. Não é preciso abrir porta no roteador da empresa.
+O backend inteiro (roteador, rodízio, rotinas e painel) roda **no servidor da empresa**. A página do painel fica no **Cloudflare Pages**, em `https://benura.benconsig.com.br` (no temporário, `https://benura.pages.dev`), e conversa com o servidor por um túnel: o **Cloudflare Tunnel** ou, no temporário, o **Tailscale Funnel**. Não é preciso abrir porta no roteador da empresa.
 
 ```mermaid
 flowchart LR
@@ -567,7 +567,13 @@ flowchart LR
 - **Mesmo endereço para o navegador:** a página e o `/api` saem do mesmo endereço. A Function do Pages (`functions/api/[[caminho]].js`) repassa o `/api` ao servidor. Por isso o cookie de sessão, a conferência de origem e a CSP seguem como no servidor.
 - **Endereço do túnel fechado:** o `benura-api` fica fechado no Cloudflare Access e só entra quem traz o *service token*, ou seja, a Function. O servidor ainda exige o `PAINEL_PROXY_SEGREDO`: pelo túnel, sem ele, a resposta é `403`.
 - **No próprio servidor e na rede:** `http://localhost:3010` e `http://IP-DO-SERVIDOR:3010` continuam funcionando como antes.
-- **Log e bloqueio por pessoa:** o log e o bloqueio por senha errada usam o IP de quem abriu a página, que a Function repassa.
+- **Log com o e-mail de quem pediu:** a Function repassa o e-mail com que a pessoa entrou no Cloudflare Access e o IP dela. O log mostra, por exemplo, `Painel: supervisão pediu para ligar o pânico (ana@empresa.com (200.1.2.3)) — ok`, e a faixa "Automação desligada (por …)" mostra o mesmo.
+- **Bloqueio por senha errada:** continua contando por IP. Um erro não trava os outros que vêm pela Cloudflare.
+- **Dois caminhos para o servidor:**
+  - **temporário e grátis:** sem domínio, pelo Tailscale Funnel (parte 2);
+  - **definitivo:** com o `benconsig.com.br`, pelo túnel da Cloudflare (parte 3).
+
+  A página e o código são os mesmos nos dois; muda só o `BENURA_API_URL`.
 
 ### 1. Instalar no servidor (Windows)
 
@@ -594,7 +600,53 @@ flowchart LR
    ```
 7. **Webhooks da Argus** (e o de venda, se houver): onde estiver o endereço do PC antigo, troque pelo do servidor (`http://IP-DO-SERVIDOR:3000/webhook?token=…`). Se a Argus chama de fora da rede, libere a porta 3000 no Firewall do Windows.
 
-### 2. Cloudflare (conta onde está o `benconsig.com.br`)
+### 2. Temporário e grátis: Pages + Tailscale Funnel (conta Cloudflare própria, sem domínio)
+
+A página fica em `https://<projeto>.pages.dev`. O servidor ganha um endereço fixo e grátis, `https://<servidor>.<rede>.ts.net`, pelo **Tailscale Funnel**. O plano grátis do Tailscale é "pessoal": serve para o período temporário, e o definitivo é a parte 3.
+
+**Tailscale no servidor:**
+1. Crie a conta em [tailscale.com](https://tailscale.com) (entra com Google ou Microsoft).
+2. No servidor, rode `winget install tailscale.tailscale`, abra o Tailscale e entre com a conta.
+3. No [admin console](https://login.tailscale.com/admin/dns), em **DNS**, ligue **MagicDNS** e **HTTPS Certificates**.
+4. No PowerShell **como administrador**, rode:
+   ```powershell
+   tailscale funnel --bg 3010
+   ```
+   - Na primeira vez, ele mostra um link para liberar o Funnel na sua rede: abra, aprove e rode de novo.
+   - Ele mostra o endereço `https://<servidor>.<rede>.ts.net`. Anote, porque é o `BENURA_API_URL`.
+   - O `--bg` deixa o Funnel ligado, inclusive depois de reiniciar.
+   - `tailscale funnel status` mostra o que está publicado, e `tailscale funnel --https=443 off` desliga.
+
+**Cloudflare Pages (conta própria):**
+1. Em [dash.cloudflare.com](https://dash.cloudflare.com), vá em **Workers & Pages → Create → Pages → Connect to Git**.
+   - Autorize o GitHub para o repositório `nanzinx/Benura` e escolha a branch `main`.
+   - Dê ao projeto o nome `benura` (fica `benura.pages.dev`; se o nome já existir, use outro e troque nos passos abaixo).
+2. **Build:** framework *None*, build command vazio, **output directory `src/painel/publico`**. Clique em *Save and Deploy*.
+3. Em **Settings → Variables and Secrets → Production**, adicione como *Secret*:
+   - `BENURA_API_URL` = `https://<servidor>.<rede>.ts.net`;
+   - `PAINEL_PROXY_SEGREDO`, gerado no servidor com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+
+   Depois vá em **Deployments → ⋯ → Retry deployment**, para as variáveis valerem.
+4. Em **Settings → Builds → Preview deployments**, escolha **None**. Sem isso, cada branch vira um site.
+
+**Login por e-mail (Cloudflare Access, grátis até 50 pessoas):**
+1. Em [one.dash.cloudflare.com](https://one.dash.cloudflare.com), escolha um nome de equipe e o plano **Free**. O Cloudflare pode pedir um cartão, mas não cobra.
+2. Em **Access → Applications → Add an application → Self-hosted**, ponha o domínio `benura.pages.dev`.
+3. Crie a política *Allow* → *Include* → **Emails**, com os e-mails da supervisão. O login é por código enviado ao e-mail (*One-time PIN*).
+
+**No `.env` do servidor:**
+```ini
+PAINEL_ORIGENS_PERMITIDAS=https://benura.pages.dev
+PAINEL_PROXY_SEGREDO=<o mesmo do Pages>
+```
+Depois rode `npx pm2 restart benura-painel`.
+
+**Conferir:**
+- `https://benura.pages.dev` pede o e-mail e depois a senha do painel.
+- Ao ligar um interruptor, o log do painel (`logs/AAAA-MM-DD/painel.txt`) mostra o seu e-mail.
+- O endereço `ts.net` aberto direto responde 403, porque só a página entra.
+
+### 3. Definitivo: Cloudflare com o `benconsig.com.br`
 
 1. **Túnel:**
    - Em **Zero Trust → Networks → Tunnels → Create a tunnel** (tipo *Cloudflared*), crie o túnel `benura`.
