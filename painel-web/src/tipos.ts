@@ -152,12 +152,17 @@ export interface Vendedor {
   fila?: string;
   promovidoNoDia?: boolean;
   vendaQueDisparou?: number;
+  /** Total vendido no dia anterior (carga do dia). */
+  vendaOntem?: number | null;
+  fixo?: boolean;
 }
 
 export interface StatusRoteador {
   cargaInicialFeita?: boolean;
   ultimoMonitoramento?: string | null;
   meta?: number;
+  /** Carga do dia: de que dia são as vendas de "ontem" (ex.: "20/10/2026"). */
+  carga?: { diaAnterior?: string | null } | null;
   ura?: Vendedor[];
   ativo?: Vendedor[];
 }
