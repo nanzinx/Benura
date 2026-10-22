@@ -348,6 +348,8 @@ function carregarConfig(overrides = {}) {
     // [NOVO] "Alocar Todos no Ativo": todos ficam no Ativo (rodízio e roteador não sobem ninguém)
     // até "Retomar rodízio da URA". O rodízio grava, o roteador lê.
     arquivoRetencao: env('RETENCAO_ATIVO_FILE', path.join(RAIZ, 'state-retencao-ativo.json')),
+    // [NOVO] quem a supervisão mexeu à mão pelo painel: o rodízio e o roteador respeitam até liberar (ou virar o dia)
+    arquivoTravas: env('TRAVAS_MANUAIS_FILE', path.join(RAIZ, 'state-travas-manuais.json')),
   };
 
   // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---

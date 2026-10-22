@@ -220,6 +220,33 @@ No painel, aba **Receptivo**, o botão **Alocar Todos no Ativo** tira da URA tod
 - **Vale até retomarem**, inclusive de um dia para o outro e depois de reiniciar: a pausa fica em `RETENCAO_ATIVO_FILE` (`state-retencao-ativo.json`). O painel mostra uma faixa no topo, em qualquer aba, com a hora e quem pausou.
 - **Retomar rodízio da URA**: quem vendeu hoje, bateu a meta ontem ou é fixo vai para a URA **na hora**; os outros ficam no Ativo e o rodízio volta ao normal. Sem a lista de elegíveis (`RODIZIO_SO_ELEGIVEIS=0`), ninguém é movido e o rodízio volta a girar todo mundo.
 - Pela API: `POST /operadores/transferir-ura-ativo` aloca e pausa; `POST /operadores/retomar-rodizio` retoma (com token). O `/health` mostra `retencaoAtivo: { ativa, desde, por, elegiveisParaVoltar }`.
+
+### Ações por atendente e trava manual (aba Receptivo)
+No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do painel do receptivo da Argus:
+- **Pausar**: os tipos vêm da própria Argus (`/listarpausas`). Se ele estiver em ligação, a Argus pausa quando ele ficar livre.
+- **Sair da pausa** e **Ficar disponível**: este último o deixa Livre mesmo com lead ou pesquisa aberta.
+- **Deslogar**: desconecta da telefonia. Pede confirmação.
+- **Mandar para o Ativo** (quem está na URA) ou **Trazer para a URA** (pelo cartão "No Ativo agora").
+- **Trava manual:** quem a supervisão move à mão **fica onde foi posto até alguém clicar em "Liberar para o rodízio"**, ou até virar o dia.
+  - Travado na URA, o ocioso não o devolve ao Ativo.
+  - Travado no Ativo, nem o rodízio nem a venda nova (o roteador) o sobem. Isso vale até para fixo.
+  - O "Alocar Todos no Ativo", a URA cheia e o "Retomar rodízio" pulam os travados.
+  - A trava fica em `TRAVAS_MANUAIS_FILE` (`state-travas-manuais.json`): o rodízio grava e o roteador lê.
+- **Regras gerais:**
+  - Só atende humano da URA ou do Ativo; robô e operador virtual são recusados.
+  - Em DRY_RUN nada vai para a Argus: o log mostra `[DRY_RUN] …`.
+  - Cada ação fica no log com quem pediu.
+- **Pela API** (com token, ramal no corpo):
+  - `POST /operadores/pausas {ramal}`, `POST /operadores/pausar {ramal, idPausa}`;
+  - `POST /operadores/sair-pausa`, `POST /operadores/ficar-disponivel`, `POST /operadores/deslogar`;
+  - `POST /operadores/mover {ramal, para: "ativo"|"ura"}`, `POST /operadores/liberar`.
+  - Respostas: 400 para pedido inválido, 409 para recusa da Argus, 502 para a Argus fora.
+
+**Relatório do dia por atendente** (fim da aba Receptivo):
+- **Colunas:** tempo livre, em atendimento e em pausa (com o percentual, e por tipo ao clicar), atendimentos, pausas estouradas (passaram do limite de `src/config/pausas.js`), maior espera livre e o horário em que foi visto na URA. Mais uma linha de total.
+- **No celular:** vira um cartão por atendente.
+- **Escopo:** conta só o tempo no grupo da URA, porque o BenURA lê o status de quem está nela.
+- **Onde fica:** vai junto com o relatório do dia (`RODIZIO_ESTATISTICAS_FILE`) e aparece no `/health` em `relatorio.porAtendente`.
    - Quem voltou retorna à URA pela regra 1, assim que atender no Ativo.
 3. **A telefonia demora a acompanhar a troca de grupo** (visto na operação em 14/10/2026).
    - Mover alguém de grupo (pelo painel ou pela API) muda a **Lista de Operadores** na hora. A **telefonia** (o painel "Operadores Online" do grupo, `statusoperador.idGrupo`) só troca quando a pessoa fica **livre**, com um atraso da discadora. Em ligação ou pausa, espera.
@@ -419,7 +446,7 @@ Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado p
 | Aba | O que tem |
 | --- | --- |
 | **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; relatório do dia (ociosidade sem robô, pânico, termômetro, por hora); gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; vendas e filas do roteador |
-| **Receptivo URA** | Resumo (humanos, livres, pausa, fila, espera, leads derivados), status da URA, operadores com o tempo no status e o selo de fixo, pausas com limite (excedidas em vermelho) e o total do dia por tipo, e o botão **Alocar Todos no Ativo**, que segura todos no Ativo até **Retomar rodízio da URA** ([veja](#todos-no-ativo-até-a-segunda-ordem)) |
+| **Receptivo URA** | Resumo (humanos, livres, pausa, fila, espera, leads derivados), status da URA, operadores com o tempo no status e os selos de fixo e de travado, pausas com limite (excedidas em vermelho) e o total do dia por tipo, o menu de ações de cada atendente (pausar, sair da pausa, ficar disponível, mandar para o Ativo / trazer para a URA com trava, deslogar), quem está no Ativo agora, o relatório do dia por atendente ([veja](#ações-por-atendente-e-trava-manual-aba-receptivo)) e o botão **Alocar Todos no Ativo**, que segura todos no Ativo até **Retomar rodízio da URA** ([veja](#todos-no-ativo-até-a-segunda-ordem)) |
 | **URA e robôs** | Pânico, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
 | **Esteira manual** | Colar ou escolher o CSV da esteira quando o Carrossel cair, ver o que ela decidiu, apagar e recarregar as vendas |
 | **Serviços** | Roteador, rodízio, rotinas e atualizador no ar ou não, a Argus respondendo (ou recusando o token), DRY_RUN e os avisos do dia |

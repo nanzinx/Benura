@@ -9,7 +9,7 @@ const { loggerNulo } = require('../../src/utils/logger');
 
 const relogio = { hoje: () => '2026-10-08' };
 
-function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {}, retencao = { ativa: false } } = {}) {
+function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {}, retencao = { ativa: false }, travas = {} } = {}) {
   const movimentos = [];
   const salvos = [];
   const vendas = { ontem, hoje };
@@ -46,6 +46,7 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fi
   const svc = new RoteamentoService({
     carrossel, discadora, repositorio, diretorio, relogio, regras: { metaDiaria: 50_000, fixosUra, equipesFixasUra }, logger: loggerNulo,
     retencao: () => retencao,
+    travas: () => (ramal) => travas[ramal] ?? null,
   }).inicializar();
   return { svc, movimentos, salvos, vendas, retencao };
 }
@@ -216,4 +217,22 @@ test('[NOVO] rodízio pausado (todos no Ativo): venda e carga registram a URA, m
   retencao.ativa = false; // retomaram
   await ctx.svc.monitorarVendas();
   assert.deepEqual(ctx.movimentos.map(([r]) => r).sort(), ['1', '2'], 'os pendentes sobem no próximo ciclo');
+});
+
+test('[NOVO] trava manual do painel: venda de quem está travado no Ativo fica retida (até fixo); liberou, sobe', async () => {
+  const travas = { 2: 'ativo', 9: 'ativo' };
+  const ctx = montar({ ontem: [v('2', 100), v('9', 0)], hoje: [], travas, fixosUra: ['9'] });
+  await ctx.svc.executarCargaInicial();
+  assert.deepEqual(ctx.movimentos.filter(([, fila]) => fila === 'URA'), [], 'travado no Ativo: nem o fixo sobe');
+  assert.equal(ctx.svc.estado.vendedores['9'].ultimoResultado, 'RETIDO_NO_ATIVO');
+
+  ctx.vendas.hoje = [v('2', 900)];
+  await ctx.svc.monitorarVendas();
+  assert.deepEqual(ctx.movimentos.filter(([, fila]) => fila === 'URA'), [], 'venda nova não sobe quem está travado');
+  assert.equal(ctx.svc.estado.vendedores['2'].tentativasSync ?? 0, 0, 'não gasta tentativa');
+
+  delete travas[2];
+  delete travas[9];
+  await ctx.svc.monitorarVendas();
+  assert.deepEqual(ctx.movimentos.filter(([, fila]) => fila === 'URA').map(([r]) => r).sort(), ['2', '9'], 'liberados: sobem');
 });

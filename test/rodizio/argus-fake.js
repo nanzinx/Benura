@@ -35,6 +35,8 @@ function criarArgusFake({ grupos, status, usuarios = [], atrasoTrocaMs = 300 }) 
     grupoLogado: {},
     /** ramal → desde quando a troca de grupo espera a discadora */
     trocaPendente: {},
+    /** [NOVO] ramal → tipo da pausa (pausar/sairpausa do painel) */
+    pausa: {},
     /** ramais que nunca trocam sozinhos (só logando de novo) */
     travados: new Set(),
   };
@@ -68,7 +70,7 @@ function criarArgusFake({ grupos, status, usuarios = [], atrasoTrocaMs = 300 }) 
       return {
         codStatus: 1,
         statusOperador: {
-          ramal: String(ramal), descricaoStatus: desc, descricaoPausa: '', idGrupo: estado.grupoLogado[ramal] ?? grupo?.idGrupoUsuario,
+          ramal: String(ramal), descricaoStatus: desc, descricaoPausa: estado.pausa[ramal] ?? '', idGrupo: estado.grupoLogado[ramal] ?? grupo?.idGrupoUsuario,
         },
       };
     },
@@ -87,6 +89,25 @@ function criarArgusFake({ grupos, status, usuarios = [], atrasoTrocaMs = 300 }) 
         codStatus: 1, qtdeTransferidos: ramaisOperadores.length, qtdeFalhas: 0,
         operadores: ramaisOperadores.map((ramal) => ({ ramal, codStatus: 1, descStatus: 'ok' })),
       };
+    },
+
+    // [NOVO] pausas (painel do receptivo)
+    listarpausas: () => ({ codStatus: 1, retornoPausasItens: [{ idPausa: 1, pausaDesc: 'ALMOÇO' }, { idPausa: 3, pausaDesc: 'BANHEIRO' }] }),
+    pausar: ({ ramal, idPausa }) => {
+      if (estado.status[ramal] == null) return { codStatus: 0, descStatus: 'Operador não está logado' };
+      estado.pausa[ramal] = String(idPausa) === '1' ? 'ALMOÇO' : 'BANHEIRO';
+      estado.status[ramal] = 'pausa';
+      return { codStatus: 1, descStatus: 'Pausa solicitada' };
+    },
+    sairpausa: ({ ramal }) => {
+      delete estado.pausa[ramal];
+      estado.status[ramal] = 'livre';
+      return { codStatus: 1, descStatus: 'Pausa encerrada' };
+    },
+    ficardisponivel: ({ ramal }) => {
+      delete estado.pausa[ramal];
+      estado.status[ramal] = 'livre';
+      return { codStatus: 1, descStatus: 'Operador disponível' };
     },
 
     deslogaroperador: ({ ramal }) => {

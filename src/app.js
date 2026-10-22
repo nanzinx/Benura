@@ -26,7 +26,7 @@ const { criarControllers } = require('./http/controllers');
 const { criarServidor } = require('./http/server');
 const { registrarDesligamento, fecharServidor, escutar } = require('./utils/ciclo-de-vida');
 const { adquirirTravaOuEncerrar } = require('./utils/trava-processo');
-const { aguardarAutomacaoLigada, lerRetencao } = require('./utils/automacao');
+const { aguardarAutomacaoLigada, lerRetencao, lerTravas } = require('./utils/automacao');
 
 /**
  * Monta a camada da Argus (cliente, diretório de usuários e discadora).
@@ -88,6 +88,7 @@ function criarApp(overrides) {
     logger: log.filho('roteamento'),
     // "Alocar Todos no Ativo" (painel): ninguém sobe para a URA até retomarem o rodízio.
     retencao: () => lerRetencao(cfg.automacao.arquivoRetencao),
+    travas: () => lerTravas(cfg.automacao.arquivoTravas, cfg.agenda.fusoHorario),
   });
 
   const agendador = new Agendador({ roteamento, agenda: cfg.agenda, logger: log.filho('agendador') });

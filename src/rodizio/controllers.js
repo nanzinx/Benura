@@ -9,15 +9,17 @@
 
 const { interpretarWebhook, interpretarCallback, interpretarEncerramentoUra } = require('../domain/rodizio');
 const { PAGINA_URA } = require('./pagina-ura');
+const { AcaoRecusada } = require('./acoes-operador');
 
 /**
  * @param {object} deps
  * @param {import('./rodizio.service').RodizioService} deps.rodizio
  * @param {import('../retorno-fila/retorno-fila.service').RetornoFilaService} [deps.retornoFila]
  * @param {{ ultimoCicloUra(): number, ultimoCicloAtivo(): number }} deps.ciclos
+ * @param {import('./acoes-operador').AcoesOperador} [deps.acoes] - [NOVO] ações por atendente (aba Receptivo)
  * @param {object} deps.logger
  */
-function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logger }) {
+function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null, ciclos, logger }) {
   async function health() {
     return {
       status: 200,
@@ -149,6 +151,29 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     return { status: 200, corpo: await rodizio.retomarRodizio(quem(corpo)) };
   }
 
+  /**
+   * [NOVO] Ações por atendente (aba Receptivo): pausar, sair da pausa, ficar disponível,
+   * deslogar, mover Ativo ↔ URA (com trava) e liberar a trava. Ramal no corpo.
+   * Pedido inválido → 400; recusa da Argus ou mover que não deu → 409; Argus fora → 502.
+   */
+  const acao = (fn) => async ({ corpo }) => {
+    if (!acoes) return { status: 404, corpo: { erro: 'ações por atendente indisponíveis' } };
+    try {
+      return { status: 200, corpo: await fn(corpo || {}) };
+    } catch (e) {
+      if (e instanceof AcaoRecusada) return { status: e.status, corpo: { erro: e.message } };
+      logger.erro(`Ação por atendente falhou: ${e.message}`);
+      return { status: 502, corpo: { erro: `a Argus não respondeu: ${e.message}` } };
+    }
+  };
+  const pausasDisponiveis = acao(async (c) => ({ pausas: await acoes.pausasDisponiveis(c.ramal) }));
+  const pausar = acao((c) => acoes.pausar(c.ramal, c.idPausa, quem(c)));
+  const sairPausa = acao((c) => acoes.sairPausa(c.ramal, quem(c)));
+  const ficarDisponivel = acao((c) => acoes.ficarDisponivel(c.ramal, quem(c)));
+  const deslogar = acao((c) => acoes.deslogar(c.ramal, quem(c)));
+  const mover = acao((c) => acoes.mover(c.ramal, c.para, quem(c)));
+  const liberar = acao((c) => acoes.liberar(c.ramal, quem(c)));
+
   /** Quem pediu (o painel manda o e-mail/IP da supervisão); só texto curto, vai para o log. */
   const quem = (corpo) => (typeof corpo?.por === 'string' ? corpo.por.slice(0, 120) : null);
 
@@ -193,6 +218,13 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     { metodo: 'GET', caminho: '/metricas/hoje', handler: metricasHoje },
     { metodo: 'POST', caminho: '/operadores/transferir-ura-ativo', handler: transferirUraAtivo, protegida: true },
     { metodo: 'POST', caminho: '/operadores/retomar-rodizio', handler: retomarRodizio, protegida: true },
+    { metodo: 'POST', caminho: '/operadores/pausas', handler: pausasDisponiveis, protegida: true },
+    { metodo: 'POST', caminho: '/operadores/pausar', handler: pausar, protegida: true },
+    { metodo: 'POST', caminho: '/operadores/sair-pausa', handler: sairPausa, protegida: true },
+    { metodo: 'POST', caminho: '/operadores/ficar-disponivel', handler: ficarDisponivel, protegida: true },
+    { metodo: 'POST', caminho: '/operadores/deslogar', handler: deslogar, protegida: true },
+    { metodo: 'POST', caminho: '/operadores/mover', handler: mover, protegida: true },
+    { metodo: 'POST', caminho: '/operadores/liberar', handler: liberar, protegida: true },
     { metodo: 'GET', caminho: '/ura', handler: paginaUra },
     { metodo: 'POST', caminho: '/ura/cheia', handler: ligarUraCheia, protegida: true },
     { metodo: 'DELETE', caminho: '/ura/cheia', handler: desligarUraCheia, protegida: true },

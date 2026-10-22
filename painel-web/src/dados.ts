@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
-import { api, type ComandoUra } from './api';
+import { api, type ComandoUra, type PedidoAcao } from './api';
 import type { ResultadoRetomada, ResultadoTransferencia, StatusDaUra } from './tipos';
 import { useRetorno } from './ui/retorno';
 
@@ -110,7 +110,7 @@ export function useTransferirUraAtivo() {
   return useMutation({
     mutationFn: api.transferirUraAtivo,
     onSuccess: (r: ResultadoTransferencia) => {
-      const partes = [`${r.movidos.length} movido(s)`, `${r.ignorados.length} fixo(s) mantido(s)`];
+      const partes = [`${r.movidos.length} movido(s)`, `${r.ignorados.length} mantido(s) na URA (fixo ou travado)`];
       if (r.erros.length) partes.push(`${r.erros.length} não moveram (${r.erros.map((e) => e.nome ?? e.ramal).join(', ')})`);
       if (r.uraCheiaDesligada) partes.push('URA cheia desligada');
       partes.push('ficam no Ativo até retomar o rodízio');
@@ -132,6 +132,50 @@ export function useRetomarRodizio() {
         ? 'Rodízio da URA retomado (sem a lista do dia: o rodízio leva quem atender no Ativo).'
         : `Rodízio da URA retomado: ${r.movidos.length} voltaram para a URA${r.erros.length ? `, ${r.erros.length} não moveram agora` : ''}.`;
       avisar(r.erros.length ? 'erro' : 'ok', texto);
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
+  });
+}
+
+/** [NOVO] Lista de pausas da Argus (muda pouco: o rodízio guarda por 10 min). */
+export function usePausasDisponiveis(ramal: string | null) {
+  return useQuery({
+    queryKey: ['pausas', ramal],
+    queryFn: () => api.pausasDisponiveis(ramal!),
+    enabled: Boolean(ramal),
+    staleTime: 10 * 60_000,
+  });
+}
+
+const TEXTOS_ACAO: Record<PedidoAcao['acao'], string> = {
+  pausar: 'Pausa pedida',
+  'sair-pausa': 'Saiu da pausa',
+  'ficar-disponivel': 'Disponível para a próxima ligação',
+  deslogar: 'Deslogado',
+  mover: 'Movido',
+  liberar: 'Liberado para o rodízio',
+};
+
+/** [NOVO] Ações por atendente: pausar, sair da pausa, ficar disponível, deslogar, mover (com trava) e liberar. */
+export function useAcaoOperador() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: (p: PedidoAcao & { nome?: string | null }) => {
+      const { nome: _nome, ...pedido } = p;
+      return api.acaoOperador(pedido as PedidoAcao);
+    },
+    onSuccess: (r, p) => {
+      const quem = p.nome ?? `ramal ${p.ramal}`;
+      let texto = `${TEXTOS_ACAO[p.acao]}: ${quem}`;
+      if (p.acao === 'mover') {
+        texto = r.jaEstava
+          ? `${quem} já estava ${p.para === 'ura' ? 'na URA' : 'no Ativo'}: travado lá até liberar`
+          : `${quem} ${p.para === 'ura' ? 'veio para a URA' : 'foi para o Ativo'} e fica lá até liberar`;
+      }
+      if (p.acao === 'liberar' && r.estavaTravado === false) texto = `${quem} não estava travado`;
+      avisar('ok', `${r.simulado ? '[Simulação] ' : ''}${texto}.`);
       cliente.invalidateQueries({ queryKey: ['visao'] });
     },
     onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),

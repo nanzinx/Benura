@@ -99,7 +99,7 @@ test('alocar todos no Ativo: o filtro é do rodízio (sem fixo, sem robô); desl
   assert.deepEqual(r.erros, [{ ramal: '204', nome: 'Diego', erro: 'a transferência não foi aceita agora' }]);
   assert.equal(r.uraCheiaDesligada, true);
   assert.deepEqual(transferidos, ['202→3', '203→3', '204→3'], 'o robô 900 nem é tentado');
-  assert.ok(avisos.some((m) => /Alocar todos no Ativo \(ana@empresa.com \(1.2.3.4\)\): 2 movido\(s\), 1 fixo\(s\) mantido\(s\), 1 erro\(s\); URA cheia desligada/.test(m)));
+  assert.ok(avisos.some((m) => /Alocar todos no Ativo \(ana@empresa.com \(1.2.3.4\)\): 2 movido\(s\), 1 mantido\(s\) na URA \(fixo ou travado\), 1 erro\(s\); URA cheia desligada/.test(m)));
   assert.deepEqual([...svc.ramaisUra].sort(), ['201', '204', '900']);
 });
 

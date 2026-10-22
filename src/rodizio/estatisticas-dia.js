@@ -4,11 +4,15 @@
  * derivações, quanto tempo com gente livre e nenhum robô ligado (a ociosidade
  * que o pânico causa), tempo em pânico e em cada estado do termômetro, leads
  * derivados e transbordos (webhooks 4 e 5 da Argus) e pausas por tipo. Tudo
- * também por hora. Gravado em arquivo: um reinício no mesmo dia continua; na
- * virada do dia começa do zero.
+ * também por hora. [NOVO] E por atendente (aba Receptivo): tempo livre, em
+ * atendimento, em outro status e em cada pausa, atendimentos, pausas estouradas,
+ * maior espera livre e quando foi visto na URA. Conta só o tempo no grupo da URA
+ * (o rodízio só lê o status de quem está nela). Gravado em arquivo: um reinício no
+ * mesmo dia continua; na virada do dia começa do zero.
  */
 
 const { dataLocal, horaLocal } = require('../utils/datas');
+const { limitesMin: LIMITES_PAUSA } = require('../config/pausas');
 
 /** Entre dois ciclos, no máximo isto conta (o rodízio pode ter ficado parado). */
 const MAX_INTERVALO_MS = 30_000;
@@ -33,10 +37,25 @@ const diaNovo = (dia) => ({
   filaQtd: 0,
   // [NOVO] tempo em pausa dos humanos da URA, por tipo (descricaoPausa da Argus)
   pausasMs: {},
+  // [NOVO] por atendente (ramal → acumulados), veja atendente()
+  porRamal: {},
   horas: {},
 });
 
+const atendente = () => ({
+  nome: null, primeiroEm: null, ultimoEm: null, livreMs: 0, atendimentoMs: 0, outroMs: 0, pausasMs: {},
+  atendimentos: 0, pausasEstouradas: 0, maiorEsperaMs: 0, pausaContada: null,
+});
+
 const minutos = (ms) => Math.round(ms / 6_000) / 10;
+const semAcento = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+/** Limite da pausa em minutos (o nome começa com a chave de config/pausas.js), ou null. */
+function limiteDaPausaMin(tipo, limites = LIMITES_PAUSA) {
+  const t = semAcento(tipo || '');
+  const chave = Object.keys(limites).find((k) => t.startsWith(semAcento(k)));
+  return chave ? limites[chave] : null;
+}
 
 class EstatisticasDia {
   /**
@@ -76,10 +95,13 @@ class EstatisticasDia {
   /**
    * Um ciclo da URA.
    * @param {number} agora
-   * @param {{ livres: number|null, robosLigados: number|null, panico: string|null, termometro: string|null, pausas?: string[] }} s
-   *        pausas: o tipo da pausa de cada humano da URA em pausa agora
+   * @param {{ livres: number|null, robosLigados: number|null, panico: string|null, termometro: string|null, pausas?: string[],
+   *          operadores?: Array<{ ramal: string, nome?: string|null, classe: string|null, pausa?: string|null,
+   *                               statusDesde?: number|null, livreDesde?: number|null }> }} s
+   *        pausas: o tipo da pausa de cada humano da URA em pausa agora;
+   *        operadores: [NOVO] cada humano da URA agora (para o relatório por atendente)
    */
-  amostrar(agora, { livres, robosLigados, panico, termometro, pausas = [] }) {
+  amostrar(agora, { livres, robosLigados, panico, termometro, pausas = [], operadores = [] }) {
     const h = this.doDia(agora); // virou o dia: zera, e o intervalo até a última amostra não conta
     const dt = this.ultimaAmostraEm == null ? 0 : Math.min(Math.max(agora - this.ultimaAmostraEm, 0), MAX_INTERVALO_MS);
     this.ultimaAmostraEm = agora;
@@ -101,12 +123,49 @@ class EstatisticasDia {
       if (termometro === 'agressiva') h.agressivaMs += dt;
       for (const tipo of pausas) e.pausasMs[tipo] = (e.pausasMs[tipo] ?? 0) + dt;
     }
+    for (const op of operadores) this.amostrarAtendente(agora, dt, op);
     if (agora - this.gravadoEm >= this.gravarACadaMs) this.gravar(agora);
   }
 
-  registrarDerivacao(agora) {
+  /** [NOVO] Um humano da URA neste ciclo: soma o intervalo no status em que ele está. */
+  amostrarAtendente(agora, dt, { ramal, nome = null, classe, pausa = null, statusDesde = null, livreDesde = null }) {
+    if (!ramal || !classe || classe === 'offline' || classe === 'erro') return;
+    const a = this.atendenteDe(ramal);
+    if (nome) a.nome = nome;
+    const iso = new Date(agora).toISOString();
+    a.primeiroEm ??= iso;
+    a.ultimoEm = iso;
+    if (classe === 'livre') {
+      a.livreMs += dt;
+      if (livreDesde != null) a.maiorEsperaMs = Math.max(a.maiorEsperaMs, agora - livreDesde);
+    } else if (classe === 'atendimento') a.atendimentoMs += dt;
+    else if (pausa) {
+      a.pausasMs[pausa] = (a.pausasMs[pausa] ?? 0) + dt;
+      this.conferirPausaEstourada(a, agora, pausa, statusDesde);
+    } else a.outroMs += dt;
+  }
+
+  /** Conta uma vez por pausa (tipo + início) quando ela passa do limite. */
+  conferirPausaEstourada(a, agora, pausa, statusDesde) {
+    const limite = limiteDaPausaMin(pausa);
+    if (limite == null || statusDesde == null || agora - statusDesde <= limite * 60_000) return;
+    const chave = `${pausa}|${statusDesde}`;
+    if (a.pausaContada === chave) return;
+    a.pausaContada = chave;
+    a.pausasEstouradas += 1;
+  }
+
+  atendenteDe(ramal) {
+    this.estado.porRamal ??= {};
+    this.estado.porRamal[ramal] ??= atendente();
+    return this.estado.porRamal[ramal];
+  }
+
+  /** @param {string} [ramal] - [NOVO] quem atendeu (relatório por atendente) */
+  registrarDerivacao(agora, ramal = null) {
     this.doDia(agora).derivacoes += 1;
     this.estado.derivacoes += 1;
+    if (ramal) this.atendenteDe(String(ramal)).atendimentos += 1;
   }
 
   /**
@@ -164,6 +223,7 @@ class EstatisticasDia {
       transbordosPorMotivo: { ...e.transbordosPorMotivo },
       filaMediaSeg: e.filaQtd ? Math.round(e.filaSegSoma / e.filaQtd) : null,
       pausasMin: mapa(e.pausasMs),
+      porAtendente: this.porAtendente(),
       horas: Object.entries(e.horas).sort(([a], [b]) => a.localeCompare(b)).map(([h, v]) => ({
         hora: h,
         livresMin: minutos(v.livresMs),
@@ -178,6 +238,29 @@ class EstatisticasDia {
       })),
     };
   }
+
+  /** [NOVO] Relatório por atendente, por nome. Minutos com uma casa decimal. */
+  porAtendente() {
+    return Object.entries(this.estado.porRamal ?? {}).map(([ramal, a]) => {
+      const pausaMs = Object.values(a.pausasMs).reduce((t, v) => t + v, 0);
+      const totalMs = a.livreMs + a.atendimentoMs + a.outroMs + pausaMs;
+      return {
+        ramal,
+        nome: a.nome,
+        primeiroEm: a.primeiroEm,
+        ultimoEm: a.ultimoEm,
+        livreMin: minutos(a.livreMs),
+        atendimentoMin: minutos(a.atendimentoMs),
+        outroMin: minutos(a.outroMs),
+        pausaMin: minutos(pausaMs),
+        pausasMin: Object.fromEntries(Object.entries(a.pausasMs).map(([k, v]) => [k, minutos(v)])),
+        pausaPct: totalMs ? Math.round((pausaMs / totalMs) * 100) : 0,
+        atendimentos: a.atendimentos,
+        pausasEstouradas: a.pausasEstouradas,
+        maiorEsperaSeg: Math.round(a.maiorEsperaMs / 1000),
+      };
+    }).sort((x, y) => String(x.nome ?? x.ramal).localeCompare(String(y.nome ?? y.ramal), 'pt-BR'));
+  }
 }
 
-module.exports = { EstatisticasDia };
+module.exports = { EstatisticasDia, limiteDaPausaMin };
