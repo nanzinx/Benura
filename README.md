@@ -591,7 +591,40 @@ npm run pm2:parar
 
 - Sem configuração válida o serviço não sobe: o motivo aparece em `logs/*.err.log` e o PM2 tenta de novo com espera crescente.
 - O desligamento é gracioso (o estado do dia é salvo antes de sair), inclusive no Windows.
-- Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, veja o passo 6 de [Servidor + Cloudflare Pages](#servidor).
+- Para iniciar junto com o sistema: `npx pm2 save` e `npx pm2 startup` (Linux/macOS); no Windows, veja [PM2 como serviço do Windows](#servico-windows).
+
+<a id="servico-windows"></a>
+### 🪟 PM2 como serviço do Windows
+
+Faz o BenURA subir sozinho quando o servidor liga, **mesmo sem ninguém logado**, e voltar sozinho se o PM2 cair. No **PowerShell como administrador**, na pasta do BenURA (`C:\BenURA\app`), rode:
+
+```powershell
+npm run servico:instalar
+```
+
+**O que ele faz:**
+1. Sobe os serviços (`ecosystem.config.js`) e o atualizador automático, e salva a lista (`pm2 save`).
+2. Pede a **senha do usuário do Windows**. É o mesmo usuário que roda o `npx pm2` no servidor, porque o PM2 guarda a lista na pasta dele (`%USERPROFILE%\.pm2`).
+3. Cria a tarefa **"BenURA"** no Agendador de Tarefas, com dois gatilhos:
+   - **ao ligar o PC**, 1 min depois: restaura os serviços salvos (`pm2 resurrect`);
+   - **a cada 5 min** (o vigia, `scripts\windows\vigia-pm2.ps1`): se o PM2 caiu ou perdeu a lista, restaura de novo. Serviço parado de propósito, como no **Desligar automação** do painel, continua parado. O que o vigia faz fica em `logs\servico-windows.log`.
+
+**Para conferir** (não precisa ser administrador), rode `npm run servico:verificar`. Ele mostra:
+- a tarefa, com a última e a próxima execução;
+- cada serviço no PM2, se responde no `/health`;
+- o túnel, se houver.
+
+**Outros comandos:**
+
+| Para… | Rode |
+|---|---|
+| Fazer a mudança na lista de serviços valer no próximo boot (subiu ou tirou algum) | `npx pm2 save` |
+| Rodar de novo (trocou a senha do Windows ou a pasta) | `npm run servico:instalar` (atualiza a tarefa, não duplica) |
+| Sair do início automático (os serviços continuam rodando) | `npm run servico:desinstalar` |
+| Sair do início automático e parar tudo | `powershell -ExecutionPolicy Bypass -File scripts\windows\desinstalar-servico.ps1 -PararServicos` |
+
+> [!NOTE]
+> Esta tarefa substitui o `schtasks … npx pm2 resurrect` das versões anteriores (mesmo nome, `BenURA`). Rodar `servico:instalar` troca a tarefa antiga pela nova.
 
 ---
 
@@ -638,10 +671,7 @@ flowchart LR
    1. **No PC antigo:** `npx pm2 stop all`, `npx pm2 delete all` e `npx pm2 save --force`. Remova a tarefa ou o serviço que o iniciava com o Windows, para ele não voltar sozinho.
    2. **De novo para o servidor:** copie os `state*.json` do dia.
    3. **No servidor:** `DRY_RUN=0` no `.env` (ou o botão "Modo simulação" do painel), depois `npx pm2 restart all` e `npx pm2 save`.
-6. **Iniciar junto com o Windows:** no **Prompt de Comando como administrador**, rode o comando abaixo. Ele pede a senha do usuário do Windows e sobe o BenURA 1 min depois de o servidor ligar, mesmo sem ninguém logado:
-   ```bat
-   schtasks /create /tn "BenURA" /sc onstart /delay 0001:00 /ru "%USERDOMAIN%\%USERNAME%" /rp * /tr "cmd /c cd /d C:\BenURA\app && npx pm2 resurrect"
-   ```
+6. **Iniciar junto com o Windows:** veja [PM2 como serviço do Windows](#servico-windows): `npm run servico:instalar`, no PowerShell como administrador.
 7. **Webhooks da Argus** (e o de venda, se houver): onde estiver o endereço do PC antigo, troque pelo do servidor (`http://IP-DO-SERVIDOR:3000/webhook?token=…`). Se a Argus chama de fora da rede, libere a porta 3000 no Firewall do Windows.
 
 ### 2. Temporário e grátis: Pages + Tailscale Funnel (conta Cloudflare própria, sem domínio)
