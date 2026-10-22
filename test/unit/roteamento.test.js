@@ -9,7 +9,7 @@ const { loggerNulo } = require('../../src/utils/logger');
 
 const relogio = { hoje: () => '2026-10-08' };
 
-function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {} } = {}) {
+function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {}, retencao = { ativa: false } } = {}) {
   const movimentos = [];
   const salvos = [];
   const vendas = { ontem, hoje };
@@ -45,8 +45,9 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fi
   };
   const svc = new RoteamentoService({
     carrossel, discadora, repositorio, diretorio, relogio, regras: { metaDiaria: 50_000, fixosUra, equipesFixasUra }, logger: loggerNulo,
+    retencao: () => retencao,
   }).inicializar();
-  return { svc, movimentos, salvos, vendas };
+  return { svc, movimentos, salvos, vendas, retencao };
 }
 
 const v = (ramal, totalVendas) => ({ ramal, nome: `V${ramal}`, equipe: 'E', totalVendas });
@@ -194,4 +195,25 @@ test('carga inicial: quem vai para a URA guarda o grupo de onde saiu (volta do r
   await svc.executarCargaInicial();
   assert.equal(svc.estado.vendedores['1'].grupoAtivoAnterior, 1);
   assert.equal(svc.estado.vendedores['2'].grupoAtivoAnterior, undefined, 'foi para o Ativo: não precisa');
+});
+
+test('[NOVO] rodízio pausado (todos no Ativo): venda e carga registram a URA, mas ninguém sobe; os fixos sobem; ao retomar, sobe', async () => {
+  const retencao = { ativa: true };
+  const ctx = montar({ ontem: [v('1', 72_500), v('2', 100), v('9', 0)], hoje: [], retencao, fixosUra: ['9'] });
+  await ctx.svc.executarCargaInicial();
+  assert.deepEqual(ctx.movimentos.filter(([, fila]) => fila === 'URA'), [['9', 'URA']], 'só o fixo sobe na carga');
+  assert.equal(ctx.svc.estado.vendedores['1'].fila, 'URA', 'a decisão fica registrada');
+  assert.equal(ctx.svc.estado.vendedores['1'].ultimoResultado, 'RETIDO_NO_ATIVO');
+
+  ctx.movimentos.length = 0;
+  ctx.vendas.hoje = [v('2', 900)];
+  await ctx.svc.monitorarVendas();
+  await ctx.svc.monitorarVendas();
+  assert.deepEqual(ctx.movimentos, [], 'venda nova não sobe ninguém');
+  assert.equal(ctx.svc.estado.vendedores['2'].fila, 'URA');
+  assert.equal(ctx.svc.estado.vendedores['2'].tentativasSync ?? 0, 0, 'não gasta tentativa');
+
+  retencao.ativa = false; // retomaram
+  await ctx.svc.monitorarVendas();
+  assert.deepEqual(ctx.movimentos.map(([r]) => r).sort(), ['1', '2'], 'os pendentes sobem no próximo ciclo');
 });

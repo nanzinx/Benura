@@ -24,6 +24,7 @@ const { UraCheia } = require('./ura-cheia');
 const { Interruptor } = require('./interruptor');
 const { TermometroUra } = require('./termometro-ura');
 const { StatusUra } = require('./status-ura');
+const { RetencaoAtivo } = require('./retencao-ativo');
 const { EstatisticasDia } = require('./estatisticas-dia');
 const { AjusteRobos } = require('./ajuste-robos');
 const { VigiaCallbacks } = require('./vigia-callbacks');
@@ -79,6 +80,8 @@ function montarRodizio(overrides) {
     // Termômetro (faixas em src/config/uraThresholds.js) e o status manual do painel, que vale por cima dele.
     termometro: new TermometroUra({ logger: log.filho('robos') }),
     statusDaUra: new StatusUra({ arquivo: cfgRodizio.arquivoStatusUra, logger: log.filho('robos') }),
+    // "Alocar Todos no Ativo": segura todos no Ativo até "Retomar rodízio da URA" (o roteador lê o mesmo arquivo).
+    retencao: new RetencaoAtivo({ arquivo: cfg.automacao.arquivoRetencao, logger: log.filho('rodizio') }),
     estatisticas: new EstatisticasDia({
       repositorio: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoEstatisticas, logger: log.filho('estado') }), fusoHorario: cfg.agenda.fusoHorario,
     }),

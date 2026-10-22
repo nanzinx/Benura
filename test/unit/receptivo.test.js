@@ -6,6 +6,7 @@ const { RodizioService } = require('../../src/rodizio/rodizio.service');
 const { StatusUra } = require('../../src/rodizio/status-ura');
 const { TermometroUra } = require('../../src/rodizio/termometro-ura');
 const { EstatisticasDia } = require('../../src/rodizio/estatisticas-dia');
+const { RetencaoAtivo } = require('../../src/rodizio/retencao-ativo');
 const { Classe, interpretarEncerramentoUra } = require('../../src/domain/rodizio');
 const { loggerNulo } = require('../../src/utils/logger');
 
@@ -54,18 +55,23 @@ test('status da URA: manual vence o termômetro até voltar ao automático; grav
 });
 
 /** Rodízio com 4 humanos na URA (201 fixo), um robô na lista e a URA cheia ligada. */
-function montar() {
+function montar({ elegiveis = null } = {}) {
   const avisos = [];
   const logger = { ...loggerNulo, aviso: (m) => avisos.push(m), info: () => {} };
   const transferidos = [];
   const transferencias = { transferir: async (ramal, grupo) => { transferidos.push(`${ramal}→${grupo}`); return ramal !== '204'; } };
   let cheia = true;
-  const uraCheia = { ativa: () => cheia, desligar: () => { const mudou = cheia; cheia = false; return mudou; }, resumo: () => ({ ligada: cheia }) };
+  const uraCheia = {
+    ativa: () => cheia, desligar: () => { const mudou = cheia; cheia = false; return mudou; }, ligar: () => { const mudou = !cheia; cheia = true; return mudou; },
+    resumo: () => ({ ligada: cheia }),
+  };
+  const retencao = new RetencaoAtivo({ arquivo: null, logger });
   const svc = new RodizioService({
     client: {}, transferencias, robos: { situacao: () => ({ ligados: 0 }), resumo: () => ({ ligados: 0 }), ligados: new Set() },
     repositorio: { salvar: () => {} }, logger, uraCheia, termometro: new TermometroUra({ logger }), statusDaUra: new StatusUra({ arquivo: null, logger }),
-    estatisticas: new EstatisticasDia({ fusoHorario: 'America/Sao_Paulo' }),
-    cfg: { robosModo: 'panico', pollUraMs: 5000, tempoNaUraMs: 180_000 },
+    estatisticas: new EstatisticasDia({ fusoHorario: 'America/Sao_Paulo' }), retencao,
+    elegiveis: elegiveis && { atualizar: async () => {}, permite: (r) => elegiveis.includes(String(r)), resumo: () => ({}) },
+    cfg: { robosModo: 'panico', pollUraMs: 5000, tempoNaUraMs: 180_000, grupoUraId: 7, concorrencia: 2 },
   });
   const agora = Date.now();
   svc.ramaisUra = new Set(['201', '202', '203', '204', '900']);
@@ -80,7 +86,7 @@ function montar() {
   svc.statusUra.set('204', st(Classe.LIVRE, 'Diego'));
   svc.statusUra.get('204').livreDesde = agora - 40_000;
   svc.statusUra.set('900', st(Classe.LIVRE, 'OPER VIRTUAL 1'));
-  return { svc, avisos, transferidos };
+  return { svc, avisos, transferidos, retencao };
 }
 
 test('alocar todos no Ativo: o filtro é do rodízio (sem fixo, sem robô); desliga a URA cheia antes; erros voltam', async () => {
@@ -121,4 +127,54 @@ test('receptivo: a espera de quem atende entra no termômetro (o tempo que ficou
   const t = svc.termometro.resumo();
   assert.equal(t.atendimentos, 1);
   assert.ok(t.livresAgora >= 1, 'o fixo 201 continua livre');
+});
+
+test('[NOVO] alocar todos no Ativo segura todos lá: o ciclo do Ativo não sobe ninguém; URA cheia recusada', async () => {
+  const { svc, transferidos } = montar({ elegiveis: ['202', '203'] });
+  await svc.transferirUraParaAtivo('ana@empresa.com');
+  assert.equal(svc.resumo().retencaoAtivo.ativa, true);
+  assert.equal(svc.resumo().retencaoAtivo.por, 'ana@empresa.com');
+
+  // Os movidos voltaram ao grupo 3 do Ativo e atenderam lá (normalmente subiriam).
+  svc.gruposAtivos = [{ idGrupoUsuario: 3, ramaisOperadores: ['202', '203'] }];
+  svc.atenderamNoAtivo.add('202');
+  svc.lerStatus = async () => ({ classe: Classe.LIVRE, status: { idGrupo: 3 } });
+  transferidos.length = 0;
+  await svc.cicloAtivo();
+  assert.deepEqual(transferidos, [], 'ninguém sobe enquanto está pausado');
+  assert.throws(() => svc.ligarUraCheia(), /retome o rodízio/);
+  assert.equal(svc.resumo().retencaoAtivo.elegiveisParaVoltar, 2);
+});
+
+test('[NOVO] retomar o rodízio: quem é elegível volta para a URA na hora; os outros ficam; sem lista, ninguém é movido', async () => {
+  const { svc, transferidos, avisos } = montar({ elegiveis: ['202'] });
+  await svc.transferirUraParaAtivo();
+  svc.gruposAtivos = [{ idGrupoUsuario: 3, ramaisOperadores: ['202', '203'] }];
+  transferidos.length = 0;
+  const r = await svc.retomarRodizio('bia@empresa.com');
+  assert.deepEqual([r.movidos, r.erros, r.semLista, r.mudou], [['202'], [], false, true]);
+  assert.deepEqual(transferidos, ['202→7'], 'só o elegível vai para a URA');
+  assert.equal(svc.resumo().retencaoAtivo.ativa, false);
+  assert.ok(svc.ramaisUra.has('202') && !svc.ramaisUra.has('203'));
+  assert.ok(avisos.some((m) => /Retomar rodízio da URA \(bia@empresa.com\): 1 voltaram para a URA/.test(m)));
+
+  const semLista = montar();
+  await semLista.svc.transferirUraParaAtivo();
+  const r2 = await semLista.svc.retomarRodizio();
+  assert.deepEqual([r2.semLista, r2.movidos], [true, []]);
+  assert.equal(semLista.svc.resumo().retencaoAtivo.ativa, false);
+});
+
+test('[NOVO] retenção gravada em arquivo: um reinício continua pausado', async () => {
+  let gravado = null;
+  const logger = loggerNulo;
+  const a = new RetencaoAtivo({ arquivo: null, logger });
+  a.repositorio = { carregar: () => gravado, salvar: (x) => { gravado = x; }, aguardar: async () => {} };
+  assert.equal(await a.ligar('ana'), true);
+  assert.equal(await a.ligar('ana'), false);
+  const b = new RetencaoAtivo({ arquivo: null, logger });
+  b.repositorio = { carregar: () => gravado };
+  assert.equal(b.carregar().ativa, true);
+  assert.equal(await a.desligar(), true);
+  assert.deepEqual(gravado, { ativa: false, desde: null, por: null });
 });

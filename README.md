@@ -212,6 +212,14 @@ Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique 
 - **Voltar ao normal**: só os elegíveis voltam a subir do Ativo.
 - Vale até desligar ou até virar o dia; sobrevive a reinício (`RODIZIO_URA_CHEIA_FILE`). O `/health` mostra `uraCheia: { ligada, desde }`.
 - Pela API: `POST /ura/cheia` liga e `DELETE /ura/cheia` desliga (com token).
+
+### Todos no Ativo (até a segunda ordem)
+No painel, aba **Receptivo**, o botão **Alocar Todos no Ativo** tira da URA todos os humanos que não são fixos e **pausa o rodízio**: eles ficam no Ativo até alguém clicar em **Retomar rodízio da URA**.
+- **Durante a pausa, ninguém sobe para a URA**: nem o rodízio (mesmo quem atender no Ativo e for elegível) nem o roteador. A venda nova fica registrada (`ultimoResultado: RETIDO_NO_ATIVO`) e a pessoa sobe ao retomar. A carga da manhã também respeita.
+- **Os fixos continuam na URA.** A URA cheia fica recusada enquanto o rodízio estiver pausado.
+- **Vale até retomarem**, inclusive de um dia para o outro e depois de reiniciar: a pausa fica em `RETENCAO_ATIVO_FILE` (`state-retencao-ativo.json`). O painel mostra uma faixa no topo, em qualquer aba, com a hora e quem pausou.
+- **Retomar rodízio da URA**: quem vendeu hoje, bateu a meta ontem ou é fixo vai para a URA **na hora**; os outros ficam no Ativo e o rodízio volta ao normal. Sem a lista de elegíveis (`RODIZIO_SO_ELEGIVEIS=0`), ninguém é movido e o rodízio volta a girar todo mundo.
+- Pela API: `POST /operadores/transferir-ura-ativo` aloca e pausa; `POST /operadores/retomar-rodizio` retoma (com token). O `/health` mostra `retencaoAtivo: { ativa, desde, por, elegiveisParaVoltar }`.
    - Quem voltou retorna à URA pela regra 1, assim que atender no Ativo.
 3. **A telefonia demora a acompanhar a troca de grupo** (visto na operação em 14/10/2026).
    - Mover alguém de grupo (pelo painel ou pela API) muda a **Lista de Operadores** na hora. A **telefonia** (o painel "Operadores Online" do grupo, `statusoperador.idGrupo`) só troca quando a pessoa fica **livre**, com um atraso da discadora. Em ligação ou pausa, espera.
@@ -411,12 +419,12 @@ Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado p
 | Aba | O que tem |
 | --- | --- |
 | **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; relatório do dia (ociosidade sem robô, pânico, termômetro, por hora); gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; vendas e filas do roteador |
-| **Receptivo URA** | Resumo (humanos, livres, pausa, fila, espera, leads derivados), status da URA, operadores com o tempo no status e o selo de fixo, pausas com limite (excedidas em vermelho) e o total do dia por tipo, e o botão **Alocar Todos no Ativo** |
+| **Receptivo URA** | Resumo (humanos, livres, pausa, fila, espera, leads derivados), status da URA, operadores com o tempo no status e o selo de fixo, pausas com limite (excedidas em vermelho) e o total do dia por tipo, e o botão **Alocar Todos no Ativo**, que segura todos no Ativo até **Retomar rodízio da URA** ([veja](#todos-no-ativo-até-a-segunda-ordem)) |
 | **URA e robôs** | Pânico, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
 | **Esteira manual** | Colar ou escolher o CSV da esteira quando o Carrossel cair, ver o que ela decidiu, apagar e recarregar as vendas |
 | **Serviços** | Roteador, rodízio, rotinas e atualizador no ar ou não, a Argus respondendo (ou recusando o token), DRY_RUN e os avisos do dia |
 
-As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico ativo, serviço fora do ar e token da Argus recusado.
+As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico ativo, rodízio pausado (todos no Ativo), serviço fora do ar e token da Argus recusado.
 
 **Botão "Desligar automação" (topo, vermelho):** desliga o BenURA de vez, sem precisar do PowerShell. A confirmação pede para digitar `DESLIGAR`.
 1. **Robôs primeiro:** o rodízio para de mover gente e desliga os robôs parados. Os em ligação terminam a chamada; passado `AUTOMACAO_ESPERA_ROBOS_MS` (**90 s**), os que sobrarem são derrubados.

@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
 import { api, type ComandoUra } from './api';
-import type { ResultadoTransferencia, StatusDaUra } from './tipos';
+import type { ResultadoRetomada, ResultadoTransferencia, StatusDaUra } from './tipos';
 import { useRetorno } from './ui/retorno';
 
 /** "Ao vivo" ou pausado (o botão do topo). */
@@ -113,7 +113,25 @@ export function useTransferirUraAtivo() {
       const partes = [`${r.movidos.length} movido(s)`, `${r.ignorados.length} fixo(s) mantido(s)`];
       if (r.erros.length) partes.push(`${r.erros.length} não moveram (${r.erros.map((e) => e.nome ?? e.ramal).join(', ')})`);
       if (r.uraCheiaDesligada) partes.push('URA cheia desligada');
+      partes.push('ficam no Ativo até retomar o rodízio');
       avisar(r.erros.length ? 'erro' : 'ok', partes.join(', '));
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
+  });
+}
+
+/** [NOVO] "Retomar rodízio da URA": quem vendeu (ou bateu a meta, ou é fixo) volta para a URA na hora. */
+export function useRetomarRodizio() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: api.retomarRodizio,
+    onSuccess: (r: ResultadoRetomada) => {
+      const texto = r.semLista
+        ? 'Rodízio da URA retomado (sem a lista do dia: o rodízio leva quem atender no Ativo).'
+        : `Rodízio da URA retomado: ${r.movidos.length} voltaram para a URA${r.erros.length ? `, ${r.erros.length} não moveram agora` : ''}.`;
+      avisar(r.erros.length ? 'erro' : 'ok', texto);
       cliente.invalidateQueries({ queryKey: ['visao'] });
     },
     onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),

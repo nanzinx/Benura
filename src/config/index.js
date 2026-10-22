@@ -345,6 +345,9 @@ function carregarConfig(overrides = {}) {
     esperaRobosMs: envNum('AUTOMACAO_ESPERA_ROBOS_MS', 90_000),
     intervaloMs: envNum('AUTOMACAO_VERIFICAR_MS', 5000),
     arquivoSimulacao,
+    // [NOVO] "Alocar Todos no Ativo": todos ficam no Ativo (rodízio e roteador não sobem ninguém)
+    // até "Retomar rodízio da URA". O rodízio grava, o roteador lê.
+    arquivoRetencao: env('RETENCAO_ATIVO_FILE', path.join(RAIZ, 'state-retencao-ativo.json')),
   };
 
   // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---

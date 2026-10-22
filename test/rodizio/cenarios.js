@@ -113,6 +113,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_AJUSTE_FILE: path.join(pasta, 'state-ajuste-robos.json'),
       RODIZIO_PANICO_FILE: path.join(pasta, 'state-panico.json'),
       RODIZIO_STATUS_URA_FILE: path.join(pasta, 'state-status-ura.json'),
+      RETENCAO_ATIVO_FILE: path.join(pasta, 'state-retencao-ativo.json'),
       RODIZIO_ESTATISTICAS_FILE: path.join(pasta, 'state-estatisticas-dia.json'),
       AUTOMACAO_FILE: path.join(pasta, 'state-automacao.json'),
       SIMULACAO_FILE: path.join(pasta, 'state-simulacao.json'),
@@ -227,6 +228,29 @@ const CENARIOS = {
     r.argus.definirStatus('100', 'livre');
     await aguardar(() => vezes('100→2') === 2, { descricao: '100 atendeu no Ativo → URA' });
     if (!(await uraCheia('DELETE')).ok) throw new Error('não desligou');
+  },
+
+  async 'Alocar todos no Ativo: ninguém sobe até retomar; ao retomar, quem é elegível vai para a URA na hora'(r) {
+    const pedir = (caminho) => fetch(`${r.base}${caminho}`, { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: '{"por":"cenário"}' });
+    const alocar = await (await pedir('/operadores/transferir-ura-ativo')).json();
+    if (!Array.isArray(alocar.movidos)) throw new Error(`alocar: ${JSON.stringify(alocar)}`);
+    const retencao = JSON.parse(fs.readFileSync(path.join(r.pasta, 'state-retencao-ativo.json'), 'utf8'));
+    if (retencao.ativa !== true) throw new Error('a retenção não foi gravada (o roteador lê esse arquivo)');
+
+    // 101 é elegível, atende no Ativo e fica livre: normalmente subiria.
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await esperar(3000);
+    if (r.transferencias().includes('101→2')) throw new Error('subiu para a URA com o rodízio pausado');
+    if ((await pedir('/ura/cheia')).status !== 409) throw new Error('ligou a URA cheia com o rodízio pausado');
+    const { retencaoAtivo } = await (await fetch(`${r.base}/health`)).json();
+    if (!retencaoAtivo.ativa || retencaoAtivo.elegiveisParaVoltar !== 1) throw new Error(`/health: ${JSON.stringify(retencaoAtivo)}`);
+
+    const retomar = await (await pedir('/operadores/retomar-rodizio')).json();
+    if (JSON.stringify(retomar.movidos) !== '["101"]') throw new Error(`retomar: ${JSON.stringify(retomar)}`);
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101 (elegível) → URA ao retomar' });
+    if (r.transferencias().some((t) => t.startsWith('100→2'))) throw new Error('100 não é elegível e foi para a URA');
   },
 
   async 'URA cheia em DRY_RUN: simula a ida de cada um uma vez só'(r) {
@@ -1027,6 +1051,10 @@ const VARIACOES = {
     env: { ROBOS_POR_LIVRE: '2', ROBOS_DEGRAU: '2' },
   },
   'URA cheia: todos sobem uma vez; a regra do ocioso vale; quem atender no Ativo volta mesmo sem ser elegível': {
+    env: { RODIZIO_SO_ELEGIVEIS: '1' },
+    preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
+  },
+  'Alocar todos no Ativo: ninguém sobe até retomar; ao retomar, quem é elegível vai para a URA na hora': {
     env: { RODIZIO_SO_ELEGIVEIS: '1' },
     preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
   },

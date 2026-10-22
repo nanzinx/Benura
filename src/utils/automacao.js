@@ -53,4 +53,16 @@ async function aguardarAutomacaoLigada(cfg, log, servico, { esperar = esperarMs 
   log.aviso(`Automação religada pelo painel: o ${servico} está iniciando.`);
 }
 
-module.exports = { lerAutomacao, gravarAutomacao, aguardarAutomacaoLigada, lerSimulacao };
+/**
+ * [NOVO] "Alocar Todos no Ativo" segura todo mundo no Ativo até alguém clicar em
+ * "Retomar rodízio da URA" (RETENCAO_ATIVO_FILE). O rodízio grava; o roteador lê
+ * antes de subir alguém para a URA. Não vira com o dia: vale até retomarem.
+ * @returns {{ ativa: boolean, desde: string|null, por: string|null }}
+ */
+function lerRetencao(arquivo) {
+  const { dados } = lerJson(arquivo);
+  if (dados?.ativa !== true) return { ativa: false, desde: null, por: null };
+  return { ativa: true, desde: dados.desde ?? null, por: dados.por ?? null };
+}
+
+module.exports = { lerAutomacao, gravarAutomacao, aguardarAutomacaoLigada, lerSimulacao, lerRetencao };

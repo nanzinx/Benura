@@ -93,7 +93,11 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
 
   /** POST /ura/cheia — todos do Ativo para a URA (a regra do ocioso continua valendo). */
   async function ligarUraCheia() {
-    return { status: 200, corpo: rodizio.ligarUraCheia() };
+    try {
+      return { status: 200, corpo: rodizio.ligarUraCheia() };
+    } catch (e) {
+      return { status: 409, corpo: { erro: e.message } };
+    }
   }
 
   /** DELETE /ura/cheia — o rodízio volta ao normal. */
@@ -140,6 +144,11 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     return { status: 200, corpo: await rodizio.transferirUraParaAtivo(quem(corpo)) };
   }
 
+  /** [NOVO] POST /operadores/retomar-rodizio { por? } — fim do "todos no Ativo": quem vendeu volta para a URA na hora. */
+  async function retomarRodizio({ corpo }) {
+    return { status: 200, corpo: await rodizio.retomarRodizio(quem(corpo)) };
+  }
+
   /** Quem pediu (o painel manda o e-mail/IP da supervisão); só texto curto, vai para o log. */
   const quem = (corpo) => (typeof corpo?.por === 'string' ? corpo.por.slice(0, 120) : null);
 
@@ -183,6 +192,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, ciclos, logge
     { metodo: 'PUT', caminho: '/ura/status', handler: definirStatusUra, protegida: true },
     { metodo: 'GET', caminho: '/metricas/hoje', handler: metricasHoje },
     { metodo: 'POST', caminho: '/operadores/transferir-ura-ativo', handler: transferirUraAtivo, protegida: true },
+    { metodo: 'POST', caminho: '/operadores/retomar-rodizio', handler: retomarRodizio, protegida: true },
     { metodo: 'GET', caminho: '/ura', handler: paginaUra },
     { metodo: 'POST', caminho: '/ura/cheia', handler: ligarUraCheia, protegida: true },
     { metodo: 'DELETE', caminho: '/ura/cheia', handler: desligarUraCheia, protegida: true },
