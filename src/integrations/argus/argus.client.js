@@ -256,7 +256,8 @@ class ArgusClient {
       const itens = Array.isArray(r.ligacoesDetalhadas) ? r.ligacoesDetalhadas : [];
       // aoReceber: processa página a página, sem juntar tudo na memória (histórico de vários dias).
       if (aoReceber) aoReceber(itens);
-      else ligacoes.push(...itens);
+      // Sem espalhar a página em argumentos: o dia dos robôs tem dezenas de milhares (estourava a pilha).
+      else for (const item of itens) ligacoes.push(item);
       if (r.endOfTable || !r.idProxPagina) return ligacoes;
       ultimoId = r.idProxPagina;
     }

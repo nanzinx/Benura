@@ -223,3 +223,10 @@ test('conferir:supervisores: a sugestão fixa todos os supervisores; quem falta 
   const gabriel = diretorio.supervisorPorNome('GABRIEL NASCIMENTO DA SILVA').supervisor;
   assert.deepEqual(diretorio.grupoDoSupervisor(gabriel), { idGrupo: 1, origem: 'inferido' }, 'null não vira grupo 0');
 });
+
+test('[NOVO] ArgusClient: página do relatório com 200.000 ligações não estoura a pilha', async (t) => {
+  const itens = Array.from({ length: 200_000 }, (_, i) => ({ idLigacao: i }));
+  const client = new ArgusClient({ baseUrl: 'http://x', baseMailing: 'http://x', token: 't', timeoutMs: 1000, tentativas: 1 }, loggerNulo);
+  client.relatorio = async () => ({ codStatus: 1, endOfTable: true, ligacoesDetalhadas: itens });
+  assert.equal((await client.ligacoesDetalhadas({ idCampanha: 1, ultimosMinutos: 780 })).length, 200_000);
+});

@@ -64,7 +64,7 @@ class VigiaRisco {
     this.idCampanha ??= await escolherCampanha(this.client, this.cfg.idCampanha);
     const todas = [];
     for (const idGrupoUsuario of this.cfg.gruposRobosIds) {
-      todas.push(...await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos: 1 }, { maxPaginas: 3 }));
+      for (const l of await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos: 1 }, { maxPaginas: 3 })) todas.push(l);
     }
     return todas;
   }

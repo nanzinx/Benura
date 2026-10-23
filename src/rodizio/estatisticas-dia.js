@@ -197,7 +197,7 @@ class EstatisticasDia {
     const e = this.estado;
     if (chave) {
       this.contadas.add(chave);
-      e.contadas = [...this.contadas];
+      (e.contadas ??= []).push(chave);
     }
     if (!e.ultimoEncerramento || instante >= Date.parse(e.ultimoEncerramento.em)) e.ultimoEncerramento = { em: new Date(instante).toISOString(), fonte };
     this.gravadoEm = 0; // grava no próximo ciclo (um reinício não conta de novo)
