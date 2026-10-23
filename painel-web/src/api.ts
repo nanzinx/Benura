@@ -4,11 +4,12 @@ import type {
   ClienteDeRisco, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada,
   ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao,
 } from './tipos';
+import type { Papel, UsuarioDaSessao } from './sessao';
 
 /** A sessão venceu ou não existe: a página volta para a entrada. */
 export class SemSessao extends Error {
   constructor() {
-    super('Entre com a senha da supervisão');
+    super('Entre com seu e-mail e senha');
   }
 }
 
@@ -36,8 +37,16 @@ export async function pedir<T>(metodo: Metodo, url: string, corpo?: unknown): Pr
 export type ComandoUra = 'panico' | 'ura/cheia' | 'risco/desligar';
 
 export const api = {
-  sessao: () => pedir<{ ok: true }>('GET', '/api/sessao'),
-  entrar: (senha: string) => pedir<{ ok: true }>('POST', '/api/entrar', { senha }),
+  sessao: () => pedir<{ ok: true; usuario: UsuarioDaSessao; emergencia: boolean }>('GET', '/api/sessao'),
+  /** [NOVO] a tela de entrada: e-mail e senha, ou só a senha (emergência, sem usuários) */
+  entrada: () => pedir<{ emergencia: boolean; configurada: boolean }>('GET', '/api/entrada'),
+  entrar: (email: string, senha: string) => pedir<{ ok: true }>('POST', '/api/entrar', email ? { email, senha } : { senha }),
+  minhaSenha: (atual: string, nova: string) => pedir<{ ok: true }>('POST', '/api/minha-senha', { atual, nova }),
+  // [NOVO] usuários (só administrador)
+  usuarios: () => pedir<{ usuarios: Usuario[] }>('GET', '/api/usuarios'),
+  criarUsuario: (u: { email: string; nome: string; papel: Papel; senha?: string }) => pedir<{ usuario: Usuario; senhaProvisoria: string | null }>('POST', '/api/usuarios', u),
+  atualizarUsuario: (u: { id: string; nome?: string; papel?: Papel; ativo?: boolean }) => pedir<{ usuario: Usuario }>('PUT', '/api/usuarios', u),
+  redefinirSenha: (id: string) => pedir<{ senhaProvisoria: string }>('POST', '/api/usuarios/senha', { id }),
   sair: () => pedir<{ ok: true }>('POST', '/api/sair'),
   visao: () => pedir<Visao>('GET', '/api/visao'),
   dia: () => pedir<Dia>('GET', '/api/dia'),
@@ -63,6 +72,19 @@ export const api = {
     return pedir<ResultadoAcao>('POST', `/api/operadores/${acao}`, corpo);
   },
 };
+
+/** [NOVO] um usuário do painel (o servidor nunca manda o hash da senha) */
+export interface Usuario {
+  id: string;
+  email: string;
+  nome: string;
+  papel: Papel;
+  ativo: boolean;
+  senhaProvisoria: boolean;
+  criadoEm: string;
+  criadoPor: string | null;
+  ultimoAcesso: string | null;
+}
 
 /** [NOVO] uma ação por atendente: a rota e o corpo (ramal, e o que a ação pede) */
 export type PedidoAcao =

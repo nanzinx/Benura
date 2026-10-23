@@ -1,21 +1,28 @@
-import { Eye, EyeOff, LockKeyhole } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { Eye, EyeOff, LockKeyhole, TriangleAlert } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { Botao } from '../ui/base';
 import { Marca } from './Marca';
 
+const CAMPO = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal dark:border-noite-600 dark:bg-noite-950';
+
+/** [NOVO] E-mail e senha de cada um; sem nenhum usuário criado, só a senha do painel (emergência). */
 export function Entrada({ aoEntrar }: { aoEntrar: () => void }) {
+  const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [modo, setModo] = useState<{ emergencia: boolean; configurada: boolean } | null>(null);
   const [mostrar, setMostrar] = useState(false);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
+  useEffect(() => { api.entrada().then(setModo, () => setModo({ emergencia: false, configurada: true })); }, []);
+  const emergencia = Boolean(modo?.emergencia);
 
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     setEnviando(true);
     setErro('');
     try {
-      await api.entrar(senha);
+      await api.entrar(emergencia ? '' : email.trim(), senha);
       aoEntrar();
     } catch (falha) {
       setErro((falha as Error).message);
@@ -31,7 +38,7 @@ export function Entrada({ aoEntrar }: { aoEntrar: () => void }) {
         <Marca tamanho="grande" />
         <p className="text-xl text-azul-100">Painel da supervisão</p>
         <ul className="grid gap-3 text-azul-100/90">
-          {['Controles da URA e dos robôs', 'Esteira manual quando o Carrossel cair', 'Saúde dos serviços e o dia da URA'].map((t) => (
+          {['Controles da URA e dos robôs', 'Esteira manual quando o Carrossel cair', 'Saúde dos serviços e o dia da URA', 'Um acesso por pessoa, com o papel de cada um'].map((t) => (
             <li key={t} className="flex items-center gap-3"><span className="size-2 rounded-sm bg-amarelo-500" aria-hidden />{t}</li>
           ))}
         </ul>
@@ -42,8 +49,26 @@ export function Entrada({ aoEntrar }: { aoEntrar: () => void }) {
             <LockKeyhole className="size-5" aria-hidden />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Entrar</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use a senha da supervisão.</p>
-          <label className="mt-6 grid gap-1.5 text-sm font-semibold">
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{emergencia ? 'Use a senha do painel (PAINEL_SENHA).' : 'Use seu e-mail e senha do BenURA.'}</p>
+          {emergencia && (
+            <p className="mt-4 flex gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:bg-amber-950/60 dark:text-amber-100">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>Acesso de emergência: ainda não há usuários. Entre e crie o seu em <b>Serviços → Usuários</b>; depois disso, esta senha deixa de valer.</span>
+            </p>
+          )}
+          {modo && !modo.configurada && (
+            <p className="mt-4 flex gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-sm text-red-800 dark:bg-red-950/60 dark:text-red-200">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>Nenhum usuário criado. No servidor do BenURA, rode <code className="font-mono text-xs">npm run usuarios -- criar</code>.</span>
+            </p>
+          )}
+          {!emergencia && (
+            <label className="mt-6 grid gap-1.5 text-sm font-semibold">
+              E-mail
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" autoFocus required inputMode="email" spellCheck={false} className={CAMPO} />
+            </label>
+          )}
+          <label className={emergencia ? 'mt-6 grid gap-1.5 text-sm font-semibold' : 'mt-4 grid gap-1.5 text-sm font-semibold'}>
             Senha
             <div className="relative">
               <input
@@ -51,9 +76,9 @@ export function Entrada({ aoEntrar }: { aoEntrar: () => void }) {
                 value={senha}
                 onChange={(e) => setSenha(e.target.value)}
                 autoComplete="current-password"
-                autoFocus
+                autoFocus={emergencia}
                 required
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-11 font-normal dark:border-noite-600 dark:bg-noite-950"
+                className={`${CAMPO} pr-11`}
               />
               <button type="button" onClick={() => setMostrar((m) => !m)} className="absolute inset-y-0 right-0 grid w-11 cursor-pointer place-items-center text-slate-500" aria-label={mostrar ? 'Esconder a senha' : 'Mostrar a senha'}>
                 {mostrar ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}

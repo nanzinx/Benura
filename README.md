@@ -484,19 +484,39 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 - **`.env` manda:** com `DRY_RUN=1` no `.env`, a simulação fica fixa e o botão não desliga.
 - **Automação desligada:** com a automação desligada pelo botão vermelho, a escolha só é gravada e vale quando religar.
 
+**Login: cada pessoa com o seu e-mail, senha e papel.**
+
+| Papel | Pode |
+|---|---|
+| **Administrador** | Tudo, inclusive **Desligar/Religar automação**, **Modo simulação** e os **usuários** (Serviços → Usuários). |
+| **Supervisor** | Opera o dia: pausar, mover e deslogar atendentes, Alocar/Retomar, status da URA, pânico, URA cheia, clientes de risco, modo dos robôs (inclusive "Desligados") e a esteira. |
+| **Visualização** | Só vê as telas: os botões de comando ficam com cadeado. |
+
+- **Quem garante é o servidor:** um pedido acima do papel volta 403, mesmo sem passar pela tela.
+- **Senha:** 10 caracteres ou mais, guardada com `scrypt` e sal em `USUARIOS_FILE` (`state-usuarios.json`, fora do git). Nunca vai para o log.
+- **Senha provisória:** quem cria alguém sem senha, ou redefine a de alguém, recebe uma provisória que aparece **uma vez só**. No primeiro acesso, o painel pede para trocar.
+- **Sai na hora:** mudar o papel, redefinir a senha ou desativar alguém derruba as sessões abertas dessa pessoa. Trocar a própria senha encerra as sessões nos outros aparelhos.
+- **Sempre há um administrador:** o painel não deixa desativar nem rebaixar o último administrador ativo.
+- **Quem pediu:** o log e as faixas mostram o nome e o e-mail, ex.: `Painel: supervisão pediu para ligar o pânico (Ana <ana@empresa.com> (192.168.0.12)) — ok`. Com o Cloudflare Access na frente, o e-mail do Access também aparece, se for outro.
+- **Bloqueio:** 5 senhas erradas em 10 minutos bloqueiam o endereço e também o e-mail.
+- **Pelo terminal do servidor** (`npm run usuarios -- ...`; pode rodar com o painel no ar):
+  - `criar`: pergunta e-mail, nome, papel e senha (a senha não aparece). O primeiro é administrador.
+  - `listar`, `senha <email>`, `papel <email> <papel>`, `desativar <email>`, `ativar <email>`.
+- **Acesso de emergência:** enquanto não houver **nenhum** usuário, a `PAINEL_SENHA` entra (sem e-mail) como administrador, só para criar o primeiro pelo painel. Depois do primeiro usuário, ela deixa de valer.
+- **Depois, o login do BenHub:** o painel só conversa com a fonte de usuários (`src/painel/usuarios.js`: `autenticar`, `buscar`, `listar`...). Para entrar com o mesmo e-mail e senha do BenHub, basta uma fonte que chame a API dele e traduza os cargos de lá para os 3 papéis. Do BenHub, precisamos de um endpoint de login que devolva e-mail, nome e cargo.
+
 **Como ligar:**
-1. No `.env`, coloque `PAINEL_SENHA=` (8 caracteres ou mais). É a senha que a supervisão usa para entrar.
+1. No servidor, crie o primeiro administrador: `npm run usuarios -- criar`.
 2. `npx pm2 start ecosystem.config.js --only benura-painel` (ou `npm run pm2:iniciar`, que sobe todos).
-3. Abra `http://localhost:3010` no PC do BenURA, ou `http://<IP do PC>:3010` de outro PC da rede.
+3. Abra `http://localhost:3010` no PC do BenURA, ou `http://<IP do PC>:3010` de outro PC da rede, e crie os outros usuários em **Serviços → Usuários**.
 
 **Como funciona por dentro:**
-- O painel não fala com a Argus nem com o Carrossel. Ele chama os outros serviços pelo `localhost` levando o `WEBHOOK_TOKEN`: o navegador nunca vê o token, só a senha.
+- O painel não fala com a Argus nem com o Carrossel. Ele chama os outros serviços pelo `localhost` levando o `WEBHOOK_TOKEN`: o navegador nunca vê o token.
 - Só passam os comandos de uma lista fechada (`src/painel/servicos.js`). Webhooks e rotas novas não passam sem entrar nela.
-- Cada comando fica no log com a hora e o endereço de quem pediu, ex.: `Painel: supervisão pediu para ligar o pânico (192.168.0.12) — ok`.
-- A sessão fica num cookie assinado (`HttpOnly`, `SameSite=Strict`) e vence em `PAINEL_SESSAO_HORAS` (12 h). Trocar a senha derruba todas as sessões.
-- 5 senhas erradas seguidas bloqueiam aquele endereço por 10 minutos.
+- Cada comando fica no log com a hora, quem pediu e o endereço.
+- A sessão fica num cookie assinado (`HttpOnly`, `SameSite=Strict`) e vence em `PAINEL_SESSAO_HORAS` (12 h).
 - O dia (gráficos, callbacks e avisos) vem dos logs em arquivo (`logs/AAAA-MM-DD/`), que não têm dado de cliente. Os telefones aparecem só mascarados.
-- Sem `PAINEL_SENHA`, o painel sobe assim mesmo e avisa na tela que ninguém consegue entrar. Assim o atualizador pode reiniciá-lo sem risco.
+- Sem usuários e sem `PAINEL_SENHA`, o painel sobe assim mesmo e avisa na tela que ninguém consegue entrar. Assim o atualizador pode reiniciá-lo sem risco.
 
 **A interface** fica em `painel-web/`, feita com **React + TypeScript + Tailwind CSS** (Vite), Recharts nos gráficos e React Query para as atualizações:
 - **Interação:** filtros e busca nas tabelas e nos avisos, gráficos com dica ao passar o mouse e período (dia todo, 3 h, 1 h), confirmação antes dos comandos que pesam e avisos rápidos do resultado.

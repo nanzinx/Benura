@@ -15,6 +15,7 @@ import { ativarAvisos, avisosAtivos } from '../notificacoes';
 import type { ModoRobos, SaudeRodizio } from '../tipos';
 import { Botao, Cartao, ComoFunciona, Esqueleto, Recolhivel, Selo, Vazio, VerMais, type Tom } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
+import { semAcesso, usePode } from '../sessao';
 
 interface Confirmar { titulo: string; texto: ReactNode; perigo?: boolean }
 
@@ -35,6 +36,7 @@ interface PropsInterruptor {
 function Interruptor({ comando, titulo, estado, resumo, children, ligar, desligar, rodape }: PropsInterruptor) {
   const mutacao = useComandoUra(comando);
   const { confirmar } = useRetorno();
+  const bloqueio = usePode('supervisor') ? null : semAcesso('supervisor');
   const executar = async (ligado: boolean) => {
     const c = ligado ? ligar.confirmar : desligar.confirmar;
     if (c && !(await confirmar({ ...c, confirmar: ligado ? ligar.texto : desligar.texto }))) return;
@@ -48,8 +50,8 @@ function Interruptor({ comando, titulo, estado, resumo, children, ligar, desliga
         {children && <ComoFunciona>{children}</ComoFunciona>}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Botao variante={ligar.perigo ? 'perigo' : 'primario'} carregando={alvo === true} disabled={mutacao.isPending} onClick={() => executar(true)}>{ligar.texto}</Botao>
-        <Botao variante="secundario" carregando={alvo === false} disabled={mutacao.isPending} onClick={() => executar(false)}>{desligar.texto}</Botao>
+        <Botao variante={ligar.perigo ? 'perigo' : 'primario'} carregando={alvo === true} disabled={mutacao.isPending} semAcesso={bloqueio} onClick={() => executar(true)}>{ligar.texto}</Botao>
+        <Botao variante="secundario" carregando={alvo === false} disabled={mutacao.isPending} semAcesso={bloqueio} onClick={() => executar(false)}>{desligar.texto}</Botao>
       </div>
       {rodape}
     </Cartao>
@@ -75,6 +77,7 @@ const MODOS: { id: ModoRobos; titulo: string; linha: string; Icone: ComponentTyp
 function RodizioRobos({ r }: { r: SaudeRodizio }) {
   const mutacao = useModoRobos();
   const { confirmar } = useRetorno();
+  const pode = usePode('supervisor');
   const robos = r.robos;
   const modo: ModoRobos = robos?.modo ?? 'panico';
   const atual = MODOS.find((m) => m.id === modo)!;
@@ -117,8 +120,10 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
         {MODOS.map((m) => {
           const ativo = m.id === modo;
           return (
-            <button key={m.id} type="button" role="radio" aria-checked={ativo} disabled={mutacao.isPending} onClick={() => escolher(m.id)}
+            <button key={m.id} type="button" role="radio" aria-checked={ativo} disabled={mutacao.isPending || !pode} onClick={() => escolher(m.id)}
+              title={pode ? undefined : semAcesso('supervisor')}
               className={clsx('flex cursor-pointer items-start gap-3 rounded-xl border-2 p-3.5 text-left transition-all motion-reduce:transition-none disabled:cursor-progress',
+                !pode && 'disabled:cursor-not-allowed', !pode && !ativo && 'opacity-60',
                 ativo ? clsx(m.cor, 'shadow-sm') : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-noite-700 dark:hover:border-noite-600 dark:hover:bg-noite-800/50')}>
               <m.Icone className={clsx('mt-0.5 size-5 shrink-0', !ativo && 'text-slate-400')} />
               <span>

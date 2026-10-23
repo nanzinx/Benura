@@ -8,6 +8,8 @@ import { useRetorno } from '../ui/retorno';
 import { duracao, horaCurta } from '../formatos';
 import type { Servico, Visao } from '../tipos';
 import { Cartao, Esqueleto, Segmentado, Selo, Vazio } from '../ui/base';
+import { GerenciarUsuarios } from '../componentes/Usuarios';
+import { semAcesso, usePode } from '../sessao';
 
 function CartaoServico({ s, linhas, opcional, parado }: { s: Servico<{ uptime?: number }>; linhas: [string, string][]; opcional?: boolean; parado?: boolean }) {
   const todas: [string, string][] = [['Resposta', s.online ? `${s.ms} ms` : '–'], ['No ar há', s.dados?.uptime != null ? duracao(s.dados.uptime) : '–'], ...(s.online ? linhas : [])];
@@ -57,6 +59,7 @@ function Cartoes({ v }: { v: Visao }) {
 /** Botão "Modo simulação" (DRY_RUN). */
 function Simulacao({ v }: { v: Visao }) {
   const mutacao = useSimulacao();
+  const admin = usePode('administrador');
   const { confirmar } = useRetorno();
   const s = v.automacao?.simulacao;
   const ativa = Boolean(v.servicos.rodizio.dados?.dryRun);
@@ -88,7 +91,7 @@ function Simulacao({ v }: { v: Visao }) {
         </p>
       </div>
       {!s?.fixaPeloEnv && (
-        <Botao variante={ligada ? 'perigo' : 'secundario'} carregando={mutacao.isPending} disabled={ocupado} onClick={trocar}>
+        <Botao variante={ligada ? 'perigo' : 'secundario'} carregando={mutacao.isPending} disabled={ocupado} semAcesso={admin ? null : semAcesso('administrador')} onClick={trocar}>
           {ligada ? 'Voltar a agir de verdade' : 'Ligar simulação'}
         </Botao>
       )}
@@ -143,6 +146,7 @@ function Avisos() {
 
 export function Servicos() {
   const { data: v } = useVisao();
+  const admin = usePode('administrador');
   return (
     <>
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
@@ -152,6 +156,7 @@ export function Servicos() {
         </p>
       </div>
       {v ? <Cartoes v={v} /> : <Esqueleto className="mb-5 h-32 w-full" />}
+      {admin && <GerenciarUsuarios />}
       {v && <Simulacao v={v} />}
       <Avisos />
     </>

@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { lerMudancaDeLivres, lerCallback, lerAviso, tokenRecusadoRecentemente, segundosDoDia } = require('../../src/domain/painel');
 const { Sessoes } = require('../../src/painel/sessoes');
+const { Usuarios } = require('../../src/painel/usuarios');
 const { Servicos } = require('../../src/painel/servicos');
 const { DadosDoDia } = require('../../src/painel/dados-do-dia');
 const { criarServidorDoPainel } = require('../../src/painel/servidor');
@@ -32,28 +33,39 @@ test('painel: lê as linhas dos logs do dia (livres, callbacks, avisos)', () => 
   assert.equal(tokenRecusadoRecentemente(avisos, segundosDoDia('10:30:00')), false, 'mais de 15 min atrás');
 });
 
-test('painel: sessão só com a senha certa; sair invalida; 5 erros bloqueiam o endereço', () => {
+const semUsuarios = () => new Usuarios({ arquivo: null, logger: loggerNulo });
+
+test('painel: emergência (sem usuários) só com a senha certa; sair invalida; 5 erros bloqueiam o endereço', async () => {
   let agora = 1_000_000;
-  const s = new Sessoes({ senha: SENHA, segredo: 'seg', horas: 12, agora: () => agora });
-  assert.equal(s.entrar('errada', '1.1.1.1').ok, false);
-  const r = s.entrar(SENHA, '1.1.1.1', { seguro: true });
+  const usuarios = semUsuarios();
+  const s0 = new Sessoes({ senha: SENHA, segredo: 'seg', horas: 12, usuarios, agora: () => agora });
+  const s = { ...s0, entrar: (senha, ip, op) => s0.entrar({ senha }, ip, op), validar: (r) => s0.validar(r), sair: (r) => s0.sair(r) };
+  assert.equal((await s.entrar('errada', '1.1.1.1')).ok, false);
+  const r = await s.entrar(SENHA, '1.1.1.1', { seguro: true });
   assert.equal(r.ok, true);
   assert.match(r.cookie, /HttpOnly; SameSite=Strict; Max-Age=43200; Secure$/);
   const req = { headers: { cookie: r.cookie.split(';')[0] } };
   assert.ok(s.validar(req));
   assert.equal(s.validar({ headers: { cookie: r.cookie.split(';')[0].replace(/.$/, 'x') } }), null, 'assinatura adulterada');
-  assert.equal(new Sessoes({ senha: 'outra-senha-123', segredo: 'seg', horas: 12, agora: () => agora }).validar(req), null, 'trocar a senha derruba as sessões');
+  assert.equal(s.validar(req).usuario.papel, 'administrador', 'emergência entra como administrador');
+  assert.equal(new Sessoes({ senha: 'outra-senha-123', segredo: 'seg', horas: 12, usuarios, agora: () => agora }).validar(req), null, 'trocar a senha derruba as sessões');
   s.sair(req);
   assert.equal(s.validar(req), null, 'saiu');
 
-  const b = s.entrar(SENHA, '2.2.2.2');
+  const b = await s.entrar(SENHA, '2.2.2.2');
   agora += 13 * 3_600_000;
   assert.equal(s.validar({ headers: { cookie: b.cookie.split(';')[0] } }), null, 'venceu');
 
-  for (let i = 0; i < 5; i++) s.entrar('errada', '3.3.3.3');
-  assert.deepEqual(s.entrar(SENHA, '3.3.3.3'), { ok: false, bloqueado: true }, 'bloqueado mesmo com a senha certa');
-  assert.equal(s.entrar(SENHA, '4.4.4.4').ok, true, 'outro endereço entra');
-  assert.equal(new Sessoes({ senha: '', segredo: 'seg', horas: 12 }).entrar('', 'x').ok, false, 'sem PAINEL_SENHA ninguém entra');
+  for (let i = 0; i < 5; i++) await s.entrar('errada', '3.3.3.3');
+  assert.deepEqual(await s.entrar(SENHA, '3.3.3.3'), { ok: false, bloqueado: true }, 'bloqueado mesmo com a senha certa');
+  const c = await s.entrar(SENHA, '4.4.4.4');
+  assert.equal(c.ok, true, 'outro endereço entra');
+  assert.equal((await new Sessoes({ senha: '', segredo: 'seg', horas: 12, usuarios }).entrar({ senha: '' }, 'x')).ok, false, 'sem PAINEL_SENHA ninguém entra');
+
+  // Criou o primeiro usuário: a senha de emergência deixa de valer, inclusive a sessão aberta.
+  await usuarios.criar({ email: 'ana@empresa.com', nome: 'Ana', papel: 'administrador', senha: 'senha-da-ana-1' });
+  assert.equal(s.validar({ headers: { cookie: c.cookie.split(';')[0] } }), null);
+  assert.equal((await s.entrar(SENHA, '5.5.5.5')).ok, false);
 });
 
 test('painel: lê os logs do dia aos poucos e recomeça na virada do dia', () => {
@@ -78,7 +90,7 @@ test('painel: lê os logs do dia aos poucos e recomeça na virada do dia', () =>
 });
 
 /** Painel de verdade (porta aleatória) com os serviços respondendo por um fetch falso. */
-async function subir(cfgExtra = {}) {
+async function subir(cfgExtra = {}, usuarios = semUsuarios()) {
   const chamadas = [];
   const fetchFalso = async (url, opcoes) => {
     chamadas.push({ url, metodo: opcoes.method, auth: opcoes.headers.Authorization, corpo: opcoes.body });
@@ -88,7 +100,7 @@ async function subir(cfgExtra = {}) {
   };
   const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'painel-'));
   const servidor = criarServidorDoPainel({
-    sessoes: new Sessoes({ senha: SENHA, segredo: 's', horas: 1 }),
+    sessoes: new Sessoes({ senha: SENHA, segredo: 's', horas: 1, usuarios }),
     servicos: new Servicos({ cfg: { servicos: { rodizio: 'http://rodizio', roteador: 'http://roteador', rotinas: 'http://rotinas' }, timeoutMs: 1000 }, token: 'tok', fetch: fetchFalso }),
     dados: new DadosDoDia({ pasta, fuso: 'America/Sao_Paulo' }),
     automacao: {
@@ -126,7 +138,7 @@ test('painel pelo Cloudflare Pages: só pela Function, com a origem do Pages e o
 
   const entrada = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: pelaFunction() });
   assert.equal(entrada.status, 200);
-  assert.ok(logs.includes('Painel: entrada da supervisão (200.1.2.3).'), 'o log traz quem abriu a página, não a Cloudflare');
+  assert.ok(logs.includes('Painel: entrada com a senha do painel, sem usuários criados (200.1.2.3).'), 'o log traz quem abriu a página, não a Cloudflare');
   const cookie = entrada.headers.get('set-cookie').split(';')[0];
 
   const r = await pedir('POST', '/api/rodizio/panico', { cookie, origem: PAGES, extras: pelaFunction() });
@@ -137,7 +149,7 @@ test('painel pelo Cloudflare Pages: só pela Function, com a origem do Pages e o
   // No próprio servidor (localhost, sem túnel), continua como antes.
   const local = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA } });
   assert.equal(local.status, 200);
-  assert.ok(logs.includes('Painel: entrada da supervisão (127.0.0.1).'));
+  assert.ok(logs.includes('Painel: entrada com a senha do painel, sem usuários criados (127.0.0.1).'));
 });
 
 test('painel pelo Pages: o e-mail do Cloudflare Access vai para o log e para o "por"; o cookie sai com Secure', async (t) => {
@@ -149,7 +161,7 @@ test('painel pelo Pages: o e-mail do Cloudflare Access vai para o log e para o "
   const entrada = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, origem: PAGES, extras: funnel() });
   assert.equal(entrada.status, 200);
   assert.match(entrada.headers.get('set-cookie'), /; Secure/, 'a página no Pages é https');
-  assert.ok(logs.includes('Painel: entrada da supervisão (ana@empresa.com (200.1.2.3)).'));
+  assert.ok(logs.includes('Painel: entrada com a senha do painel, sem usuários criados (ana@empresa.com (200.1.2.3)).'));
   const cookie = entrada.headers.get('set-cookie').split(';')[0];
 
   await pedir('POST', '/api/rodizio/panico', { cookie, origem: PAGES, extras: funnel() });
@@ -169,7 +181,7 @@ test('painel com o Tailscale Funnel: pelo túnel sem o segredo, 403; e-mail sem 
   assert.equal((await pedir('GET', '/api/sessao', { extras: { 'Tailscale-Funnel-Request': '?1' } })).status, 403);
   const falso = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, extras: { 'X-Benura-Cliente-Email': 'chefe@empresa.com' } });
   assert.equal(falso.status, 200, 'no localhost puro continua entrando');
-  assert.ok(logs.includes('Painel: entrada da supervisão (127.0.0.1).'), 'sem o segredo, o e-mail mandado é ignorado');
+  assert.ok(logs.includes('Painel: entrada com a senha do painel, sem usuários criados (127.0.0.1).'), 'sem o segredo, o e-mail mandado é ignorado');
 });
 
 test('painel pelo Pages: senha errada bloqueia quem errou, não todo mundo que vem pela Cloudflare', async (t) => {
@@ -184,7 +196,7 @@ test('painel: sem PAINEL_PROXY_SEGREDO, o X-Benura-Cliente-IP é ignorado (não 
   const { servidor, pedir, logs } = await subir();
   t.after(() => servidor.close());
   await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, extras: { 'X-Benura-Cliente-IP': '1.2.3.4', 'X-Benura-Proxy': 'x' } });
-  assert.ok(logs.includes('Painel: entrada da supervisão (127.0.0.1).'));
+  assert.ok(logs.includes('Painel: entrada com a senha do painel, sem usuários criados (127.0.0.1).'));
 });
 
 test('painel: exige sessão, leva o token aos serviços e só passa os comandos da lista', async (t) => {

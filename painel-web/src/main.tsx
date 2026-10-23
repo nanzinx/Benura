@@ -2,7 +2,8 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@ta
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SemSessao } from './api';
-import { App, sessaoAcabou } from './App';
+import { App } from './App';
+import { sessaoAcabou } from './sessao';
 import { ProvedorDeRetorno } from './ui/retorno';
 import './index.css';
 

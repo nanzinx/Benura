@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from './api';
 import { AoVivo } from './dados';
 import { Entrada } from './componentes/Entrada';
@@ -11,14 +11,7 @@ import { Receptivo } from './abas/Receptivo';
 import { Esteira } from './abas/Esteira';
 import { Servicos } from './abas/Servicos';
 import { useTema } from './tema';
-
-// Estado da sessão fora do React: o QueryCache avisa quando um pedido volta 401.
-type Sessao = 'verificando' | 'fora' | 'dentro';
-let sessao: Sessao = 'verificando';
-const ouvintes = new Set<() => void>();
-const definirSessao = (s: Sessao) => { sessao = s; ouvintes.forEach((o) => o()); };
-export const sessaoAcabou = () => definirSessao('fora');
-const useSessao = () => useSyncExternalStore((o) => { ouvintes.add(o); return () => ouvintes.delete(o); }, () => sessao);
+import { conferirSessao, definirSessao, useSessao } from './sessao';
 
 const abaDoEndereco = (): Aba => {
   const a = location.hash.slice(1) as Aba;
@@ -26,14 +19,14 @@ const abaDoEndereco = (): Aba => {
 };
 
 export function App() {
-  const estado = useSessao();
+  const { estado } = useSessao();
   const cliente = useQueryClient();
   const [tema, escuro, trocarTema] = useTema();
   const [aba, setAba] = useState<Aba>(abaDoEndereco);
   const [aoVivo, setAoVivo] = useState(true);
 
   useEffect(() => {
-    api.sessao().then(() => definirSessao('dentro'), () => definirSessao('fora'));
+    void conferirSessao();
   }, []);
 
   useEffect(() => {
@@ -56,12 +49,12 @@ export function App() {
   }, [estado]);
 
   if (estado === 'verificando') return <div className="grid min-h-screen place-items-center text-slate-500">Carregando…</div>;
-  if (estado === 'fora') return <Entrada aoEntrar={() => { cliente.clear(); definirSessao('dentro'); }} />;
+  if (estado === 'fora') return <Entrada aoEntrar={() => { cliente.clear(); void conferirSessao(); }} />;
 
   const sair = async () => {
     await api.sair().catch(() => undefined);
     cliente.clear();
-    definirSessao('fora');
+    definirSessao({ estado: 'fora' });
   };
 
   return (

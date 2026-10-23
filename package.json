@@ -34,7 +34,8 @@
     "painel:dev": "npm --prefix painel-web run dev",
     "diagnostico:callbacks": "node scripts/diagnostico-callbacks.js",
     "conferir:supervisores": "node scripts/conferir-supervisores.js",
-    "perfis:montar": "node scripts/perfis-montar.js"
+    "perfis:montar": "node scripts/perfis-montar.js",
+    "usuarios": "node scripts/usuarios.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5"

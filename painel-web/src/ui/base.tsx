@@ -1,6 +1,6 @@
 import { clsx } from 'clsx';
 import { useId, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
-import { ChevronDown, Info, LoaderCircle } from 'lucide-react';
+import { ChevronDown, Info, LoaderCircle, Lock } from 'lucide-react';
 
 type Variante = 'primario' | 'perigo' | 'secundario' | 'fantasma';
 
@@ -11,16 +11,19 @@ const VARIANTES: Record<Variante, string> = {
   fantasma: 'text-azul-600 hover:bg-azul-50 dark:text-azul-300 dark:hover:bg-noite-800',
 };
 
-export function Botao({ variante = 'primario', carregando = false, icone, className, children, disabled, ...resto }:
-  ButtonHTMLAttributes<HTMLButtonElement> & { variante?: Variante; carregando?: boolean; icone?: ReactNode }) {
+/** semAcesso: [NOVO] o papel de quem entrou não permite (o botão fica desligado, com cadeado e a dica). */
+export function Botao({ variante = 'primario', carregando = false, icone, className, children, disabled, semAcesso, title, ...resto }:
+  ButtonHTMLAttributes<HTMLButtonElement> & { variante?: Variante; carregando?: boolean; icone?: ReactNode; semAcesso?: string | null }) {
   return (
     <button
       type="button"
-      disabled={disabled || carregando}
-      className={clsx('inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-progress disabled:opacity-60', VARIANTES[variante], className)}
+      disabled={disabled || carregando || Boolean(semAcesso)}
+      title={semAcesso ?? title}
+      className={clsx('inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60',
+        semAcesso ? 'disabled:cursor-not-allowed' : 'disabled:cursor-progress', VARIANTES[variante], className)}
       {...resto}
     >
-      {carregando ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : icone}
+      {carregando ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : semAcesso ? <Lock className="size-4" aria-hidden /> : icone}
       {children}
     </button>
   );

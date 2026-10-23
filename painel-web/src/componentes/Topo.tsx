@@ -1,10 +1,12 @@
 import { clsx } from 'clsx';
-import { Activity, Headset, LayoutDashboard, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
-import { useEffect, useState, type ComponentType } from 'react';
+import { Activity, ChevronDown, Headset, KeyRound, LayoutDashboard, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ComponentType } from 'react';
 import { useVisao } from '../dados';
+import { NOMES_PAPEIS, usePode, useSessao } from '../sessao';
 import type { Tema } from '../tema';
 import { Marca } from './Marca';
 import { BotaoDesligarAutomacao } from './DesligarAutomacao';
+import { TrocarSenha } from './Usuarios';
 
 export type Aba = 'visao' | 'receptivo' | 'ura' | 'esteira' | 'servicos';
 /** `curto`: o rótulo nas telas até 1536 px (com 5 abas, o completo quebraria o topo em duas linhas). */
@@ -31,6 +33,65 @@ function Relogio() {
   return <span className="hidden font-semibold text-azul-100 tabular-nums 2xl:inline">{agora.toLocaleTimeString('pt-BR')}</span>;
 }
 
+const iniciais = (nome: string) => nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('');
+
+/** [NOVO] Quem entrou, o papel e o menu: trocar a senha e sair. Senha provisória: pede para trocar ao entrar. */
+function MenuUsuario({ sair }: { sair: () => void }) {
+  const sessao = useSessao();
+  const [aberto, setAberto] = useState(false);
+  const [trocar, setTrocar] = useState<'nao' | 'pedida' | 'provisoria'>('nao');
+  const raiz = useRef<HTMLDivElement>(null);
+  const idMenu = useId();
+  const provisoria = sessao.estado === 'dentro' && sessao.usuario.senhaProvisoria;
+  useEffect(() => { if (provisoria) setTrocar('provisoria'); }, [provisoria]);
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = (e: MouseEvent) => { if (!raiz.current?.contains(e.target as Node)) setAberto(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false); };
+    document.addEventListener('mousedown', fora);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); };
+  }, [aberto]);
+  if (sessao.estado !== 'dentro') return null;
+  const { usuario, emergencia } = sessao;
+
+  return (
+    <div ref={raiz} className="relative">
+      <button type="button" onClick={() => setAberto((a) => !a)} aria-haspopup="menu" aria-expanded={aberto} aria-controls={idMenu}
+        title={`${usuario.nome} · ${NOMES_PAPEIS[usuario.papel]}`}
+        className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-white/30 py-1 pr-2 pl-1 text-sm font-semibold hover:bg-white/10">
+        <span className={clsx('grid size-7 place-items-center rounded-md text-xs font-bold', emergencia ? 'bg-amarelo-500 text-marinho-950' : 'bg-white/15')}>{emergencia ? '!' : iniciais(usuario.nome)}</span>
+        <span className="hidden text-left leading-tight xl:block">
+          <span className="block max-w-32 truncate">{usuario.nome.split(' ')[0]}</span>
+          <span className="block text-[11px] font-normal text-azul-100/80">{NOMES_PAPEIS[usuario.papel]}</span>
+        </span>
+        <ChevronDown className={clsx('size-4 transition-transform', aberto && 'rotate-180')} aria-hidden />
+      </button>
+      {aberto && (
+        <div id={idMenu} role="menu" className="absolute right-0 z-40 mt-2 w-64 animate-entrar rounded-xl border border-slate-200 bg-white p-1.5 text-sm text-slate-800 shadow-xl dark:border-noite-700 dark:bg-noite-900 dark:text-slate-100">
+          <div className="border-b border-slate-100 px-3 pt-1.5 pb-2.5 dark:border-noite-800">
+            <p className="truncate font-semibold">{usuario.nome}</p>
+            {usuario.email && <p className="truncate text-xs text-slate-500 dark:text-slate-400">{usuario.email}</p>}
+            <p className="mt-1.5 inline-block rounded-full bg-azul-50 px-2 py-0.5 text-xs font-semibold text-azul-700 dark:bg-noite-800 dark:text-azul-300">{NOMES_PAPEIS[usuario.papel]}</p>
+            {emergencia && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">Acesso de emergência: crie os usuários em Serviços.</p>}
+          </div>
+          {!emergencia && (
+            <button type="button" role="menuitem" onClick={() => { setAberto(false); setTrocar('pedida'); }}
+              className="mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-noite-800">
+              <KeyRound className="size-4 text-slate-400" aria-hidden />Trocar minha senha
+            </button>
+          )}
+          <button type="button" role="menuitem" onClick={sair}
+            className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-noite-800">
+            <LogOut className="size-4 text-slate-400" aria-hidden />Sair
+          </button>
+        </div>
+      )}
+      {trocar !== 'nao' && <TrocarSenha provisoria={trocar === 'provisoria'} fechar={() => setTrocar('nao')} />}
+    </div>
+  );
+}
+
 interface Props {
   aba: Aba;
   tema: Tema;
@@ -43,6 +104,7 @@ interface Props {
 
 export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Props) {
   const { data: visao } = useVisao();
+  const admin = usePode('administrador');
   const dryRun = Boolean(visao?.servicos.rodizio.dados?.dryRun);
   const proximoTema = TEMAS[(TEMAS.findIndex((t) => t.id === tema) + 1) % TEMAS.length]!;
   const TemaAtual = TEMAS.find((t) => t.id === tema)!.Icone;
@@ -78,14 +140,12 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
               : <><span className="size-2 rounded-full bg-slate-400" /><span className="hidden sm:inline lg:hidden xl:inline">Pausado</span><Play className="size-3.5" aria-hidden /></>}
           </button>
           <Relogio />
-          <BotaoDesligarAutomacao />
+          {admin && <BotaoDesligarAutomacao />}
           <button type="button" onClick={() => trocarTema(proximoTema.id)} title={`Tema: ${TEMAS.find((t) => t.id === tema)!.texto} (trocar para ${proximoTema.texto.toLowerCase()})`}
             className="hidden size-9 cursor-pointer place-items-center rounded-lg hover:bg-white/10 sm:grid" aria-label="Trocar o tema">
             <TemaAtual className="size-4" aria-hidden />
           </button>
-          <button type="button" onClick={sair} aria-label="Sair" className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/30 px-2.5 py-1.5 text-sm font-semibold hover:bg-white/10 sm:px-3">
-            <LogOut className="size-4" aria-hidden /><span className="hidden sm:inline lg:hidden xl:inline">Sair</span>
-          </button>
+          <MenuUsuario sair={sair} />
         </div>
       </div>
     </header>
