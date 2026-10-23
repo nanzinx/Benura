@@ -675,7 +675,24 @@ A produção segue no **PM2 como serviço do Windows**, que tem o atualizador au
 - **Estado no volume `./dados`** (`DADOS_DIR=/dados`). Ficam lá os `state*.json`, as chaves (`painel-segredo.key`, `perfis-segredo.key`), os logs e o `supervisores-grupos.json`. Recriar o container não perde nada.
 - **Travas de instância única num `tmpfs`** (`/run/benura`). Num container novo os PIDs se repetem, e uma trava velha impediria a subida.
 - **Portas:** `3000` (webhooks da Argus), `3001` (webhook de venda) e `3010` (painel).
+  - **Por padrão, só no próprio PC** (`127.0.0.1`). O painel chega pelo túnel (que roda dentro do container) e pelo navegador do PC.
+  - **Para abrir na rede da empresa** (outro PC, a reserva ou os webhooks da Argus), ponha no `.env` o IP do PC na rede: `BENURA_IP_PAINEL=192.168.0.20` e `BENURA_IP_WEBHOOKS=192.168.0.20`.
 - **Configuração:** o mesmo `.env` do servidor (`env_file`).
+
+**Endurecido contra invasão** (se alguém achar uma falha no BenURA, fica preso e sem poder):
+- **Código só de leitura:** o código e as dependências são do `root` e o BenURA roda como o usuário `node`. Ninguém troca o BenURA nem planta código de dentro.
+- **Disco só de leitura** (`read_only`): só aceitam escrita o volume `dados/` e dois `tmpfs` pequenos (`/run/benura` para as travas e o PM2, `/tmp`).
+- **Sem permissões do Linux** (`cap_drop: ALL`) e **sem como virar root** (`no-new-privileges`).
+- **Limites:** 512 processos, 1 GB de memória e o log do Docker em 5 × 10 MB, para um ataque não derrubar o PC.
+- **Imagem mínima:**
+  - em duas etapas, sem o `npm ci` na imagem final;
+  - dependências instaladas sem rodar scripts de pacotes (`--ignore-scripts`);
+  - pacotes do sistema atualizados a cada build.
+- **O túnel (`cloudflared`)** também roda endurecido, com usuário sem privilégio.
+- **O teste do CI confere** tudo isso a cada mudança (`test/docker/fumaca.js`): usuário, permissões e escrita barrada no código e no sistema.
+
+> [!NOTE]
+> Isso protege o PC se o BenURA for invadido. A primeira barreira continua sendo a Cloudflare: o túnel (nenhuma porta aberta no roteador), o Access, os IPs permitidos e o login do BenURA.
 
 **No Windows 10/11 Pro:**
 1. Instale o Docker Desktop: `winget install Docker.DockerDesktop`. Ele usa o WSL2, então reinicie se pedir.
@@ -702,7 +719,7 @@ A produção segue no **PM2 como serviço do Windows**, que tem o atualizador au
 | Atualizar | `git pull` e `docker compose up -d --build` (o atualizador automático não roda no Docker) |
 | Parar (o estado fica em `dados\`) | `docker compose down` |
 
-**Teste da imagem:** o job `docker` do CI constrói a imagem e sobe com uma Argus falsa. Ele confere os quatro serviços no ar, o estado no volume, o Desligar/Religar pelo painel e um `docker restart`. Para rodar o mesmo teste no seu PC: `docker build -t benura:ci .` e depois `node test/docker/fumaca.js`.
+**Teste da imagem:** o job `docker` do CI constrói a imagem e sobe endurecida, com uma Argus falsa. Ele confere os quatro serviços no ar, o endurecimento, o estado no volume, o Desligar/Religar pelo painel e um `docker restart`. Para rodar o mesmo teste no seu PC: `docker build -t benura:ci .` e depois `node test/docker/fumaca.js`.
 
 ---
 
@@ -845,7 +862,21 @@ O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estã
    PAINEL_PROXY_SEGREDO=<o mesmo do Pages>
    ```
    Depois rode `npx pm2 restart benura-painel`.
-7. **Pronto:** `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois a senha do painel (BenURA).
+7. **Pronto:** `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois o seu e-mail e senha do BenURA.
+
+<a id="ips-permitidos"></a>
+**Só os IPs da empresa** (o resto vê "Acesso só pela rede da Benconsig", com o próprio IP):
+1. **No Pages** (Settings → Variables and Secrets → Production): crie `BENURA_IPS_PERMITIDOS` com os endereços separados por vírgula, IPv4 ou IPv6, com ou sem `/prefixo`. Ex.: `201.93.163.133, 2804:1b3:a5e7:c3c7::/48`. Depois use **Retry deployment**.
+   - **Onde vale:** quem barra é o `functions/_middleware.js`, antes da página e do `/api`, no domínio próprio e no `*.pages.dev`.
+   - **A trava:** o `/trava` fica de fora, porque já exige o `TRAVA_SEGREDO`. Assim os dois PCs não param se o IP da empresa mudar.
+   - **Sem a variável, todo mundo entra** (a resposta leva o aviso `X-Benura-Aviso`).
+2. **Recomendado, também no WAF** (barra antes de chegar ao Pages). Em **Security → WAF → Custom rules → Create rule**, com a ação **Block** e a expressão:
+   ```
+   (http.host eq "benura.benconsig.com.br" and not starts_with(http.request.uri.path, "/trava") and not ip.src in {201.93.163.133 201.93.159.169 2804:431:80f7:7700::/48 2804:1b3:a5e7:c3c7::/48 2804:1b3:a5e7:2c83::/48 2804:1b3:a5e7:8e38::/48})
+   ```
+
+> [!WARNING]
+> **Se o IP da empresa mudar** (o IPv4 da internet pode mudar), ninguém entra pela internet até atualizar a variável e a regra no painel da Cloudflare. Na rede da empresa, `http://<IP do servidor>:3010` continua funcionando. Para saber o IP novo, abra o BenURA: a página de bloqueio mostra o endereço.
 
 **Conferir o caminho todo:** `npm run servico:verificar` mostra o serviço "cloudflared" rodando. Depois:
 - `https://benura-api.benconsig.com.br/health`, aberto direto no navegador, é barrado pelo Access. Isso é o certo: só a página entra.

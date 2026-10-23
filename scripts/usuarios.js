@@ -12,7 +12,7 @@
  *   npm run usuarios -- papel ana@empresa.com supervisor
  *   npm run usuarios -- desativar ana@empresa.com | ativar ana@empresa.com
  *
- * Papéis: administrador, supervisor, visualizacao. A senha não aparece na tela.
+ * Papéis: administrador, supervisor, visualizacao. A senha aparece como asteriscos.
  */
 
 const readline = require('readline');
@@ -20,28 +20,70 @@ const { carregarConfig } = require('../src/config');
 const { criarLogger } = require('../src/utils/logger');
 const { Usuarios, PAPEIS, NOMES_PAPEIS, normalizarEmail } = require('../src/painel/usuarios');
 
-/** Lê linhas do terminal (ou da entrada redirecionada); `oculto` não mostra o que se digita. */
+/**
+ * Lê as respostas. No terminal: uma pergunta de cada vez, e a senha aparece como
+ * asteriscos (com Backspace e Ctrl+C). Com a entrada redirecionada (testes): linha a linha.
+ */
 function criarLeitor(entrada = process.stdin, saida = process.stdout) {
-  const rl = readline.createInterface({ input: entrada, output: saida, terminal: Boolean(entrada.isTTY) });
+  if (entrada.isTTY && typeof entrada.setRawMode === 'function') return leitorDoTerminal(entrada, saida);
+  const rl = readline.createInterface({ input: entrada, terminal: false });
   const fila = [];
   const esperando = [];
   let fim = false;
-  let mudo = false;
-  const escrever = rl._writeToOutput?.bind(rl);
-  if (escrever) rl._writeToOutput = (texto) => { if (!mudo || /\r?\n/.test(texto)) escrever(mudo ? '\n' : texto); };
   rl.on('line', (l) => (esperando.length ? esperando.shift()(l) : fila.push(l)));
   rl.on('close', () => { fim = true; while (esperando.length) esperando.shift()(null); });
   return {
     async perguntar(texto, { oculto = false } = {}) {
       saida.write(texto);
-      mudo = oculto && Boolean(entrada.isTTY);
       const linha = fila.length ? fila.shift() : fim ? null : await new Promise((r) => esperando.push(r));
-      mudo = false;
-      if (oculto && !entrada.isTTY) saida.write('\n');
+      if (oculto) saida.write('\n');
       if (linha === null) throw new Error('entrada terminou antes da resposta');
       return linha.trim();
     },
     fechar: () => rl.close(),
+  };
+}
+
+function leitorDoTerminal(entrada, saida) {
+  /** A senha, tecla por tecla, mostrando * (o Windows e o Linux mandam \r ou \n no Enter). */
+  const lerOculto = () => new Promise((resolver, rejeitar) => {
+    let valor = '';
+    entrada.setRawMode(true);
+    entrada.resume();
+    entrada.setEncoding('utf8');
+    const terminar = (erro) => {
+      entrada.removeListener('data', tecla);
+      entrada.setRawMode(false);
+      entrada.pause();
+      saida.write('\n');
+      if (erro) rejeitar(erro); else resolver(valor);
+    };
+    function tecla(pedaco) {
+      for (const c of pedaco) {
+        if (c === '\r' || c === '\n') return terminar();
+        if (c === '\u0003') return terminar(new Error('cancelado (Ctrl+C)'));
+        if (c === '\u007f' || c === '\b') {
+          if (valor) { valor = valor.slice(0, -1); saida.write('\b \b'); }
+        } else if (c >= ' ') {
+          valor += c;
+          saida.write('*');
+        }
+      }
+      return undefined;
+    }
+    entrada.on('data', tecla);
+  });
+  const lerLinha = (texto) => new Promise((resolver) => {
+    const rl = readline.createInterface({ input: entrada, output: saida, terminal: true });
+    rl.question(texto, (r) => { rl.close(); resolver(r); });
+  });
+  return {
+    async perguntar(texto, { oculto = false } = {}) {
+      if (!oculto) return (await lerLinha(texto)).trim();
+      saida.write(texto);
+      return (await lerOculto()).trim();
+    },
+    fechar: () => entrada.pause(),
   };
 }
 

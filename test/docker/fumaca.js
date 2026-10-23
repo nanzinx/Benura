@@ -4,6 +4,8 @@
  * Argus falsa e confere que os quatro serviços ficam no ar (PM2 + /health), que o estado
  * vai para o volume /dados e que o painel consegue parar e religar os serviços pelo PM2
  * de dentro do container (botões "Desligar/Religar automação").
+ * [NOVO] Roda endurecido como no docker-compose.yml (disco só de leitura, sem permissões
+ * extras, sem virar root) e confere que o código não pode ser alterado de dentro.
  *
  *   docker build -t benura:ci . && IMAGEM=benura:ci node test/docker/fumaca.js
  */
@@ -58,11 +60,22 @@ async function main() {
   ].join('\n'));
   try {
     docker('run', '-d', '--name', NOME, '--network', 'host', '--env-file', arquivoEnv, '-v', `${dados}:/dados`,
-      '--tmpfs', '/run/benura:uid=1000,gid=1000', IMAGEM);
+      '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--pids-limit', '512',
+      '--tmpfs', '/run/benura:uid=1000,gid=1000,mode=0700', '--tmpfs', '/tmp:uid=1000,gid=1000,mode=0700', IMAGEM);
     await aguardar(todos('online'), 'os quatro serviços online no PM2');
     await aguardar(saudaveis, '/health de todos');
     if (!fs.readdirSync(dados).some((f) => f.startsWith('state-'))) throw new Error(`estado fora do volume: ${fs.readdirSync(dados)}`);
     console.log('✓ no ar:', JSON.stringify(servicos()));
+
+    // Endurecido: roda como "node", sem permissões, e o código e o sistema não aceitam escrita.
+    if (docker('exec', NOME, 'id', '-u') === '0') throw new Error('o container roda como root');
+    if (!/^CapEff:\s*0+$/m.test(docker('exec', NOME, 'cat', '/proc/self/status'))) throw new Error('o container tem permissões (capabilities) extras');
+    for (const alvo of ['/app/src/painel/servidor.js', '/app/novo.js', '/etc/benura', '/usr/local/bin/x']) {
+      let escreveu = true;
+      try { docker('exec', NOME, 'sh', '-c', `echo x > ${alvo}`); } catch { escreveu = false; }
+      if (escreveu) throw new Error(`deu para escrever em ${alvo}`);
+    }
+    console.log('✓ endurecido: usuário node, sem capabilities, código e sistema só de leitura');
 
     // O painel para e religa pelo PM2 de dentro do container.
     const entrar = await fetch('http://127.0.0.1:3010/api/entrar', {
