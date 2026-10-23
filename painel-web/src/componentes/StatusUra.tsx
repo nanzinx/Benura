@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 import { Check, ChevronDown, Lock, Wand2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useStatusUra, useVisao } from '../dados';
+import { semAcesso, usePode } from '../sessao';
 import { duracao } from '../formatos';
 import type { EstadoTermometro, StatusDaUra } from '../tipos';
 
@@ -30,6 +31,7 @@ export function StatusUra() {
   const { data: v } = useVisao();
   const s = v?.servicos.rodizio.dados?.statusUra;
   const mutacao = useStatusUra();
+  const pode = usePode('supervisor');
   const [aberto, setAberto] = useState(false);
   const raiz = useRef<HTMLDivElement>(null);
   const idMenu = useId();
@@ -58,12 +60,12 @@ export function StatusUra() {
   return (
     <div ref={raiz} className="relative inline-block">
       <button type="button" onClick={() => setAberto((a) => !a)} aria-haspopup="menu" aria-expanded={aberto} aria-controls={idMenu}
-        disabled={mutacao.isPending}
-        title={manual ? 'Status fixado pela supervisão (modo manual). Clique para trocar.' : 'Status automático (termômetro). Clique para trocar.'}
-        className={clsx('inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-bold tracking-wide uppercase disabled:opacity-60', CORES_DA_URA[s.status])}>
+        disabled={mutacao.isPending || !pode}
+        title={!pode ? `${manual ? 'Fixado pela supervisão' : 'Automático (termômetro)'} · ${semAcesso('supervisor')} troca` : manual ? 'Status fixado pela supervisão (modo manual). Clique para trocar.' : 'Status automático (termômetro). Clique para trocar.'}
+        className={clsx('inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-bold tracking-wide uppercase disabled:cursor-default', pode && 'disabled:opacity-60', CORES_DA_URA[s.status])}>
         {manual && <Lock className="size-3.5" aria-label="manual" />}
         {NOMES_DA_URA[s.status]}
-        <ChevronDown className={clsx('size-4 transition-transform', aberto && 'rotate-180')} aria-hidden />
+        {pode && <ChevronDown className={clsx('size-4 transition-transform', aberto && 'rotate-180')} aria-hidden />}
       </button>
       {aberto && (
         <div id={idMenu} role="menu" className="absolute left-0 z-40 mt-1.5 w-72 animate-entrar rounded-xl border border-slate-200 bg-white p-1.5 text-sm shadow-xl dark:border-noite-700 dark:bg-noite-900">

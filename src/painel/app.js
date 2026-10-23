@@ -15,6 +15,7 @@ const { ativarLogsEmArquivo } = require('../utils/logs-em-arquivo');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
 const { obterSegredo } = require('../utils/segredo-local');
 const { Sessoes } = require('./sessoes');
+const { Usuarios } = require('./usuarios');
 const { Servicos } = require('./servicos');
 const { DadosDoDia } = require('./dados-do-dia');
 const { criarServidorDoPainel } = require('./servidor');
@@ -27,8 +28,10 @@ function montarPainel(overrides) {
   const log = criarLogger({ debug: cfg.debug, escopo: 'painel' });
   const p = cfg.painel;
   const servicos = new Servicos({ cfg: p, token: cfg.http.tokenAdmin });
+  const usuarios = new Usuarios({ arquivo: p.arquivoUsuarios, logger: log }).carregar();
+  const sessoes = new Sessoes({ senha: p.senha, segredo: obterSegredo(p), horas: p.sessaoHoras, usuarios });
   const servidor = criarServidorDoPainel({
-    sessoes: new Sessoes({ senha: p.senha, segredo: obterSegredo(p), horas: p.sessaoHoras }),
+    sessoes,
     servicos,
     automacao: new ControleAutomacao({
       cfg: { ...cfg.automacao, dryRunPeloEnv: cfg.argus.dryRunPeloEnv }, servicos, executar: criarExecutor({ cwd: cfg.atualizador.diretorio, logger: log }), logger: log,
@@ -37,14 +40,16 @@ function montarPainel(overrides) {
     cfg: { fuso: cfg.agenda.fusoHorario, origensPermitidas: p.origensPermitidas, proxySegredo: p.proxySegredo },
     logger: log,
   });
-  return { cfg, log, servidor };
+  return { cfg, log, servidor, sessoes };
 }
 
 async function iniciarPainel() {
-  const { cfg, log, servidor } = montarPainel();
+  const { cfg, log, servidor, sessoes } = montarPainel();
   ativarLogsEmArquivo(cfg, 'painel', { segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha, cfg.painel.proxySegredo] });
-  // Sem a senha o painel sobe assim mesmo (avisa na tela): o atualizador pode reiniciá-lo sem risco.
+  // Sem usuários nem senha o painel sobe assim mesmo (avisa na tela): o atualizador pode reiniciá-lo sem risco.
   validarConfig(cfg, { escopo: 'painel' }).avisos.forEach((a) => log.aviso(a));
+  if (!sessoes.configurada) log.aviso('Nenhum usuário do painel ainda: rode "npm run usuarios -- criar" neste PC (ou coloque PAINEL_SENHA no .env para entrar uma vez e criar pelo painel).');
+  else if (sessoes.emergencia) log.aviso('Painel sem usuários: vale a PAINEL_SENHA (acesso de emergência). Entre e crie os usuários em Serviços → Usuários.');
 
   await escutar(servidor, cfg.painel.porta);
   registrarDesligamento({ logger: log, etapas: [() => fecharServidor(servidor)] });

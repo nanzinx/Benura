@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 import { useAcaoOperador, usePausasDisponiveis } from '../dados';
 import type { Classe, OndeTravado } from '../tipos';
 import { useRetorno } from '../ui/retorno';
+import { usePode } from '../sessao';
 
 export interface Atendente {
   ramal: string;
@@ -51,6 +52,7 @@ export function AcoesAtendente({ a }: { a: Atendente }) {
   const { confirmar } = useRetorno();
   const pausas = usePausasDisponiveis(aberto && tela === 'pausas' ? a.ramal : null);
   const quem = a.nome ?? `ramal ${a.ramal}`;
+  const pode = usePode('supervisor');
 
   const fechar = () => { setAberto(false); setTela('acoes'); };
 
@@ -153,6 +155,8 @@ export function AcoesAtendente({ a }: { a: Atendente }) {
     </>
   );
 
+  // [NOVO] Visualização: sem o menu de ações.
+  if (!pode) return null;
   return (
     <>
       <button ref={botao} type="button" onClick={() => (aberto ? fechar() : setAberto(true))} aria-haspopup="menu" aria-expanded={aberto} aria-controls={idMenu}

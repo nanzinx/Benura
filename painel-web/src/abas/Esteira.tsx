@@ -7,6 +7,7 @@ import { reais } from '../formatos';
 import type { ResultadoEsteira } from '../tipos';
 import { Botao, Cartao, Vazio } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
+import { semAcesso, usePode } from '../sessao';
 
 /** CSV exportado no Windows costuma vir em windows-1252: se o UTF-8 der caractere quebrado, relê. */
 async function lerTexto(arquivo: File): Promise<string> {
@@ -66,6 +67,7 @@ export function Esteira() {
     onError: erro,
   });
   const ocupado = enviar.isPending || limpar.isPending || recarregar.isPending;
+  const bloqueio = usePode('supervisor') ? null : semAcesso('supervisor');
 
   return (
     <>
@@ -98,11 +100,11 @@ export function Esteira() {
             className="min-h-60 w-full resize-y rounded-lg border border-slate-300 bg-white p-3 font-mono text-xs leading-relaxed dark:border-noite-600 dark:bg-noite-950"
           />
           <div className="mt-3 flex flex-wrap gap-2">
-            <Botao icone={<Send className="size-4" />} carregando={enviar.isPending} disabled={ocupado || !texto.trim()} onClick={() => enviar.mutate()}>Enviar esteira</Botao>
-            <Botao variante="secundario" icone={<Trash2 className="size-4" />} carregando={limpar.isPending} disabled={ocupado} onClick={async () => {
+            <Botao icone={<Send className="size-4" />} carregando={enviar.isPending} disabled={ocupado || !texto.trim()} semAcesso={bloqueio} onClick={() => enviar.mutate()}>Enviar esteira</Botao>
+            <Botao variante="secundario" icone={<Trash2 className="size-4" />} carregando={limpar.isPending} disabled={ocupado} semAcesso={bloqueio} onClick={async () => {
               if (await confirmar({ titulo: 'Apagar as esteiras coladas?', texto: 'Se o Carrossel estiver fora do ar, o roteador fica sem vendas até colar de novo.', confirmar: 'Apagar', perigo: true })) limpar.mutate();
             }}>Apagar esteiras coladas</Botao>
-            <Botao variante="fantasma" icone={<RefreshCw className="size-4" />} carregando={recarregar.isPending} disabled={ocupado} onClick={async () => {
+            <Botao variante="fantasma" icone={<RefreshCw className="size-4" />} carregando={recarregar.isPending} disabled={ocupado} semAcesso={bloqueio} onClick={async () => {
               if (await confirmar({ titulo: 'Recarregar as vendas agora?', texto: 'O roteador relê o Carrossel (ou a esteira colada) e reaplica as filas do dia.', confirmar: 'Recarregar' })) recarregar.mutate();
             }}>Recarregar vendas</Botao>
           </div>

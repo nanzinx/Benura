@@ -330,7 +330,10 @@ function carregarConfig(overrides = {}) {
   const local = (porta) => `http://127.0.0.1:${porta}`;
   cfg.painel = {
     porta: envNum('PAINEL_PORT', 3010),
+    // [NOVO] Cada pessoa entra com e-mail e senha (USUARIOS_FILE). A PAINEL_SENHA só vale enquanto
+    // não houver nenhum usuário: é o acesso de emergência para criar o primeiro pelo painel.
     senha: env('PAINEL_SENHA', ''),
+    arquivoUsuarios: env('USUARIOS_FILE', path.join(DADOS, 'state-usuarios.json')),
     segredo: env('PAINEL_SEGREDO', ''),
     arquivoSegredo: env('PAINEL_SEGREDO_FILE', path.join(DADOS, 'painel-segredo.key')),
     sessaoHoras: envNum('PAINEL_SESSAO_HORAS', 12),
@@ -429,7 +432,8 @@ function validarConfig(cfg, { escopo = 'roteador' } = {}) {
 function validarPainel(cfg) {
   const fatais = [];
   const avisos = [];
-  if ((cfg.painel.senha || '').length < 8) avisos.push('PAINEL_SENHA não configurada (8 caracteres ou mais): ninguém consegue entrar no painel até colocá-la no .env.');
+  const senha = cfg.painel.senha || '';
+  if (senha && senha.length < 8) avisos.push('PAINEL_SENHA curta demais (8 caracteres ou mais): não vale nem como acesso de emergência.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: os serviços aceitam os comandos do painel (e de qualquer um na rede) sem token.');
   const { origensPermitidas, proxySegredo } = cfg.painel;
   if (origensPermitidas.length && !proxySegredo) avisos.push('PAINEL_ORIGENS_PERMITIDAS sem PAINEL_PROXY_SEGREDO: a página no Cloudflare Pages não consegue entrar (o túnel exige o segredo da Function).');

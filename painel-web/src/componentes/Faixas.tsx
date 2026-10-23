@@ -7,6 +7,7 @@ import { useAutomacao, useVisao } from '../dados';
 import type { EstadoAutomacao } from '../tipos';
 import { Botao } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
+import { semAcesso, usePode } from '../sessao';
 import { duracao, horaCurta, motivoLegivel } from '../formatos';
 import { avisarClientesNovos } from '../notificacoes';
 
@@ -14,6 +15,7 @@ import { avisarClientesNovos } from '../notificacoes';
 function FaixaAutomacao({ a }: { a: EstadoAutomacao }) {
   const religar = useAutomacao();
   const { confirmar } = useRetorno();
+  const admin = usePode('administrador');
   const andando = a.estado === 'desligando' || a.estado === 'religando';
   const titulo = a.estado === 'desligando' ? 'Desligando a automação…' : a.estado === 'religando' ? 'Religando a automação…'
     : `Automação desligada${a.desde ? ` desde ${horaCurta(a.desde)}` : ''}${a.por ? ` (por ${a.por})` : ''}`;
@@ -27,7 +29,7 @@ function FaixaAutomacao({ a }: { a: EstadoAutomacao }) {
         <p className="text-sm text-red-50">{detalhe}</p>
       </div>
       {a.estado === 'desligada' && (
-        <Botao variante="secundario" carregando={religar.isPending} onClick={async () => {
+        <Botao variante="secundario" carregando={religar.isPending} semAcesso={admin ? null : semAcesso('administrador')} onClick={async () => {
           if (await confirmar({ titulo: 'Religar a automação?', texto: 'O roteador, o rodízio e as rotinas voltam a funcionar. Os robôs continuam desligados: quem liga é a supervisão, pela Argus.', confirmar: 'Religar automação' })) religar.mutate(true);
         }}>Religar automação</Botao>
       )}

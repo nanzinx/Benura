@@ -4,9 +4,12 @@
  *
  *   GET  /                  a página (publico/, o build do painel-web/: React + TypeScript + Tailwind)
  *   GET  /health            para o PM2/atualizador (sem dados)
- *   POST /api/entrar        { senha } → cookie de sessão
+ *   GET  /api/entrada       [NOVO] { emergencia, configurada }: a tela de entrada pede e-mail ou só a senha
+ *   POST /api/entrar        { email, senha } → cookie de sessão ({ senha }: emergência, sem usuários)
  *   POST /api/sair
- *   GET  /api/sessao        200 com sessão, 401 sem
+ *   GET  /api/sessao        200 com { usuario: { nome, email, papel } }, 401 sem
+ *   POST /api/minha-senha   [NOVO] { atual, nova }
+ *   *    /api/usuarios      [NOVO] só administrador: listar, criar, mudar (papel, ativo), redefinir senha
  *   GET  /api/visao         saúde dos serviços + rodízio + alertas (a cada 5 s)
  *   GET  /api/dia           linha do tempo, callbacks e avisos do dia (logs)
  *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
@@ -20,6 +23,10 @@
  * Tudo em /api, menos entrar, exige sessão. Escrita exige também o cabeçalho
  * X-Painel: 1 e a mesma origem (um site de fora não consegue mandar).
  *
+ * [NOVO] Papéis (usuarios.js): visualização só lê; supervisor opera o dia (os
+ * comandos da lista ACOES); administrador também desliga a automação, liga o
+ * modo simulação e cuida dos usuários. Acima do papel: 403.
+ *
  * Com a página no Cloudflare Pages, a Function functions/api repassa o /api para
  * cá pelo túnel, com o segredo PAINEL_PROXY_SEGREDO: pelo túnel, sem ele, nada passa.
  */
@@ -29,6 +36,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { ACOES } = require('./servicos');
+const { ErroUsuarios, NOMES_PAPEIS, podeFazer } = require('./usuarios');
 const { tokenRecusadoRecentemente, segundosDoDia } = require('../domain/painel');
 
 /** A página (build do painel-web/, já no git): servida pelo nome exato, sem varrer pastas. */
@@ -98,14 +106,19 @@ function enderecoDoPedido(req, segredoProxy) {
 }
 
 /**
- * Quem pediu, para o log e o "por" da automação: pela Function, o e-mail com que a
- * pessoa entrou no Cloudflare Access e o IP (ex.: "ana@empresa.com (200.1.2.3)");
- * senão, só o IP.
+ * Quem pediu, para o log e o "por" dos serviços: [NOVO] quem entrou no painel e o IP
+ * (ex.: "Ana <ana@empresa.com> (200.1.2.3)"). Pela Function, o e-mail do Cloudflare
+ * Access também, se for outro. Sem usuário (emergência), o e-mail do Access e o IP,
+ * ou só o IP.
  */
-function quemPediuDoPedido(req, segredoProxy) {
+function quemPediuDoPedido(req, segredoProxy, usuario = null) {
   const endereco = enderecoDoPedido(req, segredoProxy);
-  const email = pelaFunction(req, segredoProxy) ? String(req.headers['x-benura-cliente-email'] || '').trim() : '';
-  return email ? `${email} (${endereco})` : endereco;
+  const acesso = pelaFunction(req, segredoProxy) ? String(req.headers['x-benura-cliente-email'] || '').trim() : '';
+  if (usuario && !usuario.emergencia) {
+    const outro = acesso && acesso.toLowerCase() !== usuario.email ? ` [Access: ${acesso}]` : '';
+    return `${usuario.nome} <${usuario.email}>${outro} (${endereco})`;
+  }
+  return acesso ? `${acesso} (${endereco})` : endereco;
 }
 
 /** Chegou por HTTPS (túnel ou a página no Pages, que é sempre https)? Então o cookie vai com Secure. */
@@ -172,26 +185,72 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
   ]));
   const segredoProxy = cfg.proxySegredo || '';
   const enderecoDe = (req) => enderecoDoPedido(req, segredoProxy);
-  const quemPediu = (req) => quemPediuDoPedido(req, segredoProxy);
+  const quemPediu = (req, usuario) => quemPediuDoPedido(req, segredoProxy, usuario);
+  const { usuarios } = sessoes;
+
+  /** [NOVO] O papel de quem pediu alcança o mínimo? Senão, 403. */
+  function exigir(sessao, minimo) {
+    if (podeFazer(sessao.usuario.papel, minimo)) return;
+    throw new ErroPainel(403, `Seu acesso (${NOMES_PAPEIS[sessao.usuario.papel]}) não permite isso: precisa ser ${NOMES_PAPEIS[minimo]}.`);
+  }
+
+  async function lerObjeto(req, limiteBytes = 4096) {
+    return lerJson(await lerCorpo(req, limiteBytes));
+  }
   const seguro = (req) => viaHttps(req, segredoProxy);
   const conferirOrigem = (req) => conferirOrigemDoPedido(req, cfg.origensPermitidas ?? []);
 
   async function entrar(req) {
     conferirOrigem(req);
-    let senha = '';
-    try {
-      senha = JSON.parse(await lerCorpo(req, 4096) || '{}').senha;
-    } catch {
-      throw new ErroPainel(400, 'JSON inválido');
+    const { email, senha } = await lerObjeto(req);
+    if (!sessoes.configurada) {
+      throw new ErroPainel(503, 'Nenhum usuário criado ainda: no servidor do BenURA, rode "npm run usuarios -- criar" (ou coloque PAINEL_SENHA no .env e reinicie o benura-painel para entrar e criar pelo painel).');
     }
-    if (!sessoes.configurada) throw new ErroPainel(503, 'A senha do painel ainda não foi configurada: coloque PAINEL_SENHA no .env do BenURA e reinicie o benura-painel.');
-    const r = sessoes.entrar(typeof senha === 'string' ? senha : '', enderecoDe(req), { seguro: seguro(req) });
+    const comEmail = typeof email === 'string' && email.trim() !== '';
+    if (!comEmail && !sessoes.emergencia) throw new ErroPainel(400, 'Informe o e-mail');
+    const r = await sessoes.entrar({ email: comEmail ? email : undefined, senha: typeof senha === 'string' ? senha : '' }, enderecoDe(req), { seguro: seguro(req) });
     if (!r.ok) {
-      logger.aviso(`Painel: senha errada (${quemPediu(req)})${r.bloqueado ? ' — bloqueado por 10 min' : ''}.`);
-      throw new ErroPainel(r.bloqueado ? 429 : 401, r.bloqueado ? 'Muitas tentativas. Espere 10 minutos.' : 'Senha incorreta');
+      const quem = comEmail && /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(email.trim()) ? ` para ${email.trim().toLowerCase()}` : '';
+      logger.aviso(`Painel: senha errada${quem} (${quemPediu(req)})${r.bloqueado ? ' — bloqueado por 10 min' : ''}.`);
+      throw new ErroPainel(r.bloqueado ? 429 : 401, r.bloqueado ? 'Muitas tentativas. Espere 10 minutos.' : comEmail ? 'E-mail ou senha incorretos' : 'Senha incorreta');
     }
-    logger.info(`Painel: entrada da supervisão (${quemPediu(req)}).`);
+    logger.info(r.usuario.emergencia
+      ? `Painel: entrada com a senha do painel, sem usuários criados (${quemPediu(req)}).`
+      : `Painel: entrada de ${quemPediu(req, r.usuario)} — ${NOMES_PAPEIS[r.usuario.papel]}.`);
     return { status: 200, corpo: { ok: true }, cookie: r.cookie };
+  }
+
+  /** O que a página precisa saber de quem entrou (nunca o hash, a versão ou o id da sessão). */
+  const quemEntrou = ({ usuario }) => ({
+    usuario: { nome: usuario.nome, email: usuario.email, papel: usuario.papel, senhaProvisoria: Boolean(usuario.senhaProvisoria) },
+    emergencia: Boolean(usuario.emergencia),
+  });
+
+  /** [NOVO] Rotas de usuários: só administrador. */
+  async function rotaDeUsuarios(req, pathname, sessao) {
+    exigir(sessao, 'administrador');
+    const por = quemPediu(req, sessao.usuario);
+    if (req.method === 'GET' && pathname === '/api/usuarios') return { status: 200, corpo: { usuarios: usuarios.listar() } };
+    conferirOrigem(req);
+    const corpo = await lerObjeto(req);
+    if (req.method === 'POST' && pathname === '/api/usuarios') {
+      const { email, nome, papel, senha } = corpo;
+      const r = await usuarios.criar({ email, nome, papel, senha: senha || undefined }, por);
+      return { status: 201, corpo: { usuario: r.usuario, senhaProvisoria: r.senha } };
+    }
+    if (req.method === 'PUT' && pathname === '/api/usuarios') {
+      const { id, nome, papel, ativo } = corpo;
+      if (id === sessao.usuario.id && (ativo === false || (papel && papel !== sessao.usuario.papel))) {
+        throw new ErroPainel(409, 'Você não pode desativar nem mudar o próprio papel: peça a outro administrador.');
+      }
+      return { status: 200, corpo: { usuario: usuarios.atualizar(String(id ?? ''), { nome, papel, ativo }, por) } };
+    }
+    if (req.method === 'POST' && pathname === '/api/usuarios/senha') {
+      const id = String(corpo.id ?? '');
+      if (id === sessao.usuario.id) throw new ErroPainel(409, 'Para a sua senha, use "Trocar minha senha".');
+      return { status: 200, corpo: { senhaProvisoria: await usuarios.definirSenha(id, null, por) } };
+    }
+    throw new ErroPainel(404, 'Comando não encontrado');
   }
 
   async function visao() {
@@ -212,14 +271,16 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     };
   }
 
-  async function encaminhar(req, acao) {
+  async function encaminhar(req, acao, sessao) {
+    exigir(sessao, acao.papel ?? (acao.metodo === 'GET' ? 'visualizacao' : 'supervisor'));
     if (acao.metodo !== 'GET') conferirOrigem(req);
+    const quem = quemPediu(req, sessao.usuario);
     let corpo = ['POST', 'PUT'].includes(acao.metodo) ? await lerCorpo(req, acao.limiteBytes ?? LIMITE_PADRAO_BYTES) : undefined;
-    if (acao.comQuem) corpo = JSON.stringify({ ...lerJson(corpo), por: quemPediu(req) });
+    if (acao.comQuem) corpo = JSON.stringify({ ...lerJson(corpo), por: quem });
     const r = await servicos.chamar(acao.servico, acao.destino, { metodo: acao.metodo, corpo: corpo || undefined, ...(acao.timeoutMs ? { timeoutMs: acao.timeoutMs } : {}) });
     if (acao.nome) {
       const resultado = r.status >= 200 && r.status < 300 ? 'ok' : `falhou: ${r.corpo?.erro ?? `HTTP ${r.status}`}`;
-      logger.aviso(`Painel: supervisão pediu para ${acao.nome} (${quemPediu(req)}) — ${resultado}.`);
+      logger.aviso(`Painel: supervisão pediu para ${acao.nome} (${quem}) — ${resultado}.`);
     }
     if (r.status === 0) return { status: 502, corpo: r.corpo };
     return { status: r.status, corpo: r.corpo };
@@ -233,17 +294,30 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     if (estatico) return { status: 200, bruto: estatico };
     if (req.method === 'GET' && pathname === '/health') return { status: 200, corpo: { status: 'ok', uptime: Math.round(process.uptime()), senhaConfigurada: sessoes.configurada } };
     if (req.method === 'POST' && pathname === '/api/entrar') return entrar(req);
+    if (req.method === 'GET' && pathname === '/api/entrada') return { status: 200, corpo: { emergencia: sessoes.emergencia, configurada: sessoes.configurada } };
     if (!pathname.startsWith('/api/')) throw new ErroPainel(404, 'Página não encontrada');
 
-    if (!sessoes.validar(req)) throw new ErroPainel(401, 'Entre com a senha da supervisão');
+    const sessao = sessoes.validar(req);
+    if (!sessao) throw new ErroPainel(401, 'Entre com seu e-mail e senha');
     if (req.method === 'POST' && pathname === '/api/sair') {
       conferirOrigem(req);
       return { status: 200, corpo: { ok: true }, cookie: sessoes.sair(req, { seguro: seguro(req) }) };
     }
-    if (req.method === 'GET' && pathname === '/api/sessao') return { status: 200, corpo: { ok: true } };
+    if (req.method === 'GET' && pathname === '/api/sessao') return { status: 200, corpo: { ok: true, ...quemEntrou(sessao) } };
+    if (req.method === 'POST' && pathname === '/api/minha-senha') {
+      conferirOrigem(req);
+      if (sessao.usuario.emergencia) throw new ErroPainel(409, 'Com a senha do painel não há conta: crie seu usuário em Serviços → Usuários.');
+      const { atual, nova } = await lerObjeto(req);
+      await usuarios.trocarMinhaSenha(sessao.usuario.id, atual, nova);
+      // A versão mudou: a sessão atual sai junto; entra de novo com a nova senha.
+      const r = await sessoes.entrar({ email: sessao.usuario.email, senha: nova }, enderecoDe(req), { seguro: seguro(req) });
+      return { status: 200, corpo: { ok: true }, ...(r.ok ? { cookie: r.cookie } : {}) };
+    }
+    if (pathname === '/api/usuarios' || pathname === '/api/usuarios/senha') return rotaDeUsuarios(req, pathname, sessao);
     if (req.method === 'GET' && pathname === '/api/visao') return visao();
     if (req.method === 'GET' && pathname === '/api/dia') return { status: 200, corpo: dados.resumo() };
     if (req.method === 'POST' && pathname === '/api/simulacao') {
+      exigir(sessao, 'administrador');
       conferirOrigem(req);
       let ligada;
       try {
@@ -252,20 +326,22 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
         throw new ErroPainel(400, 'JSON inválido');
       }
       if (typeof ligada !== 'boolean') throw new ErroPainel(400, 'Envie { "ligada": true | false }');
-      const r = automacao.definirSimulacao(ligada, quemPediu(req));
+      const r = automacao.definirSimulacao(ligada, quemPediu(req, sessao.usuario));
       if (!r.iniciado) throw new ErroPainel(409, r.motivo);
       return { status: 202, corpo: automacao.estado() };
     }
     if (req.method === 'POST' && (pathname === '/api/automacao/desligar' || pathname === '/api/automacao/religar')) {
+      exigir(sessao, 'administrador');
       conferirOrigem(req);
       const desligar = pathname.endsWith('/desligar');
-      const r = desligar ? automacao.desligar(quemPediu(req)) : automacao.religar(quemPediu(req));
+      const quem = quemPediu(req, sessao.usuario);
+      const r = desligar ? automacao.desligar(quem) : automacao.religar(quem);
       if (!r.iniciado) throw new ErroPainel(409, r.motivo);
       return { status: 202, corpo: automacao.estado() };
     }
     const acao = ACOES.find((a) => a.metodo === req.method && a.caminho === pathname);
     if (!acao) throw new ErroPainel(404, 'Comando não encontrado');
-    return encaminhar(req, acao);
+    return encaminhar(req, acao, sessao);
   }
 
   function responder(res, { status, corpo, bruto, cookie }) {
@@ -283,7 +359,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
       responder(res, await atender(req));
     } catch (e) {
       if (res.headersSent) return;
-      if (e instanceof ErroPainel) return responder(res, { status: e.status, corpo: { erro: e.message } });
+      if (e instanceof ErroPainel || e instanceof ErroUsuarios) return responder(res, { status: e.status, corpo: { erro: e.message } });
       logger.erro(`Painel: erro em ${req.method} ${req.url}:`, e);
       return responder(res, { status: 500, corpo: { erro: 'Erro interno do painel' } });
     }

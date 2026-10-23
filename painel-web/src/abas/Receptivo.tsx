@@ -19,6 +19,7 @@ import type { OperadorNaUra, SaudeRodizio } from '../tipos';
 import { Botao, Cartao, ComoFunciona, Esqueleto, Selo, Vazio } from '../ui/base';
 import { useFlip } from '../ui/flip';
 import { useRetorno } from '../ui/retorno';
+import { usePode } from '../sessao';
 import { CLASSES, DEFINICOES } from './Visao';
 
 /** Relógio da tela: o tempo no status e o da pausa correm a cada segundo. */
@@ -51,10 +52,12 @@ function AlocarTodosNoAtivo({ r }: { r: SaudeRodizio }) {
   const alocar = useTransferirUraAtivo();
   const retomar = useRetomarRodizio();
   const { confirmar } = useRetorno();
+  const pode = usePode('supervisor');
   const t = r.transferenciaUraAtivo;
   const ret = r.retencaoAtivo;
   const elegiveis = t?.elegiveis ?? 0;
 
+  if (!pode) return null;
   if (ret?.ativa) {
     const voltam = ret.elegiveisParaVoltar;
     const clicarRetomar = async () => {
