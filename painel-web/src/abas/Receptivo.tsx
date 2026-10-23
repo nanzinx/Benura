@@ -7,7 +7,7 @@
  */
 
 import { clsx } from 'clsx';
-import { ArrowRightLeft, Coffee, Hourglass, Lock, PhoneForwarded, PhoneIncoming, RotateCcw, UserCheck, Users } from 'lucide-react';
+import { ArrowRightLeft, Coffee, Lock, PhoneForwarded, RotateCcw, UserCheck, Users } from 'lucide-react';
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { AcoesAtendente } from '../componentes/AcoesAtendente';
 import { NoAtivo } from '../componentes/NoAtivo';
@@ -16,7 +16,7 @@ import { StatusUra } from '../componentes/StatusUra';
 import { useMetricasHoje, useRetomarRodizio, useTransferirUraAtivo, useVisao } from '../dados';
 import { cronometro, horaCurta, limiteDaPausa, minutos, ordenarOperadores } from '../formatos';
 import type { OperadorNaUra, SaudeRodizio } from '../tipos';
-import { Botao, Cartao, Esqueleto, Selo, Vazio } from '../ui/base';
+import { Botao, Cartao, ComoFunciona, Esqueleto, Selo, Vazio } from '../ui/base';
 import { useFlip } from '../ui/flip';
 import { useRetorno } from '../ui/retorno';
 import { CLASSES, DEFINICOES } from './Visao';
@@ -97,11 +97,15 @@ function AlocarTodosNoAtivo({ r }: { r: SaudeRodizio }) {
   );
 }
 
+const OPERADORES_VISIVEIS = 8;
+
 function Operadores({ ura, agora }: { ura: OperadorNaUra[]; agora: number }) {
-  const lista = useMemo(() => ordenarOperadores(ura), [ura]);
+  const todos = useMemo(() => ordenarOperadores(ura), [ura]);
+  const [verTodos, setVerTodos] = useState(false);
+  const lista = verTodos ? todos : todos.slice(0, OPERADORES_VISIVEIS);
   const corpo = useFlip<HTMLTableSectionElement>(lista.map((u) => u.ramal));
   return (
-    <Cartao titulo="Operadores do receptivo" extra={<span>{lista.length} humano(s)</span>}>
+    <Cartao titulo="Operadores do receptivo" extra={<span>{todos.length} humano(s)</span>}>
       {lista.length ? (
         <div className="overflow-x-auto">
           <table className="tabela [&_td]:px-2 sm:[&_td]:px-3 [&_th]:px-2 sm:[&_th]:px-3">
@@ -134,6 +138,12 @@ function Operadores({ ura, agora }: { ura: OperadorNaUra[]; agora: number }) {
               );
             })}</tbody>
           </table>
+          {todos.length > OPERADORES_VISIVEIS && (
+            <button type="button" onClick={() => setVerTodos((v) => !v)}
+              className="mt-2 w-full cursor-pointer rounded-lg py-1.5 text-sm font-medium text-azul-600 hover:bg-azul-50 dark:text-azul-300 dark:hover:bg-noite-800">
+              {verTodos ? 'Mostrar menos' : `Ver todos (${todos.length})`}
+            </button>
+          )}
         </div>
       ) : <Vazio>Ninguém no receptivo agora.</Vazio>}
     </Cartao>
@@ -169,7 +179,7 @@ function Pausas({ r, agora }: { r: SaudeRodizio; agora: number }) {
           })}
         </ul>
       ) : <div className="mb-4"><Vazio>Ninguém em pausa agora.</Vazio></div>}
-      <h3 className="mb-2 text-sm font-semibold">Hoje, por tipo</h3>
+      <ComoFunciona texto={`Hoje, por tipo${total.length ? ` (${minutos(total.reduce((t, [, m]) => t + m, 0))})` : ''}`}>
       {total.length ? (
         <dl className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-sm">
           {total.map(([tipo, min]) => {
@@ -182,9 +192,10 @@ function Pausas({ r, agora }: { r: SaudeRodizio; agora: number }) {
           })}
         </dl>
       ) : <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma pausa registrada hoje.</p>}
-      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
         Limites: {Object.entries(limites).map(([k, v]) => `${k} ${v} min`).join(', ') || 'nenhum'} (src/config/pausas.js). O total conta enquanto o BenURA está rodando.
       </p>
+      </ComoFunciona>
     </Cartao>
   );
 }
@@ -202,6 +213,13 @@ export function Receptivo() {
   const livres = humanos.filter((u) => u.classe === 'livre').length;
   const pausa = humanos.filter((u) => u.classe === 'outro').length;
   const espera = r.termometro?.esperaSeg ?? m?.esperaLivresSeg ?? null;
+  const limites = r.pausasLimitesMin ?? {};
+  const estourando = humanos.filter((u) => {
+    if (u.classe !== 'outro' || !u.pausa) return false;
+    const limite = limiteDaPausa(u.pausa, limites);
+    const seg = segundosDesde(u.statusDesde, agora);
+    return limite != null && seg != null && seg > limite * 60;
+  }).length;
 
   return (
     <>
@@ -215,20 +233,17 @@ export function Receptivo() {
         </div>
         <AlocarTodosNoAtivo r={r} />
       </div>
-      <div className="mb-5 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Resumo rotulo="Humanos na URA" valor={naUra} Icone={Users} nota={`${humanos.filter((u) => u.fixo).length} fixo(s)`} />
-        <Resumo rotulo="Livres" valor={livres} Icone={UserCheck} />
-        <Resumo rotulo="Em pausa" valor={pausa} Icone={Coffee} />
-        <Resumo rotulo="Em fila agora" valor={m?.emFilaAgora ?? '–'} Icone={PhoneIncoming}
-          dica="A API da Argus não informa quantas ligações estão na fila em tempo real (só o painel deles). Aparece quando houver essa fonte."
-          nota={m?.filaClienteMediaSeg != null ? `cliente esperou ${m.filaClienteMediaSeg} s em média hoje` : 'sem dado da Argus'} />
-        <Resumo rotulo="Tempo de espera atual" valor={espera != null ? `${espera} s` : '–'} Icone={Hourglass}
-          dica="Quanto tempo, em média, os humanos livres esperam por uma ligação (últimos 5 min). É o que move o status automático da URA."
-          nota={r.termometro ? `${r.termometro.atendimentos} atendimento(s) em ${r.termometro.janelaMin} min` : undefined} />
-        <Resumo rotulo="Leads Derivados Hoje" valor={<span className="text-emerald-700 dark:text-emerald-400">{m?.leadsDerivadosHoje ?? '–'}</span>} Icone={PhoneForwarded}
-          dica={DEFINICOES.leads} nota={`${m?.transbordosHoje ?? '–'} transbordo(s) hoje`} />
+        <Resumo rotulo="Livres" valor={livres} Icone={UserCheck}
+          dica="Tempo de espera: quanto, em média, os humanos livres esperam por uma ligação (últimos 5 min). É o que move o status automático da URA."
+          nota={espera != null ? `esperam ${espera} s por ligação` : undefined} />
+        <Resumo rotulo="Em pausa" valor={pausa} Icone={Coffee} nota={estourando ? <span className="font-semibold text-red-700 dark:text-red-300">{estourando} acima do limite</span> : 'ninguém acima do limite'} />
+        <Resumo rotulo="Leads derivados hoje" valor={<span className="text-emerald-700 dark:text-emerald-400">{m?.leadsDerivadosHoje ?? '–'}</span>} Icone={PhoneForwarded}
+          dica={`${DEFINICOES.leads}${m?.filaClienteMediaSeg != null ? ` O cliente esperou ${m.filaClienteMediaSeg} s na fila em média hoje.` : ''}`}
+          nota={`${m?.transbordosHoje ?? '–'} transbordo(s)${m?.filaClienteMediaSeg != null ? ` · fila ${m.filaClienteMediaSeg} s` : ''}`} />
       </div>
-      <div className="grid gap-5 lg:grid-cols-[3fr_2fr]">
+      <div className="grid items-start gap-5 lg:grid-cols-[3fr_2fr]">
         <Operadores ura={r.uraAgora ?? []} agora={agora} />
         <Pausas r={r} agora={agora} />
       </div>

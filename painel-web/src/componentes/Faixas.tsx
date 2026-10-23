@@ -1,7 +1,7 @@
 /** Faixas do topo, em qualquer aba: automação desligada, cliente de risco, pânico, serviço fora do ar, Argus. */
 
 import { clsx } from 'clsx';
-import { CircleAlert, LoaderCircle, Pause, PhoneCall, Power, ShieldAlert, TriangleAlert } from 'lucide-react';
+import { CircleAlert, LoaderCircle, Pause, PhoneCall, Power, PowerOff, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useAutomacao, useVisao } from '../dados';
 import type { EstadoAutomacao } from '../tipos';
@@ -75,6 +75,12 @@ export function Faixas() {
   for (const a of alertas) {
     faixas.push(<Faixa key={`risco-${a.id}`} tom="perigo" icone={<PhoneCall className="size-5" />}
       titulo={`Cliente de risco em ligação com ${a.robo ?? 'robô'}: ${a.mascara}`} detalhe={`${a.motivos.join(', ')} nos últimos dias · desde ${horaCurta(a.inicio)}`} />);
+  }
+  // [NOVO] robôs desligados pelo painel (aba URA e robôs)
+  if (r?.robos?.modo === 'desligados') {
+    faixas.push(<Faixa key="robos-desligados" tom="alerta" icone={<PowerOff className="size-5" />}
+      titulo={`Robôs desligados pelo painel${r.robos.modoDesde ? ` desde ${horaCurta(r.robos.modoDesde)}` : ''}${r.robos.modoPor ? ` (${r.robos.modoPor})` : ''}`}
+      detalhe='O BenURA mantém todos desligados; o resto da automação segue. Para voltar, escolha "Automático" ou "Só pânico" na aba URA e robôs.' />);
   }
   if (r?.retencaoAtivo?.ativa) {
     const ret = r.retencaoAtivo;

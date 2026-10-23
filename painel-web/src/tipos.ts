@@ -2,6 +2,9 @@
 
 export type Classe = 'livre' | 'atendimento' | 'outro' | 'offline' | 'erro';
 
+/** [NOVO] modo dos robôs: o BenURA liga e desliga, só desliga no pânico, ou mantém desligados */
+export type ModoRobos = 'automatico' | 'panico' | 'desligados';
+
 export interface OperadorNaUra {
   ramal: string;
   nome: string | null;
@@ -100,7 +103,12 @@ export interface SaudeRodizio {
   /** [NOVO] quem está no Ativo agora */
   noAtivo?: OperadorNoAtivo[];
   fixosPermanentes?: string[];
-  robos?: { ligados: number | null; total?: number; alvo?: number | null; modo?: 'panico' | 'automatico' };
+  robos?: {
+    ligados: number | null; total?: number; alvo?: number | null;
+    /** [NOVO] modo escolhido no painel (sem escolha: o ROBOS_MODO do .env) */
+    modo?: ModoRobos; modoDesde?: string | null; modoPor?: string | null;
+    porLivre?: number; porLivreComStatus?: number;
+  };
   uraCheia?: { ligada: boolean; desde: string | null };
   panico?: Interruptor & {
     modo: boolean;

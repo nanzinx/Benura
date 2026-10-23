@@ -254,6 +254,15 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
    - Quem continua no grupo antigo por mais de `ALINHAR_LOGIN_APOS_MS` (**30 s**) ficou preso (ex.: no preditivo, emendando ligação). Aparece um aviso e, se estiver livre, o BenURA **reloga** a pessoa (`logaroperador`, que loga no grupo vinculado; se não bastar, desloga e loga). Isso vale também para quem foi movido à mão. Desligue com `ALINHAR_LOGIN_APOS_TRANSFERIR=false`.
    - **Carência depois da troca**: quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta como livre para os robôs depois de `CARENCIA_TROCA_GRUPO_MS` (**60 s**). Em 15/10 uma operadora já Livre e logada na URA não recebeu a derivação de um robô que discou 37 s depois da troca, e virou callback. A regra do ocioso não muda (o tempo livre conta normalmente).
    - Cada linha `URA: livres a→b` traz também quem está livre e como a Argus o vê: `livres: 2266423 (grupo 7, Receptivo, carência)`. Num callback com alguém "livre no painel", é essa linha que mostra o que o BenURA via.
+4. **[NOVO] Modo dos robôs pelo painel** (aba **URA e robôs**, cartão "Rodízio dos robôs"). Vale na hora, sem reiniciar.
+   - **Automático:** o BenURA liga e desliga sozinho, na ordem e conforme os livres (regra 5).
+   - **Só pânico:** a supervisão liga e o BenURA só desliga (abaixo).
+   - **Desligados:** para quando os callbacks não param.
+     - Os robôs parados desligam na hora; os em ligação, ao terminar.
+     - Se alguém ligar um robô pela Argus, o BenURA desliga de novo.
+     - O rodízio dos humanos, o roteador e as rotinas seguem normais, e uma faixa no topo avisa em qualquer aba.
+   - **Como fica gravado:** a escolha vai para `ROBOS_MODO_FILE` (`state-robos-modo.json`) e vale até alguém trocar, inclusive depois de reiniciar. Sem escolha, vale o `ROBOS_MODO` do `.env`.
+   - **API:** `PUT /robos/modo {"modo":"automatico|panico|desligados"}`, com token. O `/health` mostra `robos.modo`, `modoDesde` e `modoPor`.
 4. **Robôs: modo pânico (`ROBOS_MODO=panico`, o padrão)**: a supervisão liga os robôs pelo painel da Argus e o BenURA **nunca liga robôs**.
    - Com o pânico ligado (interruptor na página `/ura`, ou `POST`/`DELETE /panico` com token), o BenURA olha os livres da URA. Usa a mesma contagem do modo automático: carência da troca de grupo, telefonia em outro grupo e status sem resposta não contam.
 

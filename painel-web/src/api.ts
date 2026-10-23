@@ -1,7 +1,7 @@
 /** Cliente da API do benura-painel. Escrita leva o cabeçalho X-Painel (o servidor exige). */
 
 import type {
-  ClienteDeRisco, Dia, EstadoAutomacao, MetricasHoje, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada,
+  ClienteDeRisco, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada,
   ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao,
 } from './tipos';
 
@@ -54,6 +54,8 @@ export const api = {
   statusUra: (pedido: { status?: StatusDaUra; modo: 'manual' | 'automatico' }) => pedir<StatusUra & { mudou: boolean }>('PUT', '/api/ura/status', pedido),
   transferirUraAtivo: () => pedir<ResultadoTransferencia>('POST', '/api/operadores/transferir-ura-ativo', {}),
   retomarRodizio: () => pedir<ResultadoRetomada>('POST', '/api/operadores/retomar-rodizio', {}),
+  // [NOVO] modo dos robôs (aba URA e robôs)
+  modoRobos: (modo: ModoRobos) => pedir<{ mudou: boolean; modo: ModoRobos }>('PUT', '/api/robos/modo', { modo }),
   // [NOVO] ações por atendente (aba Receptivo)
   pausasDisponiveis: (ramal: string) => pedir<{ pausas: PausaDaArgus[] }>('POST', '/api/operadores/pausas', { ramal }),
   acaoOperador: (pedido: PedidoAcao) => {
