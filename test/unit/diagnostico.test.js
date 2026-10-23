@@ -184,3 +184,22 @@ test('[NOVO] contarCategorias: só campos com poucos valores (achar o que diz "v
   }));
   assert.deepEqual(contarCategorias(ligacoes), { origem: { 'OPER. VIRTUAL': 30, DISCADOR: 10 }, resultadoLigacao: { ATENDIMENTO: 40 } });
 });
+
+test('[NOVO] rodízio: preso no grupo antigo e livre além do tempo de ociosidade volta ao Ativo; em ligação, fica', async () => {
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, repositorio: {}, robos: { resumo: () => ({}) },
+    cfg: { grupoUraId: 7, alinharAposMs: 30_000, tempoNaUraMs: 180_000 },
+    logger: loggerNulo,
+  });
+  svc.ramaisUra = new Set(['202', '203']);
+  const lidos = { 202: { classe: Classe.LIVRE, status: { idGrupo: 3, grupo: 'MAYSA - COMERCIAL', descricaoStatus: 'Livre' } },
+    203: { classe: Classe.ATENDIMENTO, status: { idGrupo: 3, grupo: 'MAYSA - COMERCIAL', descricaoStatus: 'Em ligação' } } };
+  svc.lerStatus = async (ramal) => lidos[ramal];
+  const inicio = Date.now();
+  await svc.atualizarStatusUra('202');
+  await svc.atualizarStatusUra('203');
+  assert.equal(svc.statusUra.get('202').classe, Classe.OUTRO, 'não conta como livre para os robôs');
+  assert.equal(svc.deveDevolver('202', inicio + 60_000), false, 'antes do tempo de ociosidade, fica');
+  assert.equal(svc.deveDevolver('202', inicio + 181_000), true, 'livre no grupo antigo além do limite: sai e abre a vaga');
+  assert.equal(svc.deveDevolver('203', inicio + 181_000), false, 'em ligação no grupo antigo: não sai');
+});

@@ -63,9 +63,9 @@ test('alinharLogin: se só logar não muda a sessão, avisa e nunca desloga', as
   assert.match(avisos[0], /não desloga ninguém/);
 });
 
-test('config: por padrão o BenURA só move de grupo (não reloga ninguém)', () => {
+test('config: por padrão quem fica preso no grupo antigo é logado de novo (nunca deslogado)', () => {
   const { carregarConfig } = require('../../src/config');
-  assert.equal(carregarConfig().argus.alinharLogin, false);
+  assert.equal(carregarConfig().argus.alinharLogin, true);
 });
 
 test('alinharLogin: vínculo diferente do esperado → não insiste nem desloga', async () => {
