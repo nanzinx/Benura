@@ -309,7 +309,27 @@ function jaEstavaDeslogado(descricao) {
   return d.includes('ja deslogado') || d.includes('nao esta logado');
 }
 
+/**
+ * [NOVO] Ordem dos robôs, como a supervisão faz à mão: "OPER VIRTUAL 1, 2, 3…" pelo
+ * número do nome e os DTMF no fim (também pelo número). Liga nessa ordem e desliga na
+ * inversa (os primeiros da lista são os últimos a sair). Sem nome, vale o ramal.
+ * @param {string[]} ramais
+ * @param {(ramal: string) => string|null} nomeDe
+ * @returns {string[]}
+ */
+function ordenarRobos(ramais, nomeDe = () => null) {
+  const chave = (ramal) => {
+    const nome = String(nomeDe(ramal) || '');
+    const numero = /(\d+)\D*$/.exec(nome);
+    return { dtmf: /dtmf/i.test(nome) ? 1 : 0, numero: numero ? Number(numero[1]) : Infinity, ramal: Number(ramal) || 0 };
+  };
+  return ramais.map(String).map((r) => ({ r, k: chave(r) }))
+    .sort((a, b) => a.k.dtmf - b.k.dtmf || a.k.numero - b.k.numero || a.k.ramal - b.k.ramal)
+    .map(({ r }) => r);
+}
+
 module.exports = {
+  ordenarRobos,
   Classe,
   AcaoRobos,
   VALIDADE_STATUS_MS,

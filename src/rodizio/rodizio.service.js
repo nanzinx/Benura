@@ -610,7 +610,7 @@ class RodizioService {
         minDesligadoMs: this.cfg.minRobosDesligadosMs,
         reduzirAposMs: this.cfg.reduzirAposMs,
         intervaloSubidaMs: this.cfg.intervaloSubidaMs,
-        porLivre: this.porLivreAgora(agora),
+        porLivre: this.porLivreComStatus(agora),
         maximo: this.cfg.robosMaximo,
         maxComUmLivre: this.cfg.robosMaxComUmLivre,
         // Com poll lento, o status "envelhece" entre ciclos: não pode virar "sem visibilidade".
@@ -1076,6 +1076,17 @@ class RodizioService {
     return this.ajuste.resumo();
   }
 
+  /**
+   * [NOVO] Robôs por livre que valem no modo automático: o de agora (ajuste) vezes o peso do
+   * status da URA (calma = ROBOS_FATOR_CALMA, agressiva = ROBOS_FATOR_AGRESSIVA). Pelo menos 1.
+   */
+  porLivreComStatus(agora = Date.now()) {
+    const base = this.porLivreAgora(agora);
+    const status = this.statusAtualDaUra();
+    const fator = status === 'calma' ? (this.cfg.robosFatorCalma ?? 1) : status === 'agressiva' ? (this.cfg.robosFatorAgressiva ?? 1) : 1;
+    return Math.max(1, Math.round(base * fator));
+  }
+
   /** Robôs por livre agora (ajustado pelos callbacks, pela URA passiva ou à mão). */
   porLivreAgora(agora = Date.now()) {
     return this.ajuste ? this.ajuste.atual(agora) : this.cfg.robosPorLivre;
@@ -1279,6 +1290,8 @@ class RodizioService {
         ...this.robos.resumo(),
         total: this.ramaisRobos.length,
         porLivre: this.porLivreAgora(),
+        // [NOVO] o que vale no automático, com o peso do status da URA
+        porLivreComStatus: this.porLivreComStatus(),
         maxComUmLivre: this.cfg.robosMaxComUmLivre || null,
         modo: this.emModoPanico() ? 'panico' : 'automatico',
         manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,

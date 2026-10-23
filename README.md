@@ -294,6 +294,14 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
 
 5. **Robôs proporcionais aos livres** (`ROBOS_MODO=automatico`): ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
    Com 1 livre, 7; com 2 livres, 14; e assim por diante, até o total de robôs (ou `ROBOS_MAXIMO`). Muitos robôs para poucos livres geram callback.
+   - **Ordem fixa, como à mão:** liga em ordem crescente: `OPER VIRTUAL 0/1, 2, 3…` pelo número do nome e, por último, os **DTMF**, também pelo número.
+     - Ao reduzir, tira **do último para o primeiro** (DTMF primeiro, depois 32, 31…), pulando quem está em ligação. Os primeiros da lista ficam sempre ligados.
+     - Os nomes vêm do `statusoperador`; robô sem nome lido entra pela ordem do ramal.
+   - **O status da URA pesa** (termômetro ou o escolhido no painel), sobre o "por livre" do momento:
+     - **calma** (livres esperando muito): × `ROBOS_FATOR_CALMA` (**1,3**), ou seja, 7 → 9 por livre;
+     - **agressiva** (cliente esperando): × `ROBOS_FATOR_AGRESSIVA` (**0,7**), ou seja, 7 → 5;
+     - **normal**: sem peso.
+     - Nunca fica abaixo de 1. O `/health` mostra `robos.porLivreComStatus`.
    - **Com 1 livre só**, no máximo `ROBOS_MAX_COM_1_LIVRE` (**6**) robôs, seja qual for o "por livre" do momento: dois clientes pedindo humano juntos com um livre só viram callback. `0` = sem esse teto.
    - **Ninguém livre** → todos desligados **na hora**. **Com gente livre**, a redução só acontece se a queda de livres durar `ROBOS_REDUZIR_APOS_MS` (**10 s**), para não reagir a cada piscada de status, e desliga **só os robôs que não estão em ligação**: derrubar um robô falando corta o cliente e vira callback. Os que estão em ligação saem nos ciclos seguintes, quando a ligação termina (o log mostra "N em ligação mantidos até terminar").
    - **Aumentar** espera `MIN_ROBOS_OFF_MS` (padrão **15 s**) desde a última redução e sobe **em degraus**: no máximo `ROBOS_DEGRAU` (**7**) robôs a cada `ROBOS_SUBIDA_INTERVALO_MS` (**10 s**). Religar todos de uma vez faz todos discarem juntos, as derivações chegam juntas e o excedente vira callback.

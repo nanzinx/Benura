@@ -80,6 +80,9 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       GRUPO_ROBOS_URA_ID: '3',
       GRUPOS_ATIVOS_IDS: '1',
       TEMPO_MIN: '0.1', // 6 s
+      // Peso do status da URA nos robôs por livre: neutro aqui (os cenários contam robôs exatos).
+      ROBOS_FATOR_CALMA: '1',
+      ROBOS_FATOR_AGRESSIVA: '1',
       POLL_ATIVO_MS: '300',
       POLL_URA_MS: '300',
       REFRESH_GRUPOS_MS: '1000',
