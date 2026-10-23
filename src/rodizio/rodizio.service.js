@@ -6,9 +6,10 @@
  *
  *   atualizarGrupos()  ~30 s  lê os grupos da Argus: quem está na URA, no Ativo e quais são os robôs
  *   cicloAtivo()       ~5 s   quem é elegível (meta de ontem, venda hoje ou fixo), atendeu
- *                             no Ativo e ficou livre → URA. Na URA cheia (pedido da
- *                             supervisão), todos do Ativo sobem; quem voltou por ocioso
- *                             sobe ao atender no Ativo; a regra do ocioso continua valendo.
+ *                             no Ativo e ficou livre → URA. [NOVO] Na URA cheia (pedido da
+ *                             supervisão), qualquer um que atender no Ativo sobe, sem
+ *                             olhar elegíveis; ninguém sobe só por estar no Ativo.
+ *                             A regra do ocioso continua valendo.
  *   cicloUra()         ~5 s   lê o status de quem está na URA, decide os robôs e devolve
  *                             ao Ativo quem está ocioso há TEMPO_MIN (ou o movido que ficou
  *                             offline); ~1 s com poucos livres (URA em alerta). O último
@@ -122,11 +123,6 @@ class RodizioService {
     this.atenderamNoAtivo = new Set();
     /** ramais com transferência em andamento */
     this.emTransferencia = new Set();
-    /**
-     * URA cheia: quem não é levado de novo nesta ativação — voltou ao Ativo por
-     * ocioso (sobe ao atender lá) ou, em DRY_RUN, já teve a ida simulada.
-     */
-    this.naoLevarNaUraCheia = new Set();
     this.avaliandoRobos = false;
     this.reavaliarRobos = false;
     /** Até quando a supervisão comanda os robôs pelo painel (0 = o BenURA comanda). */
@@ -266,9 +262,9 @@ class RodizioService {
     // "Alocar Todos no Ativo": ninguém sobe até "Retomar rodízio da URA".
     if (this.retencao?.ativa) return;
     const cheia = this.emUraCheia();
-    if (cheia) await this.levarTodosParaUra();
-    else await this.elegiveis?.atualizar();
-    // Na URA cheia, qualquer um que atender no Ativo volta (sem olhar elegíveis).
+    if (!cheia) await this.elegiveis?.atualizar();
+    // [NOVO] Na URA cheia, qualquer um que atender no Ativo sobe (sem olhar elegíveis). Ninguém
+    // sobe só por estar no Ativo: quem voltou por ocioso ou foi tirado à mão fica lá até atender.
     const alvos = porAntiguidade(this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal)), (a) => a.ramal);
     await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
   }
@@ -279,23 +275,6 @@ class RodizioService {
       .map((ramal) => ({ ramal: String(ramal), grupo: g.idGrupoUsuario })))
       .filter(({ ramal }) => !this.movidos[ramal] && !this.ramaisUra.has(ramal) && !this.emTransferencia.has(ramal)
         && !this.alinhandoLogin.has(ramal) && this.travadoEm(ramal) !== 'ativo');
-  }
-
-  /**
-   * URA cheia: todos do Ativo vão para a URA, atendendo ou não (a telefonia
-   * troca quando ficam livres), inclusive quem a carga das 08:00 ou alguém à
-   * mão mandar para o Ativo depois. Só quem voltou por ocioso fica no Ativo
-   * até atender lá (senão iria e voltaria a cada TEMPO_MIN).
-   */
-  async levarTodosParaUra() {
-    // [NOVO] Ramal menor (mais tempo de casa) sobe primeiro.
-    const alvos = porAntiguidade(this.operadoresDoAtivo().filter(({ ramal }) => !this.naoLevarNaUraCheia.has(ramal)), (a) => a.ramal);
-    if (!alvos.length) return;
-    this.log.info(`URA cheia: levando ${alvos.length} operador(es) do Ativo para a URA.`);
-    await mapearComLimite(alvos, this.cfg.concorrencia, async ({ ramal, grupo }) => {
-      // Em DRY_RUN ninguém sai do Ativo de verdade: simula uma vez só.
-      if (await this.moverParaUra(ramal, grupo) && this.cfg.dryRun) this.naoLevarNaUraCheia.add(ramal);
-    });
   }
 
   /** Só quem é elegível (meta de ontem, venda hoje ou fixo) sobe; os demais nem são lidos. */
@@ -579,7 +558,6 @@ class RodizioService {
     this.statusUra.delete(ramal);
     this.aguardandoTroca.delete(ramal);
     this.trocouEm.delete(ramal);
-    if (this.emUraCheia()) this.naoLevarNaUraCheia.add(ramal); // sobe de novo ao atender no Ativo
     this.vigiarNoAtivo(ramal, destino);
     this.salvar();
     const limite = info.classe === Classe.LIVRE && !motivo ? `, limite ${formatarMinSeg(this.limiteOciosoMs(ramal))}${this.emUraCheia() ? ' na URA cheia' : ''}` : '';
@@ -1289,18 +1267,15 @@ class RodizioService {
 
   // ───────────────────────────── URA cheia ─────────────────────────────
 
-  /** Ligada hoje? (desligada, esquece quem voltou por ocioso: a próxima ativação leva todos de novo) */
+  /** Ligada hoje? */
   emUraCheia(agora = Date.now()) {
-    const ligada = Boolean(this.uraCheia?.ativa(new Date(agora)));
-    if (!ligada) this.naoLevarNaUraCheia.clear();
-    return ligada;
+    return Boolean(this.uraCheia?.ativa(new Date(agora)));
   }
 
   /** POST /ura/cheia. @returns {{ ligada: boolean, desde: string|null, mudou: boolean }} */
   ligarUraCheia() {
     if (this.retencao?.ativa) throw new Error('Rodízio pausado (todos no Ativo): retome o rodízio da URA antes de ligar a URA cheia.');
     const mudou = this.uraCheia.ligar();
-    if (mudou) this.naoLevarNaUraCheia.clear();
     return { ...this.uraCheia.resumo(), mudou };
   }
 

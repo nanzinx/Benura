@@ -260,8 +260,8 @@ export function Ura() {
         )}
         <Interruptor comando="ura/cheia" titulo="URA cheia"
           estado={cheia?.ligada ? { texto: `ligada desde ${horaCurta(cheia.desde)}`, tom: 'alerta' } : { texto: 'rodízio normal', tom: 'neutro' }}
-          resumo="Leva todos os operadores do Ativo para a URA."
-          ligar={{ texto: 'Colocar todos na URA', confirmar: { titulo: 'Colocar todos na URA?', texto: 'Todos os operadores do Ativo vão para a URA em até 5 s, atendendo ou não.' } }}
+          resumo="Quem atender no Ativo sobe para a URA, sem olhar meta ou venda."
+          ligar={{ texto: 'Ligar a URA cheia', confirmar: { titulo: 'Ligar a URA cheia?', texto: 'Qualquer operador do Ativo que atender uma ligação sobe para a URA. Ninguém sobe só por estar no Ativo.' } }}
           desligar={{ texto: 'Voltar ao normal' }}>
           <p>A regra do ocioso continua valendo: quem fica livre o tempo todo volta ao Ativo e sobe de novo ao atender lá.</p>
           <p>Voltar ao normal: só sobe quem é elegível (meta de ontem, venda hoje ou fixo). Vale até desligar ou virar o dia.</p>
