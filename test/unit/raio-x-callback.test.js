@@ -137,7 +137,7 @@ test('[NOVO] vigia: leads derivados e transbordos pelo relatório; lê o dia des
   const pedidos = [];
   const entregues = [];
   const montarVigia = () => new VigiaCallbacks({
-    client: { listarCampanhas: async () => [{ idCampanha: 3, ativo: true }], ligacoesDetalhadas: async (f, o) => { pedidos.push({ ...f, ...o }); return ligacoes; } },
+    client: { listarCampanhas: async () => [{ idCampanha: 3, ativo: true }], ligacoesDetalhadas: async (f, o = {}) => { pedidos.push({ ...f, maxPaginas: o.maxPaginas }); if (o.aoReceber) { o.aoReceber(ligacoes); return []; } return ligacoes; } },
     rodizio: {
       teveRoboLigado: () => false,
       registrarCallbackDoRelatorio: (c) => entregues.push(c),
@@ -148,7 +148,7 @@ test('[NOVO] vigia: leads derivados e transbordos pelo relatório; lê o dia des
   });
   const vigia = montarVigia();
   await vigia.verificar(agora);
-  assert.deepEqual(pedidos[0], { idCampanha: 3, idGrupoUsuario: 3, ultimosMinutos: 10 * 60 + 13 + 1, maxPaginas: 40 }, 'desde 00:00, mesmo sem robô ligado');
+  assert.deepEqual(pedidos[0], { idCampanha: 3, idGrupoUsuario: 3, ultimosMinutos: 10 * 60 + 13 + 1, maxPaginas: 200 }, 'desde 00:00, mesmo sem robô ligado');
   assert.equal(entregues.length, 0, 'o dia antigo não vira ajuste nem raio-x');
   let r = estatisticas.resumo();
   assert.deepEqual([r.leadsDerivados, r.transbordos, r.transbordosPorMotivo], [1, 2, { 'abandonou a fila': 1, 'sem agente': 1 }]);
@@ -164,4 +164,38 @@ test('[NOVO] vigia: leads derivados e transbordos pelo relatório; lê o dia des
   await montarVigia().verificar(agora);
   r = estatisticas.resumo();
   assert.deepEqual([r.leadsDerivados, r.transbordos], [1, 2]);
+});
+
+test('[NOVO] vigia: o dia com dezenas de milhares de ligações não estoura a pilha; falhou, só tenta de novo em 5 min', async () => {
+  const { EstatisticasDia } = require('../../src/rodizio/estatisticas-dia');
+  const agora = T('13:05:00');
+  const estatisticas = new EstatisticasDia({ fusoHorario: FUSO }).carregar(agora);
+  const pagina = (n, desde) => Array.from({ length: n }, (_, i) => ({
+    idLigacao: desde + i, dataHoraLigacao: '2026-10-15T09:00:00', resultadoLigacao: i % 100 === 0 ? 'ATENDIMENTO' : 'OPER. VIRTUAL - ABANDONO',
+  }));
+  let falhar = true;
+  let pedidosDoDia = 0;
+  const avisos = [];
+  const vigia = new VigiaCallbacks({
+    client: {
+      listarCampanhas: async () => [{ idCampanha: 3, ativo: true }],
+      ligacoesDetalhadas: async (f, { aoReceber } = {}) => {
+        if (aoReceber) pedidosDoDia += 1;
+        if (aoReceber && falhar) throw new Error('HTTP 500');
+        if (aoReceber) { for (let p = 0; p < 3; p += 1) aoReceber(pagina(60_000, p * 60_000)); return []; }
+        return [];
+      },
+    },
+    rodizio: { teveRoboLigado: () => false, registrarCallbackDoRelatorio: () => {}, registrarEncerramentoDoRelatorio: (e) => estatisticas.registrarEncerramento(agora, e, 'relatório') },
+    cfg: { gruposRobosIds: [3], fuso: FUSO },
+    logger: { ...loggerNulo, aviso: (m) => avisos.push(m) },
+  });
+  await vigia.verificar(agora);
+  assert.match(avisos[0], /não foi possível ler o dia desde 00:00 \(HTTP 500\)\. Tenta de novo em 5 min/);
+  falhar = false;
+  await vigia.verificar(agora + 60_000);
+  assert.equal(pedidosDoDia, 1, 'antes de 5 min não tenta de novo');
+  await vigia.verificar(agora + 5 * 60_000);
+  assert.equal(pedidosDoDia, 2);
+  assert.equal(estatisticas.resumo().leadsDerivados, 1800, '180.000 ligações lidas, 1 em cada 100 derivou');
 });

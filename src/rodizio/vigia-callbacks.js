@@ -35,7 +35,9 @@ const ENCERRAMENTOS = Object.freeze({
   semAgente: { derivou: false, motivo: 'sem agente' },
 });
 /** [NOVO] A leitura do dia inteiro pode ser longa. */
-const PAGINAS_DO_DIA = 40;
+const PAGINAS_DO_DIA = 200;
+/** [NOVO] A leitura do dia que falhou só é tentada de novo depois disso (é um relatório pesado). */
+const DIA_DE_NOVO_MS = 5 * 60_000;
 
 class VigiaCallbacks {
   /**
@@ -96,7 +98,7 @@ class VigiaCallbacks {
     this.idCampanha ??= await escolherCampanha(this.client, this.cfg.idCampanha);
     const todas = [];
     for (const idGrupoUsuario of this.cfg.gruposRobosIds) {
-      todas.push(...await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos }, { maxPaginas }));
+      for (const l of await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos }, { maxPaginas })) todas.push(l);
     }
     return todas;
   }
@@ -108,17 +110,27 @@ class VigiaCallbacks {
   async lerDiaSePreciso(agora) {
     const hoje = dataLocal(this.cfg.fuso, new Date(agora));
     if (this.diaLido === hoje || !this.rodizio.registrarEncerramentoDoRelatorio) return;
+    if (this.diaFalhouEm != null && agora - this.diaFalhouEm < DIA_DE_NOVO_MS) return;
     const [h, m] = horaLocal(this.cfg.fuso, new Date(agora)).split(':').map(Number);
-    let ligacoes;
+    let lidas = 0;
+    let novas = 0;
     try {
-      ligacoes = await this.lerLigacoes(h * 60 + m + 1, PAGINAS_DO_DIA);
+      // Página por página, sem juntar o dia inteiro na memória.
+      this.idCampanha ??= await escolherCampanha(this.client, this.cfg.idCampanha);
+      for (const idGrupoUsuario of this.cfg.gruposRobosIds) {
+        await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos: h * 60 + m + 1 }, {
+          maxPaginas: PAGINAS_DO_DIA,
+          aoReceber: (pagina) => { lidas += pagina.length; novas += this.contarEncerramentos(pagina); },
+        });
+      }
     } catch (e) {
-      this.avisarFalha(e);
+      this.diaFalhouEm = agora;
+      this.log.aviso(`Vigia de callbacks: não foi possível ler o dia desde 00:00 (${e.message}). Tenta de novo em ${DIA_DE_NOVO_MS / 60_000} min.`);
       return;
     }
     this.diaLido = hoje;
-    const novas = this.contarEncerramentos(ligacoes);
-    this.log.info(`Vigia de callbacks: dia lido desde 00:00 (${ligacoes.length} ligação(ões) dos robôs; ${novas} nova(s) nos leads derivados e transbordos).`);
+    this.diaFalhouEm = null;
+    this.log.info(`Vigia de callbacks: dia lido desde 00:00 (${lidas} ligação(ões) dos robôs; ${novas} nova(s) nos leads derivados e transbordos).`);
   }
 
   /** [NOVO] Cada ligação lida conta uma vez nos leads derivados e transbordos. @returns {number} quantas eram novas */
