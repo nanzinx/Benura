@@ -93,7 +93,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     return { status: 200, html: PAGINA_URA };
   }
 
-  /** POST /ura/cheia — todos do Ativo para a URA (a regra do ocioso continua valendo). */
+  /** POST /ura/cheia — quem atender no Ativo sobe, sem olhar elegíveis (a regra do ocioso continua valendo). */
   async function ligarUraCheia() {
     try {
       return { status: 200, corpo: rodizio.ligarUraCheia() };

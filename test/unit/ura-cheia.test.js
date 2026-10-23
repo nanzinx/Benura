@@ -36,44 +36,49 @@ test('UraCheia: liga, sobrevive a reinício no mesmo dia e desliga sozinha na vi
   }
 });
 
-test('rodízio: na URA cheia quem a carga mandar ao Ativo sobe de novo; quem voltou por ocioso, só ao atender', async () => {
+test('[NOVO] rodízio: na URA cheia ninguém sobe só por estar no Ativo; quem atender sobe, mesmo sem ser elegível', async () => {
   const transferidos = [];
+  const status = { 100: 'livre', 101: 'livre' };
   const svc = new RodizioService({
     client: {}, repositorio: { salvar() {} }, robos: {}, logger: loggerNulo, cfg: { grupoUraId: 2, concorrencia: 5 },
     transferencias: { transferir: async (ramal, grupo) => { transferidos.push(`${ramal}→${grupo}`); return true; } },
     uraCheia: { ativa: () => true, ligar: () => true, resumo: () => ({}) },
+    elegiveis: { atualizar: async () => {}, permite: () => false }, // ninguém bateu meta nem vendeu
   });
+  svc.lerStatus = async (ramal) => ({ classe: status[ramal] === 'livre' ? Classe.LIVRE : Classe.ATENDIMENTO, status: { idGrupo: 1 } });
   svc.gruposAtivos = [{ idGrupoUsuario: 1, ramaisOperadores: ['100', '101'] }];
-  await svc.levarTodosParaUra();
-  assert.deepEqual(transferidos.sort(), ['100→2', '101→2']);
+  await svc.cicloAtivo();
+  assert.deepEqual(transferidos, [], 'livres no Ativo (ociosos, tirados à mão) ficam lá');
 
-  // 101 ficou ocioso e voltou ao Ativo pela regra de sempre; 100 foi mandado ao Ativo pela carga (por fora do rodízio).
-  await svc.devolverAoAtivo('101');
-  delete svc.movidos['100'];
-  svc.ramaisUra.delete('100');
-  transferidos.length = 0;
-  await svc.levarTodosParaUra();
-  assert.deepEqual(transferidos, ['100→2'], 'o 101 só sobe ao atender no Ativo');
+  status[100] = 'atendimento';
+  await svc.cicloAtivo();
+  status[100] = 'livre';
+  await svc.cicloAtivo();
+  assert.deepEqual(transferidos, ['100→2'], 'o 100 atendeu no Ativo: sobe, mesmo sem ser elegível');
 
-  // Religar a URA cheia leva todos de novo.
-  delete svc.movidos['100'];
-  svc.ramaisUra.delete('100');
-  svc.ligarUraCheia();
+  // Voltou por ocioso: fica no Ativo até atender de novo (sem vai e volta).
+  svc.statusUra.set('100', { classe: Classe.LIVRE });
+  await svc.devolverAoAtivo('100');
   transferidos.length = 0;
-  await svc.levarTodosParaUra();
-  assert.deepEqual(transferidos.sort(), ['100→2', '101→2']);
+  await svc.cicloAtivo();
+  await svc.cicloAtivo();
+  assert.deepEqual(transferidos, [], 'quem voltou por ocioso não sobe sem atender');
 });
 
-test('rodízio: URA cheia em DRY_RUN simula a ida de cada um uma vez só', async () => {
+test('rodízio: URA cheia em DRY_RUN simula a ida de quem atendeu uma vez só', async () => {
   const transferidos = [];
+  let classe = Classe.ATENDIMENTO;
   const svc = new RodizioService({
     client: {}, repositorio: { salvar() {} }, robos: {}, logger: loggerNulo, cfg: { grupoUraId: 2, concorrencia: 5, dryRun: true },
     transferencias: { transferir: async (ramal) => { transferidos.push(ramal); return true; } },
     uraCheia: { ativa: () => true },
   });
+  svc.lerStatus = async () => ({ classe, status: { idGrupo: 1 } });
   svc.gruposAtivos = [{ idGrupoUsuario: 1, ramaisOperadores: ['100'] }];
-  await svc.levarTodosParaUra();
-  await svc.levarTodosParaUra();
+  await svc.cicloAtivo();
+  classe = Classe.LIVRE;
+  await svc.cicloAtivo();
+  await svc.cicloAtivo();
   assert.deepEqual(transferidos, ['100']);
 });
 
@@ -99,7 +104,7 @@ test('[NOVO] URA cheia: 2 min de ociosidade; ramal menor ganha a escada (10 s po
   assert.deepEqual(ramais.map((r) => svc.limiteOciosoMs(r)), [150_000, 140_000, 130_000, 120_000], '2:30, 2:20, 2:10, 2:00');
   assert.deepEqual(ramais.filter((r) => svc.deveDevolver(r, 135_000)), ['2266423', '2266773'], 'com 2:15, só os dois de ramal maior saem');
   cheia = false;
-  assert.deepEqual(ramais.filter((r) => svc.deveDevolver(r, 135_000)), [], 'fora da URA cheia vale o TEMPO_MIN (3 min)');
+  assert.deepEqual(ramais.filter((r) => svc.deveDevolver(r, 135_000)), [], 'fora da URA cheia vale o TEMPO_MIN (aqui, 3 min)');
   assert.equal(svc.limiteOciosoMs('2266111'), 210_000);
   svc.permanentes = new Set(['2266111']);
   assert.equal(svc.limiteOciosoMs('2266267'), 200_000, 'fixo não entra na escada');
@@ -119,7 +124,7 @@ test('[NOVO] prioridade por ramal: sobe do menor para o maior; o último livre a
     uraCheia: { ativa: () => true },
   });
   svc.gruposAtivos = [{ idGrupoUsuario: 1, ramaisOperadores: ['305', '101', '210'] }];
-  svc.moverParaUra = async (ramal) => { ordem.push(ramal); return true; };
-  await svc.levarTodosParaUra();
+  svc.verificarOperadorDoAtivo = async ({ ramal }) => { ordem.push(ramal); };
+  await svc.cicloAtivo();
   assert.deepEqual(ordem, ['101', '210', '305']);
 });

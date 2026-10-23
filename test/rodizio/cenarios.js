@@ -213,28 +213,28 @@ const CENARIOS = {
     if (!r.saida.join('').includes('Sem a lista de elegíveis do dia')) throw new Error('não avisou que está sem a lista');
   },
 
-  async 'URA cheia: todos sobem uma vez; a regra do ocioso vale; quem atender no Ativo volta mesmo sem ser elegível'(r) {
+  async 'URA cheia: ninguém sobe só por estar no Ativo; quem atender sobe mesmo sem ser elegível; a regra do ocioso vale'(r) {
     const uraCheia = (method) => fetch(`${r.base}/ura/cheia`, { method, headers: { Authorization: `Bearer ${TOKEN}` } });
     const vezes = (t) => r.transferencias().filter((x) => x === t).length;
-    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Colocar todos na URA')) throw new Error('GET /ura sem a página');
+    if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Ligar a URA cheia')) throw new Error('GET /ura sem a página');
     if ((await fetch(`${r.base}/ura/cheia`, { method: 'POST' })).status !== 401) throw new Error('ligou sem token');
     if (!(await uraCheia('POST')).ok) throw new Error('não ligou');
-    // 100 e 101 não atenderam nada (e o 100 nem é elegível): sobem mesmo assim.
-    await aguardar(() => vezes('100→2') === 1 && vezes('101→2') === 1, { descricao: 'todos → URA' });
-
-    // Ociosos há TEMPO_MIN (6 s): voltam ao Ativo, com a URA cheia ligada.
-    await aguardar(() => vezes('100→1') === 1 && vezes('101→1') === 1, { timeoutMs: 15_000, descricao: 'ociosos → Ativo' });
-    await esperar(2000);
-    if (vezes('100→2') !== 1) throw new Error('levou de novo quem voltou por ocioso (vai e volta)');
+    // 100 e 101 estão livres no Ativo e não atenderam nada: ninguém sobe só por estar no Ativo.
+    await esperar(3000);
+    if (vezes('100→2') || vezes('101→2')) throw new Error('subiu quem não atendeu no Ativo');
     const { uraCheia: estado } = await (await fetch(`${r.base}/health`)).json();
     if (!estado.ligada) throw new Error('/health não mostra a URA cheia ligada');
 
-    // O 100 atende no Ativo: volta à URA mesmo sem ser elegível.
-    await aguardar(() => r.argus.estado.grupoLogado['100'] === undefined, { descricao: 'a discadora trocar o 100 para o Ativo' });
+    // O 100 (que nem é elegível) atende no Ativo: sobe.
     r.argus.definirStatus('100', 'em atendimento');
     await esperar(1000);
     r.argus.definirStatus('100', 'livre');
-    await aguardar(() => vezes('100→2') === 2, { descricao: '100 atendeu no Ativo → URA' });
+    await aguardar(() => vezes('100→2') === 1, { descricao: '100 atendeu no Ativo → URA' });
+
+    // Ocioso há TEMPO_MIN (6 s): volta ao Ativo e não sobe de novo sem atender (sem vai e volta).
+    await aguardar(() => vezes('100→1') === 1, { timeoutMs: 15_000, descricao: 'ocioso → Ativo' });
+    await esperar(3000);
+    if (vezes('100→2') !== 1) throw new Error('levou de novo quem voltou por ocioso (vai e volta)');
     if (!(await uraCheia('DELETE')).ok) throw new Error('não desligou');
   },
 
@@ -287,8 +287,11 @@ const CENARIOS = {
     await aguardar(() => r.transferencias().includes('100→1'), { descricao: 'liberado: o ocioso devolve ao Ativo' });
   },
 
-  async 'URA cheia em DRY_RUN: simula a ida de cada um uma vez só'(r) {
+  async 'URA cheia em DRY_RUN: simula a ida de quem atendeu uma vez só'(r) {
     await fetch(`${r.base}/ura/cheia`, { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` } });
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.saida.join('').includes('[DRY_RUN] Transferiria ramal 101'), { descricao: 'simular 101 → URA' });
     await esperar(2000);
     const simulacoes = r.saida.join('').split('[DRY_RUN] Transferiria ramal 101').length - 1;
@@ -1103,7 +1106,7 @@ const VARIACOES = {
     status: { 100: 'livre', 200: 'livre', 201: 'livre', 202: 'livre' }, // robôs começam desligados
     env: { ROBOS_POR_LIVRE: '2', ROBOS_DEGRAU: '2' },
   },
-  'URA cheia: todos sobem uma vez; a regra do ocioso vale; quem atender no Ativo volta mesmo sem ser elegível': {
+  'URA cheia: ninguém sobe só por estar no Ativo; quem atender sobe mesmo sem ser elegível; a regra do ocioso vale': {
     env: { RODIZIO_SO_ELEGIVEIS: '1' },
     preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
   },
@@ -1111,7 +1114,7 @@ const VARIACOES = {
     env: { RODIZIO_SO_ELEGIVEIS: '1' },
     preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
   },
-  'URA cheia em DRY_RUN: simula a ida de cada um uma vez só': { env: { DRY_RUN: '1' } },
+  'URA cheia em DRY_RUN: simula a ida de quem atendeu uma vez só': { env: { DRY_RUN: '1' } },
   'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)': {
     env: { DRY_RUN: '1', ROBOS_POR_LIVRE: '1' },
   },

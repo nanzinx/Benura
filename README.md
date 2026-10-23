@@ -212,9 +212,9 @@ src/utils/                         HTTP com retry, persistência atômica, trava
    - **O último livre sai no horário, e os robôs param antes.** Sem livre na URA, o alvo vira 0 e um robô em ligação que derivar não acha ninguém (callback). Por isso, quando o último livre está a `PREPARAR_SAIDA_ULTIMO_LIVRE_MS` (**30 s**, no máximo metade do `TEMPO_MIN`) de completar o tempo ocioso, os robôs param de discar e os que estão em ligação terminam enquanto ele ainda está na URA. Se ele atender ou aparecer outro livre, os robôs voltam. O `/health` mostra `ultimoLivreSaindo`.
    - Quem o rodízio moveu e ficou offline volta ao Ativo se continuar offline por `OFFLINE_VOLTA_APOS_MS` (**60 s**): logo depois de uma transferência ou de um relogin, o status pisca "deslogado" por alguns segundos (em 15/10 isso devolveu ao Ativo, 42 s depois de subir, uma operadora que estava trocando de grupo).
 
-### URA cheia (todos na URA)
-Quando pedirem todo mundo na URA, abra **`http://localhost:3000/ura`** e clique em **Colocar todos na URA** (pede o `WEBHOOK_TOKEN`, se configurado).
-- Em até 5 s, todos os operadores dos grupos do Ativo (`GRUPOS_ATIVOS_IDS`) vão para a URA, atendendo ou não, sem olhar elegíveis. Quem entrar depois no Ativo também sobe, inclusive quem a carga das 08:00 do roteador ou alguém à mão mandar para lá.
+### URA cheia
+Quando pedirem a URA cheia, ligue pelo painel (aba URA e robôs) ou em **`http://localhost:3000/ura`** (**Ligar a URA cheia**, pede o `WEBHOOK_TOKEN`, se configurado).
+- [NOVO] **Qualquer operador dos grupos do Ativo (`GRUPOS_ATIVOS_IDS`) que atender uma ligação sobe para a URA**, sem olhar elegíveis (meta, venda, fixo). **Ninguém sobe só por estar no Ativo**: quem está ocioso lá, quem voltou por ociosidade e quem foi tirado da URA à mão ficam no Ativo até atender (antes, a URA cheia levava todos de uma vez, e quem estava ocioso ia e voltava).
 - **A regra do ocioso continua valendo**: quem ficar livre `TEMPO_MIN` seguidos volta ao Ativo e só sobe de novo ao atender lá, mesmo sem ser elegível (não fica indo e voltando). Os robôs continuam proporcionais aos livres (`ROBOS_POR_LIVRE`), até o total de robôs, e a telefonia continua sendo conferida.
 - **Voltar ao normal**: só os elegíveis voltam a subir do Ativo.
 - Vale até desligar ou até virar o dia; sobrevive a reinício (`RODIZIO_URA_CHEIA_FILE`). O `/health` mostra `uraCheia: { ligada, desde }`.
