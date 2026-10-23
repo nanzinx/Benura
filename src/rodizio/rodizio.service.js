@@ -396,7 +396,8 @@ class RodizioService {
     if (lido.classe === Classe.ERRO) return; // mantém o último status; a validade dele decide os robôs
     // Na lista da URA, mas a telefonia ainda em outro grupo: não recebe derivação,
     // então não conta como livre (nem liga robô para ela) até a troca acontecer.
-    const classe = this.conferirGrupoLogado(ramal, lido.classe, lido.status) ? Classe.OUTRO : lido.classe;
+    const preso = this.conferirGrupoLogado(ramal, lido.classe, lido.status);
+    const classe = preso ? Classe.OUTRO : lido.classe;
 
     // Um "livre" lido logo depois do webhook de atendimento é atraso do polling: ignora.
     const anterior = this.statusUra.get(ramal);
@@ -406,13 +407,15 @@ class RodizioService {
     // Tempo ocioso: conta desde que ficou Livre; qualquer outro status zera.
     const agora = Date.now();
     const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? agora) : undefined;
+    // [NOVO] Preso no grupo antigo, mas livre na telefonia: não conta para os robôs, e o tempo ocioso corre igual.
+    const presoLivreDesde = preso && lido.classe === Classe.LIVRE ? (anterior?.presoLivreDesde ?? agora) : undefined;
     const offlineDesde = classe === Classe.OFFLINE ? (anterior?.offlineDesde ?? agora) : undefined;
     const emCarencia = agora - (this.trocouEm.get(ramal) ?? -Infinity) < (this.cfg.carenciaTrocaMs ?? 0);
     const detalhe = lido.status ? this.detalheDoStatus(lido.status, agora) : null;
     if (classe === Classe.ATENDIMENTO && anterior?.classe !== Classe.ATENDIMENTO) {
       this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null, ramal);
     }
-    this.statusUra.set(ramal, { classe, ts: agora, livreDesde, offlineDesde, emCarencia, detalhe });
+    this.statusUra.set(ramal, { classe, ts: agora, livreDesde, presoLivreDesde, offlineDesde, emCarencia, detalhe });
   }
 
   /**
@@ -520,6 +523,8 @@ class RodizioService {
     if (this.permanentes.has(String(ramal)) && info.classe !== Classe.OFFLINE) return false;
     // Travado à mão na URA pelo painel: fica até liberarem.
     if (this.travadoEm(ramal) === 'ura') return false;
+    // [NOVO] Preso no grupo antigo e livre além do limite: não recebe derivação e só ocupa a vaga. Volta ao Ativo.
+    if (info.presoLivreDesde != null && agora - info.presoLivreDesde >= this.limiteOciosoMs(ramal)) return true;
     return deveVoltarAoAtivo({
       classe: info.classe, livreDesde: info.livreDesde, agora, ociosoMs: this.limiteOciosoMs(ramal), movido: this.movidos[ramal],
       offlineDesde: info.offlineDesde, offlineMs: this.cfg.offlineVoltaAposMs,

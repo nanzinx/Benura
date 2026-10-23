@@ -106,7 +106,7 @@ function carregarConfig(overrides = {}) {
       // Mover de grupo quem já está logado muda a lista na hora, mas a telefonia só troca
       // quando a pessoa fica livre, com atraso. [NOVO] Padrão: o BenURA só move (não loga nem
       // desloga ninguém). true: quem fica preso no grupo antigo é logado de novo (logaroperador).
-      alinharLogin: envBool('ALINHAR_LOGIN_APOS_TRANSFERIR', false),
+      alinharLogin: envBool('ALINHAR_LOGIN_APOS_TRANSFERIR', true),
       esperaLoginMs: envNum('ALINHAR_LOGIN_ESPERA_MS', 1500),
       // A discadora troca o grupo sozinha quando a pessoa fica livre (com atraso):
       // só reloga quem continua no grupo antigo depois deste tempo.
@@ -185,7 +185,7 @@ function carregarConfig(overrides = {}) {
       // Campanha dos robôs para o relatório; vazio = a única campanha ativa.
       idCampanhaRobos: envNum('CAMPANHA_ROBOS_ID', 0),
       // Minutos ocioso (Livre) seguidos na URA antes de voltar ao Ativo. Atender zera a contagem.
-      tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
+      tempoNaUraMs: envNum('TEMPO_MIN', 2) * 60_000,
       // [NOVO] Com a URA cheia ligada, o limite de ociosidade é este (padrão 2 min).
       tempoNaUraCheiaMs: envNum('URA_CHEIA_TEMPO_MIN', 2) * 60_000,
       // [NOVO] Prioridade por tempo de casa (ramal menor = mais antigo): sobe primeiro, sai por

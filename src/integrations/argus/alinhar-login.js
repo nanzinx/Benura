@@ -12,8 +12,8 @@
  * Aqui se faz o que o operador faria: logar de novo. O logaroperador sem
  * codIntegGrupo loga "no grupo já vinculado" (doc 4.5), que depois da
  * transferência é o destino. [NOVO] Nunca desloga ninguém: se logar de novo não
- * bastar, só avisa. E vem desligado (ALINHAR_LOGIN_APOS_TRANSFERIR=false): o
- * BenURA só move de grupo e a telefonia troca sozinha, com o atraso de sempre.
+ * bastar, só avisa. Vem ligado (ALINHAR_LOGIN_APOS_TRANSFERIR=true): sem isso, a
+ * telefonia não troca sozinha, e quem foi movido para a URA não recebe derivação.
  *
  * Só mexe em quem está LIVRE: em ligação ou em pausa, espera (quem chama tenta
  * de novo depois).
