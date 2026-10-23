@@ -72,17 +72,21 @@ class RodizioService {
    * @param {import('./estatisticas-dia').EstatisticasDia} [deps.estatisticas] - relatório do dia (painel)
    * @param {import('./retencao-ativo').RetencaoAtivo} [deps.retencao]
    *        [NOVO] "Alocar Todos no Ativo": ninguém sobe para a URA até "Retomar rodízio da URA"
+   * @param {import('./modo-robos').ModoRobos} [deps.modoRobos]
+   *        [NOVO] modo dos robôs escolhido no painel (automático, só pânico ou desligados)
    * @param {import('./travas-manuais').TravasManuais} [deps.travas]
    *        [NOVO] quem a supervisão mexeu à mão pelo painel: o rodízio não mexe nele até liberarem
    */
   constructor({
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
     panico = null, fixos = null, termometro = null, statusDaUra = null, estatisticas = null, retencao = null, travas = null,
+    modoRobos = null,
   }) {
     Object.assign(this, {
       client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, fixos,
-      termometro, statusDaUra, estatisticas, retencao, travas,
+      termometro, statusDaUra, estatisticas, retencao, travas, modoRobos,
     });
+    if (this.robos) this.robos.modoAtual = () => this.modoDosRobos();
     /** Fixos na URA de vez (FIXOS_PERMANENTES_URA): a regra do ocioso não vale para eles. */
     this.permanentes = new Set();
     /** ramais sem grupo do Ativo identificável (aviso uma vez por ramal) */
@@ -181,6 +185,7 @@ class RodizioService {
     this.statusDaUra?.carregar();
     this.retencao?.carregar();
     this.travas?.carregar();
+    this.modoRobos?.carregar();
     this.estatisticas?.carregar();
     return this;
   }
@@ -343,11 +348,11 @@ class RodizioService {
     const agora = Date.now();
     // A regra do ocioso vale sempre, sem exceção: quem passou do TEMPO_MIN sai.
     const ociosos = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
-    if (!this.emModoPanico()) this.prepararSaidaDoUltimoLivre(ramais, agora);
+    if (this.modoDosRobos() === 'automatico') this.prepararSaidaDoUltimoLivre(ramais, agora);
     await this.avaliarRobos();
     this.registrarFoto(Date.now());
     this.amostrarDia(Date.now());
-    if (!this.emModoPanico()) this.verificarPassividade(agora);
+    if (this.modoDosRobos() === 'automatico') this.verificarPassividade(agora);
 
     this.avisarSeSemWebhook();
     await mapearComLimite(ociosos, this.cfg.concorrencia, (ramal) => this.devolverAoAtivo(ramal));
@@ -594,6 +599,12 @@ class RodizioService {
 
   async aplicarDecisaoDosRobos() {
     if (this.desligandoAutomacao) return undefined;
+    // [NOVO] "Desligados" no painel: os parados saem na hora, os em ligação ao terminar; ninguém liga.
+    if (this.robosDesligadosPeloPainel()) {
+      this.excessoDesde = null;
+      if (!this.robos.ligados?.size) return undefined;
+      return this.robos.encerrarSemDerrubar('robôs desligados pelo painel');
+    }
     if (this.emModoPanico()) return this.aplicarPanico();
     if (this.ultimoLivreSaindo()) {
       this.excessoDesde = null;
@@ -629,7 +640,34 @@ class RodizioService {
 
   /** ROBOS_MODO=panico: a supervisão liga os robôs; o BenURA só os desliga no pânico. */
   emModoPanico() {
-    return this.cfg.robosModo === 'panico';
+    return this.modoDosRobos() === 'panico';
+  }
+
+  /** [NOVO] Modo dos robôs agora: o escolhido no painel ou, sem escolha, o ROBOS_MODO do .env. */
+  modoDosRobos() {
+    return this.modoRobos?.modo ?? this.cfg.robosModo;
+  }
+
+  /** [NOVO] "Desligados" no painel: o BenURA mantém os robôs desligados (o resto da automação segue). */
+  robosDesligadosPeloPainel() {
+    return this.modoDosRobos() === 'desligados';
+  }
+
+  /**
+   * [NOVO] PUT /robos/modo: a supervisão troca o modo dos robôs pelo painel. Vale na hora.
+   * @returns {{ mudou: boolean, modo: string }}
+   */
+  definirModoRobos(modo, por = null) {
+    if (!this.modoRobos) throw new Error('modo dos robôs indisponível');
+    const antes = this.modoDosRobos();
+    const { mudou } = this.modoRobos.definir(modo, por);
+    if (mudou) {
+      const nomes = { automatico: 'automático (o BenURA liga e desliga)', panico: 'só pânico (a supervisão liga)', desligados: 'desligados' };
+      this.log.aviso(`Robôs: ${nomes[antes] ?? antes} → ${nomes[modo]} pelo painel${por ? ` (${por})` : ''}.`);
+      if (antes === 'panico' && modo !== 'panico') this.encerrarPanico(this.ultimosLivres ?? 0);
+      this.avaliarRobos().catch((e) => this.log.erro(`Falha ao aplicar o modo dos robôs: ${e.message}`));
+    }
+    return { mudou, modo: this.modoDosRobos() };
   }
 
   /**
@@ -1293,7 +1331,10 @@ class RodizioService {
         // [NOVO] o que vale no automático, com o peso do status da URA
         porLivreComStatus: this.porLivreComStatus(),
         maxComUmLivre: this.cfg.robosMaxComUmLivre || null,
-        modo: this.emModoPanico() ? 'panico' : 'automatico',
+        modo: this.modoDosRobos(),
+        // [NOVO] quem escolheu o modo no painel (sem escolha: o ROBOS_MODO do .env)
+        modoDesde: this.modoRobos?.resumo().desde ?? null,
+        modoPor: this.modoRobos?.resumo().por ?? null,
         manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,
       },
       intervaloUraMs: this.intervaloUraMs(),

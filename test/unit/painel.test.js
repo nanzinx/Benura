@@ -286,4 +286,7 @@ test('painel [NOVO]: ações por atendente levam o ramal e quem pediu; a lista d
   await enviar('/api/operadores/pausas', { ramal: '202' });
   assert.deepEqual(JSON.parse(chamadas.find((c) => c.url === 'http://rodizio/operadores/pausas').corpo), { ramal: '202' });
   assert.equal((await pedir('POST', '/api/operadores/deslogar', { cookie, painel: false, corpo: { ramal: '202' } })).status, 403, 'escrita exige o cabeçalho do painel');
+  await pedir('PUT', '/api/robos/modo', { cookie, origem: PAGES, extras: pelaPagina, corpo: { modo: 'desligados' } });
+  const modo = chamadas.find((c) => c.url === 'http://rodizio/robos/modo');
+  assert.deepEqual([modo.metodo, JSON.parse(modo.corpo)], ['PUT', { modo: 'desligados', por: 'ana@empresa.com (200.1.2.3)' }]);
 });

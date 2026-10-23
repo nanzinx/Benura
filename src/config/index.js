@@ -126,6 +126,8 @@ function carregarConfig(overrides = {}) {
       // fica com 1 livre ou menos (interruptor na página /ura). automatico: o BenURA liga e desliga
       // os robôs proporcionalmente aos livres (regras abaixo).
       robosModo: env('ROBOS_MODO', 'panico').toLowerCase() === 'automatico' ? 'automatico' : 'panico',
+      // [NOVO] Modo dos robôs escolhido no painel (automático, só pânico ou desligados); sem escolha, vale ROBOS_MODO.
+      arquivoModoRobos: env('ROBOS_MODO_FILE', path.join(DADOS, 'state-robos-modo.json')),
       arquivoPanico: env('RODIZIO_PANICO_FILE', path.join(DADOS, 'state-panico.json')),
       panicoPadrao: envBool('PANICO_PADRAO', true),
       // Pânico com 1 livre comum: os robôs só param quando ele está a isso de sair por ociosidade.

@@ -118,6 +118,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       RODIZIO_STATUS_URA_FILE: path.join(pasta, 'state-status-ura.json'),
       RETENCAO_ATIVO_FILE: path.join(pasta, 'state-retencao-ativo.json'),
       TRAVAS_MANUAIS_FILE: path.join(pasta, 'state-travas-manuais.json'),
+      ROBOS_MODO_FILE: path.join(pasta, 'state-robos-modo.json'),
       RODIZIO_ESTATISTICAS_FILE: path.join(pasta, 'state-estatisticas-dia.json'),
       AUTOMACAO_FILE: path.join(pasta, 'state-automacao.json'),
       SIMULACAO_FILE: path.join(pasta, 'state-simulacao.json'),
@@ -720,6 +721,25 @@ const CENARIOS = {
   async 'Robôs: humano da URA em pausa conta como ocupado'(r) {
     r.argus.definirStatus('200', 'pausa');
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'deslogar robôs' });
+  },
+
+  async 'Robôs desligados pelo painel: desliga os robôs e mantém desligados; o rodízio dos humanos segue'(r) {
+    const resp = await fetch(`${r.base}/robos/modo`, { method: 'PUT', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: '{"modo":"desligados","por":"cenário"}' });
+    if (resp.status !== 200) throw new Error(`PUT /robos/modo: HTTP ${resp.status}`);
+    await aguardar(() => ['900', '901'].every((ramal) => r.chamadas('deslogaroperador').some((c) => c.dados.ramal === ramal)), { descricao: 'deslogar os dois robôs' });
+    const ligacoesAntes = r.chamadas('logaroperadorvirtual').length;
+    // Alguém liga um robô por fora: o BenURA desliga de novo.
+    const antes = r.chamadas('deslogaroperador').length;
+    r.argus.definirStatus('900', 'livre');
+    await aguardar(() => r.chamadas('deslogaroperador').length > antes, { descricao: 'desligar de novo o robô ligado por fora' });
+    // O rodízio dos humanos segue: 101 atende no Ativo e sobe para a URA.
+    r.argus.definirStatus('101', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('101', 'livre');
+    await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101 → URA com os robôs desligados' });
+    if (r.chamadas('logaroperadorvirtual').length > ligacoesAntes) throw new Error('ligou robô com os robôs desligados pelo painel');
+    const { robos } = await (await fetch(`${r.base}/health`)).json();
+    if (robos.modo !== 'desligados' || robos.modoPor !== 'cenário') throw new Error(`/health: ${JSON.stringify(robos)}`);
   },
 
   async 'Robôs: URA sem humanos → desliga'(r) {

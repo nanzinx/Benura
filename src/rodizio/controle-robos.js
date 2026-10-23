@@ -52,6 +52,8 @@ class ControleRobos {
     this.ultimoMantidos = null;
     /** [NOVO] ramal → nome do robô (do statusoperador): dá a ordem "OPER VIRTUAL 1, 2…" */
     this.nomes = new Map();
+    /** [NOVO] modo dos robôs agora (o rodízio troca pela escolha do painel) */
+    this.modoAtual = () => this.cfg.robosModo;
   }
 
   /** [NOVO] Os ramais na ordem de ligar (a de desligar é a inversa). */
@@ -86,7 +88,7 @@ class ControleRobos {
    */
   conferirMudancasPorFora(esperados, lidos, agora = Date.now()) {
     if (this.cfg.dryRun) return; // em DRY_RUN nada muda de verdade: a diferença é esperada
-    if (this.cfg.robosModo === 'panico') return; // no modo pânico, quem liga os robôs é a supervisão
+    if (['panico', 'desligados'].includes(this.modoAtual())) return; // fora do automático, quem liga os robôs é a supervisão
     const recente = (r) => agora - (this.ultimoComando.get(r) || 0) < CARENCIA_COMANDO_MS;
     const ligadosFora = [...lidos].filter((r) => !esperados.has(r) && !recente(r));
     const desligadosFora = [...esperados].filter((r) => !lidos.has(r) && !recente(r));

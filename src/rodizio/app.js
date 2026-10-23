@@ -26,6 +26,7 @@ const { TermometroUra } = require('./termometro-ura');
 const { StatusUra } = require('./status-ura');
 const { RetencaoAtivo } = require('./retencao-ativo');
 const { TravasManuais } = require('./travas-manuais');
+const { ModoRobos } = require('./modo-robos');
 const { AcoesOperador } = require('./acoes-operador');
 const { EstatisticasDia } = require('./estatisticas-dia');
 const { AjusteRobos } = require('./ajuste-robos');
@@ -84,6 +85,7 @@ function montarRodizio(overrides) {
     statusDaUra: new StatusUra({ arquivo: cfgRodizio.arquivoStatusUra, logger: log.filho('robos') }),
     // "Alocar Todos no Ativo": segura todos no Ativo até "Retomar rodízio da URA" (o roteador lê o mesmo arquivo).
     retencao: new RetencaoAtivo({ arquivo: cfg.automacao.arquivoRetencao, logger: log.filho('rodizio') }),
+    modoRobos: new ModoRobos({ arquivo: cfgRodizio.arquivoModoRobos, padrao: cfgRodizio.robosModo, logger: log.filho('robos') }),
     travas: new TravasManuais({ arquivo: cfg.automacao.arquivoTravas, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
     estatisticas: new EstatisticasDia({
       repositorio: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoEstatisticas, logger: log.filho('estado') }), fusoHorario: cfg.agenda.fusoHorario,
