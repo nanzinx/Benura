@@ -201,6 +201,13 @@ src/utils/                         HTTP com retry, persistência atômica, trava
    - O `/health` mostra `elegiveisUra: { disponivel, total }`. Para voltar a girar todos sempre: `RODIZIO_SO_ELEGIVEIS=0`.
 2. **URA → Ativo**: **qualquer** humano do RECEPTIVO - URA **ocioso (Livre) há `TEMPO_MIN` minutos seguidos** (padrão 3) volta ao Ativo, **sem exceção**: nem o último livre, nem na URA cheia.
    Atender uma ligação (ou entrar em pausa) zera a contagem, como a coluna "Tempo" do painel.
+   - **[NOVO] Com a URA cheia ligada, o limite é `URA_CHEIA_TEMPO_MIN`** (**2 min**).
+   - **[NOVO] Prioridade por tempo de casa** (ramal menor = mais antigo):
+     - **sobe primeiro**, na URA cheia, no rodízio e no "Retomar";
+     - **sai por último** quando vários saem juntos (o "último livre" é quem sai mais tarde);
+     - **ganha mais tempo antes de sair**, em escada entre os humanos não fixos da URA: o ramal maior fica no limite e cada posição acima ganha `PRIORIDADE_RAMAL_PASSO_S` (**10 s**), até `PRIORIDADE_RAMAL_MAX_S` (**60 s**). Ex.: com 4 na URA cheia, saem com 2:00, 2:10, 2:20 e 2:30 (o ramal menor).
+     - **Desligar:** `PRIORIDADE_RAMAL_PASSO_S=0` tira a escada; a ordem continua.
+   - **O BenURA não loga nem desloga humano:** só move de grupo, e a telefonia troca quando a pessoa fica livre (os robôs seguem sendo deslogados para desligar).
    - Quem o rodízio moveu volta ao **grupo de origem**; os demais (colocados à mão, pelo roteador ou antes de o programa iniciar) voltam ao **grupo do supervisor** (diretório da Argus ou `SUPERVISORES_GRUPOS_FILE`). O grupo do supervisor é o grupo do Ativo com a maioria da equipe dele; se não houver ninguém da equipe no Ativo, o grupo cujo nome começa pelo primeiro nome do supervisor ("ROBSON - COMERCIAL"). Sem o grupo do supervisor, volta ao grupo do Ativo de onde o roteador a tirou (gravado no `state-vendas.json`). Sem nenhum dos dois, fica na URA com um aviso: rode `npm run conferir:supervisores`.
    - **O último livre sai no horário, e os robôs param antes.** Sem livre na URA, o alvo vira 0 e um robô em ligação que derivar não acha ninguém (callback). Por isso, quando o último livre está a `PREPARAR_SAIDA_ULTIMO_LIVRE_MS` (**30 s**, no máximo metade do `TEMPO_MIN`) de completar o tempo ocioso, os robôs param de discar e os que estão em ligação terminam enquanto ele ainda está na URA. Se ele atender ou aparecer outro livre, os robôs voltam. O `/health` mostra `ultimoLivreSaindo`.
    - Quem o rodízio moveu e ficou offline volta ao Ativo se continuar offline por `OFFLINE_VOLTA_APOS_MS` (**60 s**): logo depois de uma transferência ou de um relogin, o status pisca "deslogado" por alguns segundos (em 15/10 isso devolveu ao Ativo, 42 s depois de subir, uma operadora que estava trocando de grupo).
@@ -251,7 +258,7 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
 3. **A telefonia demora a acompanhar a troca de grupo** (visto na operação em 14/10/2026).
    - Mover alguém de grupo (pelo painel ou pela API) muda a **Lista de Operadores** na hora. A **telefonia** (o painel "Operadores Online" do grupo, `statusoperador.idGrupo`) só troca quando a pessoa fica **livre**, com um atraso da discadora. Em ligação ou pausa, espera.
    - Enquanto isso, a derivação dos robôs **não chega** nela. Por isso o BenURA só conta como livre na URA (e só liga robô para) quem já está **logado na URA**.
-   - Quem continua no grupo antigo por mais de `ALINHAR_LOGIN_APOS_MS` (**30 s**) ficou preso (ex.: no preditivo, emendando ligação). Aparece um aviso e, se estiver livre, o BenURA **reloga** a pessoa (`logaroperador`, que loga no grupo vinculado; se não bastar, desloga e loga). Isso vale também para quem foi movido à mão. Desligue com `ALINHAR_LOGIN_APOS_TRANSFERIR=false`.
+   - Quem continua no grupo antigo por mais de `ALINHAR_LOGIN_APOS_MS` (**30 s**) ficou preso (ex.: no preditivo, emendando ligação). Aparece um aviso. **Por padrão o BenURA só move de grupo: não loga nem desloga ninguém**, e a telefonia troca sozinha quando a pessoa fica livre. Com `ALINHAR_LOGIN_APOS_TRANSFERIR=true`, quem está livre e preso no grupo antigo é logado de novo (`logaroperador`, que loga no grupo vinculado); se não bastar, só avisa, nunca desloga.
    - **Carência depois da troca**: quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta como livre para os robôs depois de `CARENCIA_TROCA_GRUPO_MS` (**60 s**). Em 15/10 uma operadora já Livre e logada na URA não recebeu a derivação de um robô que discou 37 s depois da troca, e virou callback. A regra do ocioso não muda (o tempo livre conta normalmente).
    - Cada linha `URA: livres a→b` traz também quem está livre e como a Argus o vê: `livres: 2266423 (grupo 7, Receptivo, carência)`. Num callback com alguém "livre no painel", é essa linha que mostra o que o BenURA via.
 4. **[NOVO] Modo dos robôs pelo painel** (aba **URA e robôs**, cartão "Rodízio dos robôs"). Vale na hora, sem reiniciar.
@@ -289,7 +296,10 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
        - **TPA** (Tempo de Pânico Ativo);
        - o **status da URA**: o quadrado mostra o de agora e, aberto, o tempo em cada um hoje;
        - **pausas por tipo**.
-     - **Leads derivados e transbordos** (`GET /metricas/hoje`): vêm dos webhooks da Argus **tipo 4** (robô com o cliente pedindo humano) e **tipo 5** (encerramento da URA receptiva). Conclusão "derivou" é lead derivado; abandonou a fila, sem agente e time-out são transbordo. Cada ligação conta uma vez. Gravado em `RODIZIO_ESTATISTICAS_FILE`; zera na virada do dia.
+     - **Leads derivados e transbordos** (`GET /metricas/hoje`): "derivou" é lead derivado; abandonou a fila, sem agente e time-out são transbordo. Vêm de duas fontes, e cada ligação conta uma vez só (pelo `idLigacao`):
+       - os webhooks da Argus **tipo 4** (robô com o cliente pedindo humano) e **tipo 5** (encerramento da URA receptiva), na hora;
+       - **[NOVO] o relatório de ligações** que o vigia de callbacks já lê a cada minuto (`ATENDIMENTO` = lead; `ABANDONO EM FILA` e `SEM AGENTE` = transbordo). Funciona sem webhook configurado, com até 1 min de atraso. Ao subir (e na virada do dia), o BenURA lê o dia desde 00:00.
+       - Gravado em `RODIZIO_ESTATISTICAS_FILE`, com as ligações já contadas (um reinício não conta em dobro); zera na virada do dia. O cartão diz de onde veio a última ("pelo relatório da Argus" ou "pelo webhook").
      - **Cliente de risco** (interruptor dele ligado) continua desligando os robôs parados em qualquer linha da tabela.
      - **Risco aceito:** numa URA agressiva com 1 livre comum, os robôs seguem discando até 60 s antes da saída dele, e pode haver callback.
    - Ao entrar no pânico, relê na Argus quais robôs estão ligados. Robôs religados à mão durante o pânico são desligados na próxima leitura de grupos (`REFRESH_GRUPOS_MS`, 30 s).

@@ -94,11 +94,34 @@ function deveVoltarAoAtivo({ classe, livreDesde, agora, ociosoMs, movido, offlin
  * @param {{ saindo: string[], ramaisUra: string[], status: Map<string, { classe: string, livreDesde?: number }> }} entrada
  * @returns {string|null} ramal do último livre (o ocioso há menos tempo)
  */
-function ultimoLivreQueSai({ saindo, ramaisUra, status }) {
+function ultimoLivreQueSai({ saindo, ramaisUra, status, saidaEm = (r) => status.get(r).livreDesde }) {
   const livre = (r) => status.get(r)?.classe === Classe.LIVRE;
   if (ramaisUra.some((r) => livre(r) && !saindo.includes(r))) return null;
-  const ociosos = saindo.filter(livre).sort((a, b) => status.get(b).livreDesde - status.get(a).livreDesde);
+  // [NOVO] saidaEm: o instante em que cada um sai (com a prioridade do ramal); no empate, o mais antigo fica.
+  const ociosos = saindo.filter(livre).sort((a, b) => saidaEm(b) - saidaEm(a) || numeroDoRamal(a) - numeroDoRamal(b));
   return ociosos[0] ?? null;
+}
+
+/** [NOVO] O número do ramal (ramal menor = mais tempo de casa). */
+const numeroDoRamal = (ramal) => {
+  const n = Number(String(ramal ?? '').replace(/\D/g, ''));
+  return String(ramal ?? '').replace(/\D/g, '') && Number.isFinite(n) ? n : Infinity;
+};
+
+/** [NOVO] Ordem de prioridade: ramal menor primeiro (sobe primeiro; para sair, ao contrário). */
+function porAntiguidade(itens, ramalDe = (x) => x) {
+  return [...itens].sort((a, b) => numeroDoRamal(ramalDe(a)) - numeroDoRamal(ramalDe(b)));
+}
+
+/**
+ * [NOVO] Tempo a mais antes de sair por ociosidade, em escada pelo ramal: entre `ramais`, o
+ * maior ganha 0 e cada posição acima ganha `passoMs` a mais, até `maxMs`.
+ */
+function bonusDeAntiguidade(ramal, ramais, { passoMs = 0, maxMs = 0 } = {}) {
+  if (!passoMs || !maxMs) return 0;
+  const ordem = porAntiguidade([...new Set(ramais.map(String))]);
+  const i = ordem.indexOf(String(ramal));
+  return i < 0 ? 0 : Math.min(maxMs, (ordem.length - 1 - i) * passoMs);
 }
 
 /**
@@ -330,6 +353,9 @@ function ordenarRobos(ramais, nomeDe = () => null) {
 
 module.exports = {
   ordenarRobos,
+  porAntiguidade,
+  bonusDeAntiguidade,
+  numeroDoRamal,
   Classe,
   AcaoRobos,
   VALIDADE_STATUS_MS,

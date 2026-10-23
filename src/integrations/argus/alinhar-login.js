@@ -11,7 +11,9 @@
  *
  * Aqui se faz o que o operador faria: logar de novo. O logaroperador sem
  * codIntegGrupo loga "no grupo já vinculado" (doc 4.5), que depois da
- * transferência é o destino. Se isso não bastar, desloga e loga.
+ * transferência é o destino. [NOVO] Nunca desloga ninguém: se logar de novo não
+ * bastar, só avisa. E vem desligado (ALINHAR_LOGIN_APOS_TRANSFERIR=false): o
+ * BenURA só move de grupo e a telefonia troca sozinha, com o atraso de sempre.
  *
  * Só mexe em quem está LIVRE: em ligação ou em pausa, espera (quem chama tenta
  * de novo depois).
@@ -42,21 +44,17 @@ async function logarERelere(client, ramal, esperaMs) {
   return client.statusOperador(ramal);
 }
 
-/** Primeiro só loga de novo; se a sessão não sair do lugar, desloga e loga. */
+/** Só loga de novo (nunca desloga): se a sessão não sair do lugar, avisa. */
 async function relogar({ client, ramal, idGrupo, antes, esperaMs }) {
   const depois = await logarERelere(client, ramal, esperaMs);
   if (mesmoGrupo(depois, idGrupo)) return Alinhamento.RELOGADO;
   if (depois && !mesmoGrupo(depois, antes.idGrupo)) return Alinhamento.OUTRO_VINCULO;
-
-  await client.deslogarOperador(ramal);
-  await esperar(esperaMs);
-  const final = await logarERelere(client, ramal, esperaMs);
-  return mesmoGrupo(final, idGrupo) ? Alinhamento.RELOGADO : Alinhamento.FALHOU;
+  return Alinhamento.FALHOU;
 }
 
 /**
  * @param {object} p
- * @param {{ statusOperador, logarOperador, deslogarOperador }} p.client
+ * @param {{ statusOperador, logarOperador }} p.client
  * @param {string} p.ramal
  * @param {number} p.idGrupo - grupo em que a pessoa acabou de ser colocada
  * @param {boolean} [p.dryRun]
@@ -90,7 +88,7 @@ function logarResultado(log, ramal, idGrupo, antes, resultado) {
     return;
   }
   const motivo = resultado === Alinhamento.OUTRO_VINCULO ? 'relogou, mas em outro grupo (a lista mudou?)' : 'a telefonia não mudou de grupo';
-  log.aviso(`Ramal ${ramal} não ficou logado no grupo ${idGrupo}: ${motivo}. Peça para ele deslogar e logar.`);
+  log.aviso(`Ramal ${ramal} não ficou logado no grupo ${idGrupo}: ${motivo}. A telefonia troca quando ele ficar livre (o BenURA não desloga ninguém).`);
 }
 
 module.exports = { alinharLogin, Alinhamento };

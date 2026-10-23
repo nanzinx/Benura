@@ -85,3 +85,41 @@ test('rodízio: a regra do ocioso vale na URA cheia (quem passou do TEMPO_MIN sa
   svc.statusUra.set('201', { classe: Classe.LIVRE, ts: 0, livreDesde: 0 });
   assert.equal(svc.deveDevolver('201', 180_000), true);
 });
+
+test('[NOVO] URA cheia: 2 min de ociosidade; ramal menor ganha a escada (10 s por posição, até 60 s)', () => {
+  let cheia = true;
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, repositorio: {}, robos: {}, logger: loggerNulo,
+    cfg: { tempoNaUraMs: 180_000, tempoNaUraCheiaMs: 120_000, prioridadeRamalPassoMs: 10_000, prioridadeRamalMaxMs: 60_000 },
+    uraCheia: { ativa: () => cheia },
+  });
+  const ramais = ['2266111', '2266267', '2266423', '2266773'];
+  svc.ramaisUra = new Set(ramais);
+  for (const r of ramais) svc.statusUra.set(r, { classe: Classe.LIVRE, ts: 0, livreDesde: 0 });
+  assert.deepEqual(ramais.map((r) => svc.limiteOciosoMs(r)), [150_000, 140_000, 130_000, 120_000], '2:30, 2:20, 2:10, 2:00');
+  assert.deepEqual(ramais.filter((r) => svc.deveDevolver(r, 135_000)), ['2266423', '2266773'], 'com 2:15, só os dois de ramal maior saem');
+  cheia = false;
+  assert.deepEqual(ramais.filter((r) => svc.deveDevolver(r, 135_000)), [], 'fora da URA cheia vale o TEMPO_MIN (3 min)');
+  assert.equal(svc.limiteOciosoMs('2266111'), 210_000);
+  svc.permanentes = new Set(['2266111']);
+  assert.equal(svc.limiteOciosoMs('2266267'), 200_000, 'fixo não entra na escada');
+});
+
+test('[NOVO] prioridade por ramal: sobe do menor para o maior; o último livre a sair é o de saída mais tarde', async () => {
+  const { porAntiguidade, ultimoLivreQueSai } = require('../../src/domain/rodizio');
+  assert.deepEqual(porAntiguidade(['2266773', '2266111', '900', 'x', '2266267']), ['900', '2266111', '2266267', '2266773', 'x']);
+  const status = new Map([['10', { classe: Classe.LIVRE, livreDesde: 0 }], ['20', { classe: Classe.LIVRE, livreDesde: 0 }]]);
+  const saidaEm = (r) => (r === '10' ? 130_000 : 120_000);
+  assert.equal(ultimoLivreQueSai({ saindo: ['10', '20'], ramaisUra: ['10', '20'], status, saidaEm }), '10');
+  assert.equal(ultimoLivreQueSai({ saindo: ['10', '20'], ramaisUra: ['10', '20'], status, saidaEm: () => 1 }), '10', 'empate: o mais antigo fica');
+
+  const ordem = [];
+  const svc = new RodizioService({
+    client: {}, transferencias: {}, repositorio: { salvar: () => {} }, robos: {}, logger: loggerNulo, cfg: { tempoNaUraMs: 180_000, concorrencia: 1 },
+    uraCheia: { ativa: () => true },
+  });
+  svc.gruposAtivos = [{ idGrupoUsuario: 1, ramaisOperadores: ['305', '101', '210'] }];
+  svc.moverParaUra = async (ramal) => { ordem.push(ramal); return true; };
+  await svc.levarTodosParaUra();
+  assert.deepEqual(ordem, ['101', '210', '305']);
+});

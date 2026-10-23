@@ -55,10 +55,17 @@ test('alinharLogin: livre em outro grupo → loga de novo e confere (o caso do P
   assert.equal(a.estado.grupoLogado, 7);
 });
 
-test('alinharLogin: se só logar não muda a sessão, desloga e loga (como o operador faria)', async () => {
+test('alinharLogin: se só logar não muda a sessão, avisa e nunca desloga', async () => {
   const a = argus({ logarMuda: false });
-  assert.equal(await alinhar(a), Alinhamento.RELOGADO);
-  assert.deepEqual(a.chamadas, [['logar', '2266688'], ['deslogar', '2266688'], ['logar', '2266688']]);
+  const avisos = [];
+  assert.equal(await alinhar(a, { log: { ...loggerNulo, aviso: (m) => avisos.push(m) } }), Alinhamento.FALHOU);
+  assert.deepEqual(a.chamadas, [['logar', '2266688']]);
+  assert.match(avisos[0], /não desloga ninguém/);
+});
+
+test('config: por padrão o BenURA só move de grupo (não reloga ninguém)', () => {
+  const { carregarConfig } = require('../../src/config');
+  assert.equal(carregarConfig().argus.alinharLogin, false);
 });
 
 test('alinharLogin: vínculo diferente do esperado → não insiste nem desloga', async () => {

@@ -3,7 +3,7 @@
  * Relatório do dia da URA (painel): quanto tempo houve gente livre, quantas
  * derivações, quanto tempo com gente livre e nenhum robô ligado (a ociosidade
  * que o pânico causa), tempo em pânico e em cada estado do termômetro, leads
- * derivados e transbordos (webhooks 4 e 5 da Argus) e pausas por tipo. Tudo
+ * derivados e transbordos (webhooks 4 e 5 da Argus e [NOVO] o relatório de ligações) e pausas por tipo. Tudo
  * também por hora. [NOVO] E por atendente (aba Receptivo): tempo livre, em
  * atendimento, em outro status e em cada pausa, atendimentos, pausas estouradas,
  * maior espera livre e quando foi visto na URA. Conta só o tempo no grupo da URA
@@ -35,6 +35,10 @@ const diaNovo = (dia) => ({
   transbordosPorMotivo: {},
   filaSegSoma: 0,
   filaQtd: 0,
+  // [NOVO] ligações já contadas hoje (idLigacao): o webhook e o relatório não contam em dobro,
+  // nem um reinício que relê o dia desde 00:00. E a última, com a fonte.
+  contadas: [],
+  ultimoEncerramento: null,
   // [NOVO] tempo em pausa dos humanos da URA, por tipo (descricaoPausa da Argus)
   pausasMs: {},
   // [NOVO] por atendente (ramal → acumulados), veja atendente()
@@ -69,25 +73,33 @@ class EstatisticasDia {
     this.estado = diaNovo(dataLocal(fusoHorario));
     this.ultimaAmostraEm = null;
     this.gravadoEm = 0;
-    /** Ligações já contadas hoje (a Argus pode reenviar o mesmo webhook). */
+    /** Ligações já contadas hoje (a Argus pode reenviar o mesmo webhook). Espelho de estado.contadas. */
     this.contadas = new Set();
   }
 
   carregar(agora = Date.now()) {
     const salvo = this.repositorio?.carregar();
     if (salvo?.dia === dataLocal(this.fusoHorario, new Date(agora))) this.estado = { ...diaNovo(salvo.dia), ...salvo };
+    this.contadas = new Set(Array.isArray(this.estado.contadas) ? this.estado.contadas : []);
     return this;
   }
 
   /** Começa o dia novo se virou. @returns {object} as horas do dia, para acumular */
   doDia(agora) {
+    this.virarDia(agora);
+    return this.daHora(agora);
+  }
+
+  virarDia(agora) {
     const dia = dataLocal(this.fusoHorario, new Date(agora));
-    if (dia !== this.estado.dia) {
-      this.estado = diaNovo(dia);
-      this.ultimaAmostraEm = null;
-      this.contadas.clear();
-    }
-    const h = horaLocal(this.fusoHorario, new Date(agora)).slice(0, 2);
+    if (dia === this.estado.dia) return;
+    this.estado = diaNovo(dia);
+    this.ultimaAmostraEm = null;
+    this.contadas = new Set();
+  }
+
+  daHora(instante) {
+    const h = horaLocal(this.fusoHorario, new Date(instante)).slice(0, 2);
     this.estado.horas[h] ??= hora();
     return this.estado.horas[h];
   }
@@ -169,15 +181,26 @@ class EstatisticasDia {
   }
 
   /**
-   * [NOVO] Uma ligação da URA terminou (webhook 4 ou 5): lead derivado ou transbordo.
-   * @param {{ chave: string|null, derivou: boolean, motivo: string, filaSeg: number|null }} encerramento
-   * @returns {boolean} false se já tinha sido contada
+   * [NOVO] Uma ligação da URA terminou (webhook 4 ou 5, ou o relatório de ligações): lead
+   * derivado ou transbordo.
+   * @param {{ chave: string|null, derivou: boolean, motivo: string, filaSeg: number|null, quando?: number|null }} encerramento
+   *        quando: a hora da ligação (relatório), para a barra da hora certa; sem ela, agora
+   * @param {'webhook'|'relatório'} [fonte]
+   * @returns {boolean} false se já tinha sido contada (ou é de outro dia)
    */
-  registrarEncerramento(agora, { chave, derivou, motivo, filaSeg }) {
-    const h = this.doDia(agora);
+  registrarEncerramento(agora, { chave, derivou, motivo, filaSeg, quando = null }, fonte = 'webhook') {
+    this.virarDia(agora);
+    const instante = quando ?? agora;
+    if (dataLocal(this.fusoHorario, new Date(instante)) !== this.estado.dia) return false;
     if (chave && this.contadas.has(chave)) return false;
-    if (chave) this.contadas.add(chave);
+    const h = this.daHora(instante);
     const e = this.estado;
+    if (chave) {
+      this.contadas.add(chave);
+      e.contadas = [...this.contadas];
+    }
+    if (!e.ultimoEncerramento || instante >= Date.parse(e.ultimoEncerramento.em)) e.ultimoEncerramento = { em: new Date(instante).toISOString(), fonte };
+    this.gravadoEm = 0; // grava no próximo ciclo (um reinício não conta de novo)
     if (derivou) {
       e.leadsDerivados += 1;
       h.leadsDerivados += 1;
@@ -221,6 +244,7 @@ class EstatisticasDia {
       leadsDerivados: e.leadsDerivados,
       transbordos: e.transbordos,
       transbordosPorMotivo: { ...e.transbordosPorMotivo },
+      ultimoEncerramento: e.ultimoEncerramento ? { ...e.ultimoEncerramento } : null,
       filaMediaSeg: e.filaQtd ? Math.round(e.filaSegSoma / e.filaQtd) : null,
       pausasMin: mapa(e.pausasMs),
       porAtendente: this.porAtendente(),

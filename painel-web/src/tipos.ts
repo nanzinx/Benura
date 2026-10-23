@@ -177,6 +177,8 @@ export interface MetricasHoje {
   /** a API da Argus não traz a fila em tempo real: null até haver fonte */
   emFilaAgora: number | null;
   ultimoWebhookEncerramento: string | null;
+  /** [NOVO] a última ligação contada (webhook ou relatório de ligações da Argus) */
+  ultimoEncerramento?: { em: string; fonte: 'webhook' | 'relatório' } | null;
 }
 
 /** [NOVO] POST /api/operadores/retomar-rodizio */
