@@ -9,6 +9,7 @@ import { duracao, horaCurta } from '../formatos';
 import type { Servico, Visao } from '../tipos';
 import { Cartao, Esqueleto, Segmentado, Selo, Vazio } from '../ui/base';
 import { GerenciarUsuarios } from '../componentes/Usuarios';
+import { CartaoDoisPcs } from '../componentes/DoisPcs';
 import { semAcesso, usePode } from '../sessao';
 
 function CartaoServico({ s, linhas, opcional, parado }: { s: Servico<{ uptime?: number }>; linhas: [string, string][]; opcional?: boolean; parado?: boolean }) {
@@ -155,6 +156,7 @@ export function Servicos() {
           O BenURA roda no PC do expediente (PM2). Fora do ar: <code className="rounded bg-slate-200 px-1.5 py-0.5 text-xs dark:bg-noite-800">npx pm2 status</code> e <code className="rounded bg-slate-200 px-1.5 py-0.5 text-xs dark:bg-noite-800">npx pm2 logs</code>.
         </p>
       </div>
+      {v?.doisPcs && <CartaoDoisPcs v={v} />}
       {v ? <Cartoes v={v} /> : <Esqueleto className="mb-5 h-32 w-full" />}
       {admin && <GerenciarUsuarios />}
       {v && <Simulacao v={v} />}

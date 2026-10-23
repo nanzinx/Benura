@@ -7,6 +7,7 @@
  * isso mantém o restante do código testável e independente do ambiente.
  */
 
+const os = require('os');
 const path = require('path');
 const { METRICAS } = require('../integrations/carrossel/carrossel.mapper');
 const { lerJson } = require('../utils/arquivo-json');
@@ -350,9 +351,33 @@ function carregarConfig(overrides = {}) {
     proxySegredo: env('PAINEL_PROXY_SEGREDO', ''),
   };
 
+  // --- [NOVO] Dois PCs (servidor e reserva): só um age de verdade na Argus ---
+  // Quem age segura a trava (Pages Function functions/trava, base D1). Sem TRAVA_URL, tudo como antes.
+  cfg.trava = {
+    url: semBarraFinal(env('TRAVA_URL', '')),
+    segredo: env('TRAVA_SEGREDO', ''),
+    // Service token do Cloudflare Access, se o /trava ficar atrás do Access
+    accessId: env('TRAVA_ACCESS_CLIENT_ID', ''),
+    accessSegredo: env('TRAVA_ACCESS_CLIENT_SECRET', ''),
+    nomePc: env('BENURA_NOME_PC', os.hostname()).trim().slice(0, 60),
+    validadeMs: envNum('TRAVA_VALIDADE_MS', 120_000),
+    renovarMs: envNum('TRAVA_RENOVAR_MS', 30_000),
+    // O painel do outro PC, pela rede da empresa (copia os usuários e o estado do dia), e o segredo combinado
+    parceiroUrl: semBarraFinal(env('TRAVA_PARCEIRO_URL', '')),
+    segredoLocal: env('TRAVA_SEGREDO_LOCAL', ''),
+    copiarMs: envNum('TRAVA_COPIAR_MS', 60_000),
+  };
+
   // --- Botão "Desligar automação" do painel ---
   // Desligada: roteador, rodízio e rotinas param e, se subirem de novo, esperam sem tocar na Argus.
   cfg.automacao = {
+    // [NOVO] Com a trava ligada e fora do DRY_RUN, os serviços só agem com a posse recente que o
+    // painel grava a cada renovação; sem ela (painel caído, sem internet, trava com o outro PC), esperam.
+    posse: {
+      exigir: Boolean(cfg.trava.url) && !cfg.argus.dryRun,
+      arquivo: env('POSSE_FILE', path.join(DADOS, 'state-posse.json')),
+      maxMs: envNum('POSSE_MAX_MS', 90_000),
+    },
     arquivo: env('AUTOMACAO_FILE', path.join(DADOS, 'state-automacao.json')),
     // Ao desligar: quanto esperar os robôs em ligação terminarem antes de derrubar os que sobrarem.
     esperaRobosMs: envNum('AUTOMACAO_ESPERA_ROBOS_MS', 90_000),
@@ -433,6 +458,12 @@ function validarPainel(cfg) {
   const fatais = [];
   const avisos = [];
   const senha = cfg.painel.senha || '';
+  const t = cfg.trava;
+  if (t.url && !t.segredo) avisos.push('TRAVA_URL sem TRAVA_SEGREDO: a trava dos dois PCs vai recusar o pedido.');
+  if (t.url && !/^https:\/\//.test(t.url)) avisos.push('TRAVA_URL: use o endereço https do Pages, ex.: https://benura.benconsig.com.br/trava');
+  if (t.parceiroUrl && !t.segredoLocal) avisos.push('TRAVA_PARCEIRO_URL sem TRAVA_SEGREDO_LOCAL: os usuários e o estado do dia não são copiados do outro PC.');
+  if (t.segredoLocal && t.segredoLocal.length < 32) avisos.push('TRAVA_SEGREDO_LOCAL curto demais: use 32 caracteres ou mais.');
+  if (t.url && t.renovarMs * 2 >= t.validadeMs) avisos.push('TRAVA_RENOVAR_MS precisa ser menos da metade de TRAVA_VALIDADE_MS.');
   if (senha && senha.length < 8) avisos.push('PAINEL_SENHA curta demais (8 caracteres ou mais): não vale nem como acesso de emergência.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: os serviços aceitam os comandos do painel (e de qualquer um na rede) sem token.');
   const { origensPermitidas, proxySegredo } = cfg.painel;

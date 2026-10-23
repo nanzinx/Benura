@@ -10,6 +10,8 @@
  *   GET  /api/sessao        200 com { usuario: { nome, email, papel } }, 401 sem
  *   POST /api/minha-senha   [NOVO] { atual, nova }
  *   *    /api/usuarios      [NOVO] só administrador: listar, criar, mudar (papel, ativo), redefinir senha
+ *   POST /api/trava/assumir [NOVO] dois PCs: este PC pega a trava (vencida no outro) e age de verdade
+ *   GET  /api/interno/estado [NOVO] para o outro PC, pela rede (TRAVA_SEGREDO_LOCAL): usuários e estado do dia
  *   GET  /api/visao         saúde dos serviços + rodízio + alertas (a cada 5 s)
  *   GET  /api/dia           linha do tempo, callbacks e avisos do dia (logs)
  *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
@@ -174,12 +176,14 @@ function conferirOrigemDoPedido(req, origensPermitidas = []) {
  * @param {import('./servicos').Servicos} deps.servicos
  * @param {import('./dados-do-dia').DadosDoDia} deps.dados
  * @param {import('./automacao').ControleAutomacao} deps.automacao
+ * @param {import('./trava').Trava} [deps.trava] - [NOVO] dois PCs
+ * @param {import('./parceiro').Parceiro} [deps.parceiro]
  * @param {{ fuso: string, origensPermitidas?: string[], proxySegredo?: string }} deps.cfg
  *        origensPermitidas: endereço da página no Cloudflare Pages; proxySegredo: o da Function
  * @param {object} deps.logger
  * @returns {http.Server}
  */
-function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger }) {
+function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger, trava = null, parceiro = null }) {
   const estaticos = Object.fromEntries(fs.readdirSync(PUBLICO).filter((nome) => TIPOS[path.extname(nome)]).map((nome) => [
     nome === 'index.html' ? '/' : `/${nome}`, { tipo: TIPOS[path.extname(nome)], conteudo: fs.readFileSync(path.join(PUBLICO, nome)) },
   ]));
@@ -192,6 +196,13 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
   function exigir(sessao, minimo) {
     if (podeFazer(sessao.usuario.papel, minimo)) return;
     throw new ErroPainel(403, `Seu acesso (${NOMES_PAPEIS[sessao.usuario.papel]}) não permite isso: precisa ser ${NOMES_PAPEIS[minimo]}.`);
+  }
+
+  /** [NOVO] Pega a trava dos dois PCs antes de agir de verdade; com o outro PC agindo, 409. */
+  async function exigirTrava(quem) {
+    if (!automacao.prepararParaAgir) return;
+    const r = await automacao.prepararParaAgir(quem);
+    if (!r.ok) throw new ErroPainel(409, r.motivo);
   }
 
   async function lerObjeto(req, limiteBytes = 4096) {
@@ -267,7 +278,10 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     };
     return {
       status: 200,
-      corpo: { agora: agora.toISOString(), servicos: saude, argus, alertas: alertas.status === 200 ? alertas.corpo : null, automacao: automacao.estado() },
+      corpo: {
+        agora: agora.toISOString(), servicos: saude, argus, alertas: alertas.status === 200 ? alertas.corpo : null, automacao: automacao.estado(),
+        doisPcs: trava?.ativa ? { trava: trava.resumo(), parceiro: parceiro?.resumo() ?? { ativo: false } } : null,
+      },
     };
   }
 
@@ -294,6 +308,11 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     if (estatico) return { status: 200, bruto: estatico };
     if (req.method === 'GET' && pathname === '/health') return { status: 200, corpo: { status: 'ok', uptime: Math.round(process.uptime()), senhaConfigurada: sessoes.configurada } };
     if (req.method === 'POST' && pathname === '/api/entrar') return entrar(req);
+    // [NOVO] O outro PC (servidor ou reserva), pela rede da empresa: nunca pelo túnel.
+    if (req.method === 'GET' && pathname === '/api/interno/estado') {
+      if (!parceiro || viaTunel(req) || !parceiro.autorizado(req)) throw new ErroPainel(404, 'Página não encontrada');
+      return { status: 200, corpo: parceiro.servir({ agindo: Boolean(trava?.minha) }) };
+    }
     if (req.method === 'GET' && pathname === '/api/entrada') return { status: 200, corpo: { emergencia: sessoes.emergencia, configurada: sessoes.configurada } };
     if (!pathname.startsWith('/api/')) throw new ErroPainel(404, 'Página não encontrada');
 
@@ -326,7 +345,11 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
         throw new ErroPainel(400, 'JSON inválido');
       }
       if (typeof ligada !== 'boolean') throw new ErroPainel(400, 'Envie { "ligada": true | false }');
-      const r = automacao.definirSimulacao(ligada, quemPediu(req, sessao.usuario));
+      const quem = quemPediu(req, sessao.usuario);
+      // Sair da simulação com a automação ligada = voltar a agir de verdade: precisa da trava.
+      const estado = automacao.estado();
+      if (!ligada && estado.estado === 'ligada' && !estado.simulacao?.fixaPeloEnv) await exigirTrava(quem);
+      const r = automacao.definirSimulacao(ligada, quem);
       if (!r.iniciado) throw new ErroPainel(409, r.motivo);
       return { status: 202, corpo: automacao.estado() };
     }
@@ -335,9 +358,18 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
       conferirOrigem(req);
       const desligar = pathname.endsWith('/desligar');
       const quem = quemPediu(req, sessao.usuario);
+      if (!desligar) await exigirTrava(quem);
       const r = desligar ? automacao.desligar(quem) : automacao.religar(quem);
       if (!r.iniciado) throw new ErroPainel(409, r.motivo);
       return { status: 202, corpo: automacao.estado() };
+    }
+    if (req.method === 'POST' && pathname === '/api/trava/assumir') {
+      exigir(sessao, 'administrador');
+      conferirOrigem(req);
+      if (!trava?.ativa) throw new ErroPainel(404, 'Trava dos dois PCs não configurada');
+      if (!automacao.agindoDeVerdade()) throw new ErroPainel(409, 'Este PC está com a automação desligada ou em simulação: use "Religar automação" ou "Voltar a agir de verdade".');
+      await exigirTrava(quemPediu(req, sessao.usuario));
+      return { status: 200, corpo: { ok: true, trava: trava.resumo() } };
     }
     const acao = ACOES.find((a) => a.metodo === req.method && a.caminho === pathname);
     if (!acao) throw new ErroPainel(404, 'Comando não encontrado');

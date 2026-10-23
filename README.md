@@ -860,6 +860,61 @@ O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estã
 - **Backend:** no servidor, rode `git pull` e `npx pm2 restart all`.
 - **Sem servidor:** se ele cair, a página mostra "Servidor do BenURA fora do ar".
 
+### 4. Dois PCs: servidor e reserva (ex.: o PC do chefe)
+
+O BenURA pode rodar em dois PCs da empresa. **Só um age de verdade na Argus por vez**; o outro pode simular à vontade (lê a Argus e mostra o que faria) e assume se o primeiro cair.
+
+**A regra:**
+- **Quem age de verdade segura a trava** (automação ligada e fora do Modo simulação). A trava fica na Cloudflare, vale 2 min e é renovada a cada 30 s.
+- **Soltar a trava** (para o outro PC agir): **Desligar automação** ou ligar o **Modo simulação** neste PC.
+- **Pegar a trava:**
+  - **Religar automação** e **Voltar a agir de verdade** pegam a trava.
+  - Com o outro PC agindo, os dois botões são recusados: "O PC pc-chefe está agindo de verdade desde 10:42…".
+- **Um PC caiu:** a trava vence em 2 min, e um administrador do outro clica em **Assumir** (aba Serviços → "Os dois PCs"). Quem volta fica esperando.
+- **Garantia nos serviços:**
+  - Roteador, rodízio e rotinas só agem com a posse recente que o painel grava a cada renovação.
+  - Sem ela (painel caído, sem internet, trava com o outro), esperam sem mexer na Argus. Se já estavam rodando, encerram e o PM2 os sobe esperando.
+  - Sem internet, quem agia para sozinho em 1 min, e os robôs parados desligam.
+- **Dados iguais:**
+  - Os usuários são copiados do outro PC a cada minuto, pela rede: o mesmo e-mail e senha nos dois.
+  - Ao pegar a trava, o PC traz o estado do dia (modo dos robôs, status da URA, retenção no Ativo e travas manuais) de quem esteve com ela por último.
+
+**Na Cloudflare (uma vez, no plano grátis):**
+1. **Workers & Pages → D1 → Create database:** nome `benura-trava`. A tabela é criada sozinha no primeiro uso.
+2. **No projeto do Pages, Settings:**
+   - **Bindings → D1 database:** nome `TRAVA_DB`, base `benura-trava`.
+   - **Variables and Secrets:** `TRAVA_SEGREDO` como Secret, gerado com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+   - Publique de novo. A Function `functions/trava` já vai junto.
+3. **Com o Cloudflare Access na frente do site,** libere o caminho `/trava/*`:
+   - uma aplicação do Access só para `benura.benconsig.com.br/trava` com a política **Bypass** (o `TRAVA_SEGREDO` protege),
+   - ou um service token nos dois PCs (`TRAVA_ACCESS_CLIENT_ID` e `TRAVA_ACCESS_CLIENT_SECRET`).
+
+**Nos dois PCs (`.env`):**
+```env
+TRAVA_URL=https://benura.benconsig.com.br/trava
+TRAVA_SEGREDO=<o mesmo do Pages>
+TRAVA_SEGREDO_LOCAL=<um segredo só dos dois PCs, o mesmo nos dois>
+# no servidor:
+BENURA_NOME_PC=servidor
+TRAVA_PARCEIRO_URL=http://<IP do PC do chefe>:3010
+# no PC do chefe:
+BENURA_NOME_PC=pc-chefe
+TRAVA_PARCEIRO_URL=http://<IP do servidor>:3010
+```
+- **IPs fixos:** fixe os IPs dos dois PCs no roteador da empresa.
+- **Firewall:** a porta 3010 precisa estar aberta só na rede local. A rota de cópia (`/api/interno/estado`) exige o segredo e nunca responde pelo túnel.
+
+**Instalar no PC do chefe:**
+1. Instale o Node.js 22 e o Git, rode `git clone` do repositório e `npm ci`.
+2. Copie o `.env` do servidor **em mãos** (pendrive ou pasta da rede: ele tem o token da Argus), troque `BENURA_NOME_PC` e `TRAVA_PARCEIRO_URL`.
+3. Rode `powershell -ExecutionPolicy Bypass -File scripts\windows\instalar-servico.ps1 -Reserva`. Ele sobe em Modo simulação, sem agir. Com a trava ligada, os usuários chegam do servidor em 1 min.
+4. `npm run servico:verificar` mostra quem está com a trava.
+
+**Para o chefe testar de verdade:**
+1. No painel do servidor, clique em **Desligar automação** (ou ligue o **Modo simulação**).
+2. No painel do PC do chefe, clique em **Voltar a agir de verdade**.
+3. Quando terminar, ele liga a simulação de novo, e você religa o servidor.
+
 ---
 
 <a id="esteira"></a>

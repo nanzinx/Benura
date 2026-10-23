@@ -1,7 +1,7 @@
 /** Faixas do topo, em qualquer aba: automação desligada, cliente de risco, pânico, serviço fora do ar, Argus. */
 
 import { clsx } from 'clsx';
-import { CircleAlert, LoaderCircle, Pause, PhoneCall, Power, PowerOff, ShieldAlert, TriangleAlert } from 'lucide-react';
+import { CircleAlert, LoaderCircle, Monitor, Pause, PhoneCall, Power, PowerOff, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useAutomacao, useVisao } from '../dados';
 import type { EstadoAutomacao } from '../tipos';
@@ -10,6 +10,7 @@ import { useRetorno } from '../ui/retorno';
 import { semAcesso, usePode } from '../sessao';
 import { duracao, horaCurta, motivoLegivel } from '../formatos';
 import { avisarClientesNovos } from '../notificacoes';
+import { situacaoDosPcs } from './DoisPcs';
 
 /** Automação desligada (ou desligando/religando): a faixa mais importante, com o botão de religar. */
 function FaixaAutomacao({ a }: { a: EstadoAutomacao }) {
@@ -74,6 +75,14 @@ export function Faixas() {
       detalhe={`${automacao.etapa ?? ''}${automacao.aviso ? ` · ${automacao.aviso}` : ''}`} />);
   }
 
+  // [NOVO] dois PCs: este espera (o outro está agindo), o outro parou de responder, ou a trava não responde
+  if (v.doisPcs && !v.doisPcs.trava.minha) {
+    const s = situacaoDosPcs(v.doisPcs, v);
+    const ligadoAqui = automacao?.estado === 'ligada' && !r?.dryRun;
+    if (s.tom === 'perigo' || (s.tom === 'alerta' && ligadoAqui)) {
+      faixas.push(<Faixa key="dois-pcs" tom={s.tom === 'perigo' ? 'perigo' : 'alerta'} icone={<Monitor className="size-5" />} titulo={s.titulo} detalhe={`${s.detalhe.replace(/\.$/, '')}. Veja na aba Serviços.`} />);
+    }
+  }
   for (const a of alertas) {
     faixas.push(<Faixa key={`risco-${a.id}`} tom="perigo" icone={<PhoneCall className="size-5" />}
       titulo={`Cliente de risco em ligação com ${a.robo ?? 'robô'}: ${a.mascara}`} detalhe={`${a.motivos.join(', ')} nos últimos dias · desde ${horaCurta(a.inicio)}`} />);

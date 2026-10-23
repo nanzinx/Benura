@@ -14,6 +14,10 @@
  *
  * Modo simulação (DRY_RUN): grava a escolha (SIMULACAO_FILE) e reinicia os três
  * (o DRY_RUN só é lido quando o serviço sobe). Com a automação desligada, só grava.
+ *
+ * [NOVO] Dois PCs (trava.js): desligar ou ligar a simulação soltam a trava no fim;
+ * religar e sair da simulação pegam antes (prepararParaAgir), e recusam com o outro
+ * PC agindo de verdade.
  */
 
 const { lerAutomacao, gravarAutomacao, lerSimulacao } = require('../utils/automacao');
@@ -31,8 +35,8 @@ class ControleAutomacao {
    * @param {(comando: string, args: string[], opcoes?: object) => Promise<{ ok: boolean, saida: string }>} deps.executar
    * @param {object} deps.logger
    */
-  constructor({ cfg, servicos, executar, logger, agora = Date.now, esperar = esperarMs }) {
-    Object.assign(this, { cfg, servicos, executar, log: logger, agora, esperar });
+  constructor({ cfg, servicos, executar, logger, agora = Date.now, esperar = esperarMs, trava = null, parceiro = null }) {
+    Object.assign(this, { cfg, servicos, executar, log: logger, agora, esperar, trava, parceiro });
     /** Em andamento: { estado: 'desligando'|'religando'|'reiniciando', etapa, aviso } | null */
     this.andamento = null;
     this.ultimoAviso = null;
@@ -45,6 +49,31 @@ class ControleAutomacao {
     const simulacao = { escolhida: sim.ligada, fixaPeloEnv: Boolean(this.cfg.dryRunPeloEnv), desde: sim.desde, por: sim.por };
     if (this.andamento) return { ...this.andamento, desde: gravado.desde, por: gravado.por, simulacao };
     return { estado: gravado.desligada ? 'desligada' : 'ligada', etapa: null, desde: gravado.desde, por: gravado.por, aviso: this.ultimoAviso, simulacao };
+  }
+
+  /** [NOVO] Este PC deve agir de verdade agora? (automação ligada e fora da simulação) */
+  agindoDeVerdade() {
+    return !lerAutomacao(this.cfg.arquivo).desligada && !this.cfg.dryRunPeloEnv && !lerSimulacao(this.cfg.arquivoSimulacao).ligada;
+  }
+
+  /**
+   * [NOVO] Antes de religar ou sair da simulação: copia o estado do dia do outro PC (se ele
+   * esteve com a trava por último) e pega a trava. Com o outro PC agindo, recusa.
+   * @returns {Promise<{ ok: boolean, motivo?: string }>}
+   */
+  async prepararParaAgir(por) {
+    if (!this.trava?.ativa) return { ok: true };
+    if (this.andamento) return { ok: false, motivo: 'Espere terminar o que está em andamento.' };
+    const antes = await this.trava.podePegar({ venceu: true });
+    if (!antes.ok) return antes;
+    await this.parceiro?.copiarDia().catch((e) => this.log.aviso(`Dois PCs: não foi possível copiar o estado do dia (${e.message}).`));
+    return this.trava.pegar(por, { venceu: true });
+  }
+
+  /** [NOVO] Perdeu a trava: os robôs parados desligam já (os serviços param sozinhos sem a posse). */
+  async pararPelaTrava(motivo) {
+    const r = await this.servicos.chamar('rodizio', '/automacao/encerrar-robos', { metodo: 'POST', corpo: JSON.stringify({ derrubar: false }), timeoutMs: 30_000 });
+    if (r.status !== 200) this.log.aviso(`Painel: rodízio sem resposta ao perder a trava (${motivo}): confira os robôs no painel da Argus.`);
   }
 
   /**
@@ -70,6 +99,7 @@ class ControleAutomacao {
     const r = await this.executar('npx', ['pm2', 'startOrRestart', 'ecosystem.config.js', '--only', APPS.join(',')], { timeoutMs: 60_000 });
     if (!r.ok) this.avisar(`Não foi possível reiniciar os serviços pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npx pm2 restart all.`);
     this.log.aviso(`Painel: simulação ${ligada ? 'LIGADA: o BenURA só mostra o que faria' : 'DESLIGADA: o BenURA volta a agir de verdade'} (${por}).`);
+    if (ligada) await this.trava?.soltar();
     return this.concluir();
   }
 
@@ -100,6 +130,7 @@ class ControleAutomacao {
     const r = await this.executar('npx', ['pm2', 'stop', ...APPS], { timeoutMs: 60_000 });
     if (!r.ok) this.avisar(`Não foi possível parar os serviços pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npx pm2 stop all.`);
     this.log.aviso(`Painel: automação DESLIGADA (${por}).${this.andamento.aviso ? ` Atenção: ${this.andamento.aviso}` : ''}`);
+    await this.trava?.soltar();
     this.concluir();
   }
 

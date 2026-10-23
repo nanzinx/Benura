@@ -245,6 +245,35 @@ export interface Visao {
   argus: { tokenRecusado: boolean; cicloUraHaSeg: number | null; respondendo: boolean };
   alertas: Alertas | null;
   automacao?: EstadoAutomacao;
+  /** [NOVO] dois PCs (servidor e reserva); null sem a trava configurada */
+  doisPcs?: DoisPcs | null;
+}
+
+/** [NOVO] A trava dos dois PCs (só um age de verdade na Argus) e o outro PC, pela rede. */
+export interface DoisPcs {
+  trava: {
+    ativa: true;
+    pc: string;
+    minha: boolean;
+    dono: string | null;
+    por: string | null;
+    desde: string | null;
+    vale: boolean;
+    venceEmSeg: number;
+    renovadaHaSeg: number | null;
+    ultimaPosse: string | null;
+    erro: string | null;
+  };
+  parceiro: { ativo: false } | {
+    ativo: true;
+    url: string;
+    pc: string | null;
+    agindo: boolean | null;
+    respondeu: boolean;
+    lidoHaSeg: number | null;
+    usuariosCopiadosEm: string | null;
+    erro: string | null;
+  };
 }
 
 export interface PontoDoDia { hora: string; livres: number; humanos: number; robos: number | null }

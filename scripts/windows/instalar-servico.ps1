@@ -17,6 +17,10 @@
 .PARAMETER SemVigia
   Só restaura ao ligar o PC (sem a conferência a cada 5 min).
 
+.PARAMETER Reserva
+  [NOVO] PC de reserva (ex.: o do chefe): sobe em Modo simulação, sem agir na Argus.
+  Para agir de verdade, use o painel: ele pega a trava dos dois PCs (README).
+
 .EXAMPLE
   # No PowerShell como administrador, na pasta do BenURA:
   powershell -ExecutionPolicy Bypass -File scripts\windows\instalar-servico.ps1 -ComAtualizador
@@ -25,7 +29,8 @@
 param(
   [string]$Pasta = (Resolve-Path ([IO.Path]::Combine($PSScriptRoot, '..', '..'))).Path,
   [switch]$ComAtualizador,
-  [switch]$SemVigia
+  [switch]$SemVigia,
+  [switch]$Reserva
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +56,10 @@ Write-Host "Node: $node ($(& $node -v))"
 Passo 'Subindo os serviços no PM2'
 Push-Location $Pasta
 try {
+  if ($Reserva) {
+    & $node scripts\reserva.js simulacao
+    if ($LASTEXITCODE -ne 0) { Falhar 'Não foi possível ligar o Modo simulação da reserva (veja acima).' }
+  }
   & $node $pm2 startOrRestart ecosystem.config.js
   if ($LASTEXITCODE -ne 0) { Falhar 'O PM2 não conseguiu subir os serviços (veja acima).' }
   if ($ComAtualizador) {

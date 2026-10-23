@@ -13,6 +13,7 @@ const { criarServidor } = require('../http/server');
 const { executarPeriodicamente } = require('../utils/periodico');
 const { adquirirTravaOuEncerrar } = require('../utils/trava-processo');
 const { aguardarAutomacaoLigada } = require('../utils/automacao');
+const { vigiarPosse } = require('../utils/posse');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
 const { EstadoRodizioRepository } = require('./estado-rodizio.repository');
 const { Transferencias } = require('./transferencias');
@@ -222,6 +223,7 @@ async function iniciarRodizio() {
 
   exigirConfigValida(cfg, log);
   await aguardarAutomacaoLigada(cfg.automacao, log, 'rodízio');
+  const vigia = vigiarPosse(cfg.automacao.posse, log, 'rodízio');
   const trava = adquirirTravaOuEncerrar(cfgRodizio.arquivoTrava, log);
   rodizio.inicializar();
   retornoFila.inicializar();
@@ -237,6 +239,7 @@ async function iniciarRodizio() {
   registrarDesligamento({
     logger: log,
     etapas: [
+      () => vigia.parar(),
       () => Promise.all(Object.values(ciclos).map((c) => c.parar())),
       () => fecharServidor(servidor),
       () => rodizio.salvar(),
