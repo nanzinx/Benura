@@ -2,14 +2,16 @@
 
 import { clsx } from 'clsx';
 import { CircleAlert, LoaderCircle, Monitor, Pause, PhoneCall, Power, PowerOff, ShieldAlert, TriangleAlert } from 'lucide-react';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAutomacao, useVisao } from '../dados';
-import type { EstadoAutomacao } from '../tipos';
+import type { AlertaDeRisco, EstadoAutomacao } from '../tipos';
 import { Botao } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
 import { semAcesso, usePode } from '../sessao';
 import { duracao, horaCurta, motivoLegivel } from '../formatos';
-import { avisarClientesNovos } from '../notificacoes';
+import { alertasRecentes, avisarClientesNovos, proximoFimDeAviso, registrarAlertas } from '../notificacoes';
+
+const MAX_FAIXAS_RISCO = 3;
 import { situacaoDosPcs } from './DoisPcs';
 
 /** Automação desligada (ou desligando/religando): a faixa mais importante, com o botão de religar. */
@@ -55,11 +57,20 @@ export function Faixas() {
   const { data: v } = useVisao();
   const tituloOriginal = useRef(document.title);
   const alertas = v?.alertas?.alertas ?? [];
+  // [NOVO] Cada aviso de cliente de risco fica AVISO_MS (5 s) e some: a faixa, a notificação e o título.
+  const [, setTique] = useState(0);
+  const novos = useRef<AlertaDeRisco[]>([]);
+  novos.current.push(...registrarAlertas(alertas));
+  const recentes = alertasRecentes(alertas);
 
   useEffect(() => {
-    document.title = (alertas.length ? '⚠ Cliente de risco · ' : '') + tituloOriginal.current;
-    avisarClientesNovos(alertas);
-  }, [alertas]);
+    avisarClientesNovos(novos.current.splice(0));
+    document.title = (recentes.length ? '⚠ Cliente de risco · ' : '') + tituloOriginal.current;
+    const fim = proximoFimDeAviso(alertas);
+    if (fim == null) return undefined;
+    const t = setTimeout(() => setTique((n) => n + 1), fim + 50);
+    return () => clearTimeout(t);
+  });
 
   if (!v) return null;
   const r = v.servicos.rodizio.dados;
@@ -83,9 +94,15 @@ export function Faixas() {
       faixas.push(<Faixa key="dois-pcs" tom={s.tom === 'perigo' ? 'perigo' : 'alerta'} icone={<Monitor className="size-5" />} titulo={s.titulo} detalhe={`${s.detalhe.replace(/\.$/, '')}. Veja na aba Serviços.`} />);
     }
   }
-  for (const a of alertas) {
-    faixas.push(<Faixa key={`risco-${a.id}`} tom="perigo" icone={<PhoneCall className="size-5" />}
-      titulo={`Cliente de risco em ligação com ${a.robo ?? 'robô'}: ${a.mascara}`} detalhe={`${a.motivos.join(', ')} nos últimos dias · desde ${horaCurta(a.inicio)}`} />);
+  // Até 3 de uma vez; mais que isso vira uma faixa só.
+  if (recentes.length > MAX_FAIXAS_RISCO) {
+    faixas.push(<Faixa key="risco-varios" tom="perigo" icone={<PhoneCall className="size-5" />}
+      titulo={`${recentes.length} clientes de risco entraram em ligação agora`} detalhe={`${alertas.length} em ligação no total · veja o cartão Clientes de risco, na aba Robôs`} />);
+  } else {
+    for (const a of recentes) {
+      faixas.push(<Faixa key={`risco-${a.id}`} tom="perigo" icone={<PhoneCall className="size-5" />}
+        titulo={`Cliente de risco em ligação com ${a.robo ?? 'robô'}: ${a.mascara}`} detalhe={`${a.motivos.join(', ')} nos últimos dias · desde ${horaCurta(a.inicio)}`} />);
+    }
   }
   // [NOVO] robôs desligados pelo painel (aba URA e robôs)
   if (r?.robos?.modo === 'desligados') {
