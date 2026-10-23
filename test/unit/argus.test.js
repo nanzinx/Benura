@@ -20,9 +20,11 @@ function servidorArgus(handler) {
       res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(resposta));
     });
   });
+  // Folga no timeout: no CI do Windows o primeiro pedido pode passar de 2 s; aí ele expira, é
+  // re-tentado e o teste do 403 ("não re-tenta") contaria 2 chamadas sem haver 403 repetido.
   return new Promise((r) => srv.listen(0, () => r({
     srv,
-    client: new ArgusClient({ baseUrl: `http://127.0.0.1:${srv.address().port}`, token: 't', timeoutMs: 2000, tentativas: 2 }, loggerNulo),
+    client: new ArgusClient({ baseUrl: `http://127.0.0.1:${srv.address().port}`, token: 't', timeoutMs: 15_000, tentativas: 2 }, loggerNulo),
   })));
 }
 
