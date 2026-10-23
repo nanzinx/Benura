@@ -845,7 +845,21 @@ O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estã
    PAINEL_PROXY_SEGREDO=<o mesmo do Pages>
    ```
    Depois rode `npx pm2 restart benura-painel`.
-7. **Pronto:** `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois a senha do painel (BenURA).
+7. **Pronto:** `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois o seu e-mail e senha do BenURA.
+
+<a id="ips-permitidos"></a>
+**Só os IPs da empresa** (o resto vê "Acesso só pela rede da Benconsig", com o próprio IP):
+1. **No Pages** (Settings → Variables and Secrets → Production): crie `BENURA_IPS_PERMITIDOS` com os endereços separados por vírgula, IPv4 ou IPv6, com ou sem `/prefixo`. Ex.: `201.93.163.133, 2804:1b3:a5e7:c3c7::/48`. Depois use **Retry deployment**.
+   - **Onde vale:** quem barra é o `functions/_middleware.js`, antes da página e do `/api`, no domínio próprio e no `*.pages.dev`.
+   - **A trava:** o `/trava` fica de fora, porque já exige o `TRAVA_SEGREDO`. Assim os dois PCs não param se o IP da empresa mudar.
+   - **Sem a variável, todo mundo entra** (a resposta leva o aviso `X-Benura-Aviso`).
+2. **Recomendado, também no WAF** (barra antes de chegar ao Pages). Em **Security → WAF → Custom rules → Create rule**, com a ação **Block** e a expressão:
+   ```
+   (http.host eq "benura.benconsig.com.br" and not starts_with(http.request.uri.path, "/trava") and not ip.src in {201.93.163.133 201.93.159.169 2804:431:80f7:7700::/48 2804:1b3:a5e7:c3c7::/48 2804:1b3:a5e7:2c83::/48 2804:1b3:a5e7:8e38::/48})
+   ```
+
+> [!WARNING]
+> **Se o IP da empresa mudar** (o IPv4 da internet pode mudar), ninguém entra pela internet até atualizar a variável e a regra no painel da Cloudflare. Na rede da empresa, `http://<IP do servidor>:3010` continua funcionando. Para saber o IP novo, abra o BenURA: a página de bloqueio mostra o endereço.
 
 **Conferir o caminho todo:** `npm run servico:verificar` mostra o serviço "cloudflared" rodando. Depois:
 - `https://benura-api.benconsig.com.br/health`, aberto direto no navegador, é barrado pelo Access. Isso é o certo: só a página entra.
