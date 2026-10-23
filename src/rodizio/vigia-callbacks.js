@@ -14,12 +14,12 @@
  * depois é entregue normalmente (ex.: reinício logo após um callback).
  *
  * [NOVO] Leads derivados e transbordos do painel: cada ligação lida também conta nas
- * estatísticas do dia ("ATENDIMENTO" = lead derivado; abandono em fila e sem agente =
- * transbordo), sem depender dos webhooks 4 e 5. Ao subir (e na virada do dia), lê o dia
+ * estatísticas do dia ("ATENDIMENTO" = lead derivado; abandono em fila = transbordo, o
+ * "Gerou Callback" da Argus), sem depender dos webhooks 4 e 5. Ao subir (e na virada do dia), lê o dia
  * desde 00:00 só para isso. A chave é o idLigacao, a mesma do webhook: não conta em dobro.
  */
 
-const { semDadosDeCliente, tipoDaLigacao, textoDaHora, duracaoDaLigacao } = require('../domain/diagnostico-callbacks');
+const { semDadosDeCliente, tipoDaLigacao, textoDaHora, duracaoDaLigacao, contarResultados } = require('../domain/diagnostico-callbacks');
 const { instanteLocal } = require('../domain/raio-x-callback');
 const { dataLocal, horaLocal } = require('../utils/datas');
 const { escolherCampanha } = require('../integrations/argus/campanha');
@@ -28,11 +28,10 @@ const { escolherCampanha } = require('../integrations/argus/campanha');
 const LEMBRAR_MS = 30 * 60_000;
 /** Só lê se houve robô ligado neste intervalo. */
 const ROBO_RECENTE_MS = 10 * 60_000;
-/** [NOVO] Resultado do relatório → lead derivado ou transbordo (o resto não conta). */
+/** [NOVO] Resultado do relatório → lead derivado ou transbordo (o "Gerou Callback"; sem agente e o resto não contam). */
 const ENCERRAMENTOS = Object.freeze({
   derivou: { derivou: true, motivo: 'derivou' },
   callback: { derivou: false, motivo: 'abandonou a fila' },
-  semAgente: { derivou: false, motivo: 'sem agente' },
 });
 /** [NOVO] A leitura do dia inteiro pode ser longa. */
 const PAGINAS_DO_DIA = 200;
@@ -114,13 +113,20 @@ class VigiaCallbacks {
     const [h, m] = horaLocal(this.cfg.fuso, new Date(agora)).split(':').map(Number);
     let lidas = 0;
     let novas = 0;
+    const resultados = {}; // [NOVO] resultado → quantidade, para o log (comparar com o painel da Argus)
     try {
       // Página por página, sem juntar o dia inteiro na memória.
       this.idCampanha ??= await escolherCampanha(this.client, this.cfg.idCampanha);
       for (const idGrupoUsuario of this.cfg.gruposRobosIds) {
         await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos: h * 60 + m + 1 }, {
           maxPaginas: PAGINAS_DO_DIA,
-          aoReceber: (pagina) => { lidas += pagina.length; novas += this.contarEncerramentos(pagina); },
+          aoReceber: (pagina) => {
+            lidas += pagina.length;
+            novas += this.contarEncerramentos(pagina);
+            for (const valores of Object.values(contarResultados(pagina.map(semDadosDeCliente)))) {
+              for (const [v, n] of Object.entries(valores)) resultados[v] = (resultados[v] ?? 0) + n;
+            }
+          },
         });
       }
     } catch (e) {
@@ -130,7 +136,9 @@ class VigiaCallbacks {
     }
     this.diaLido = hoje;
     this.diaFalhouEm = null;
-    this.log.info(`Vigia de callbacks: dia lido desde 00:00 (${lidas} ligação(ões) dos robôs; ${novas} nova(s) nos leads derivados e transbordos).`);
+    const porResultado = Object.entries(resultados).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([v, n]) => `${v}: ${n}`).join(' | ');
+    this.log.info(`Vigia de callbacks: dia lido desde 00:00 (${lidas} ligação(ões) dos robôs; ${novas} nova(s) nos leads derivados e transbordos).`
+      + (porResultado ? ` Resultados: ${porResultado}.` : ''));
   }
 
   /** [NOVO] Cada ligação lida conta uma vez nos leads derivados e transbordos. @returns {number} quantas eram novas */

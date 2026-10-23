@@ -11,7 +11,9 @@
  * ligações detalhadas da Argus e mostra: os campos do relatório, a contagem por
  * status/resultado, a linha do tempo de 15 em 15 min (derivou × callback) e
  * cada callback com hora e robô. Mostra também quem está na URA agora e em que
- * grupo cada um está LOGADO na telefonia (só lê o status). Grava o mesmo em
+ * grupo cada um está LOGADO na telefonia (só lê o status). [NOVO] Lê também as ligações
+ * do grupo da URA (GRUPO_URA_ID, o receptivo) e conta os valores de cada campo, para achar
+ * as que vieram de um robô (o "Derivou" da Argus). Grava o mesmo em
  * logs/diagnostico-callbacks-AAAA-MM-DD.json. Sem dados de cliente.
  */
 
@@ -21,7 +23,7 @@ const { carregarConfig } = require('../src/config');
 const { criarLogger } = require('../src/utils/logger');
 const { ativarLogsEmArquivo } = require('../src/utils/logs-em-arquivo');
 const { ArgusClient } = require('../src/integrations/argus/argus.client');
-const { resumirLigacoes, minutosDesdeMeiaNoite, conferirUra } = require('../src/domain/diagnostico-callbacks');
+const { resumirLigacoes, contarCategorias, minutosDesdeMeiaNoite, conferirUra } = require('../src/domain/diagnostico-callbacks');
 const { mapearComLimite } = require('../src/utils/concorrencia');
 const { escolherCampanha } = require('../src/integrations/argus/campanha');
 const { dataLocal, horaLocal } = require('../src/utils/datas');
@@ -42,7 +44,7 @@ function lerArgumentos(argv) {
  * @param {number} deps.minutos
  * @param {number|string} [deps.campanha]
  * @param {number} [deps.grupoUraId] - para conferir em que grupo quem está na URA está logado
- * @returns {Promise<{ idCampanha: number, minutos: number, porGrupo: object, ura: object[] }>}
+ * @returns {Promise<{ idCampanha: number, minutos: number, porGrupo: object, receptivo: object|null, ura: object[] }>}
  */
 async function diagnosticar({ client, gruposRobos, minutos, campanha, grupoUraId }) {
   const idCampanha = await escolherCampanha(client, campanha);
@@ -51,8 +53,13 @@ async function diagnosticar({ client, gruposRobos, minutos, campanha, grupoUraId
     const ligacoes = await client.ligacoesDetalhadas({ idCampanha, idGrupoUsuario, ultimosMinutos: minutos });
     porGrupo[idGrupoUsuario] = resumirLigacoes(ligacoes);
   }
+  let receptivo = null;
+  if (grupoUraId) {
+    const ligacoes = await client.ligacoesDetalhadas({ idCampanha, idGrupoUsuario: grupoUraId, ultimosMinutos: minutos }, { maxPaginas: 200 });
+    receptivo = { grupo: grupoUraId, ...resumirLigacoes(ligacoes), callbacks: undefined, categorias: contarCategorias(ligacoes) };
+  }
   const ura = grupoUraId ? await quemEstaNaUra(client, grupoUraId) : [];
-  return { idCampanha, minutos, porGrupo, ura };
+  return { idCampanha, minutos, porGrupo, receptivo, ura };
 }
 
 /** Só leitura: os ramais do grupo da URA e o statusoperador de cada um. */
@@ -63,7 +70,7 @@ async function quemEstaNaUra(client, grupoUraId) {
   return conferirUra(ramais, new Map(lidos), grupoUraId);
 }
 
-function imprimir({ idCampanha, minutos, porGrupo, ura }) {
+function imprimir({ idCampanha, minutos, porGrupo, receptivo, ura }) {
   console.log(`\nCampanha ${idCampanha} · últimos ${minutos} min\n`);
   for (const [grupo, r] of Object.entries(porGrupo)) {
     console.log(`Grupo de robôs ${grupo}: ${r.total} ligação(ões)`);
@@ -77,7 +84,20 @@ function imprimir({ idCampanha, minutos, porGrupo, ura }) {
     for (const c of r.callbacks) console.log(`    ${Object.values(c).join(' | ')}`);
     console.log('');
   }
+  imprimirReceptivo(receptivo);
   imprimirUra(ura);
+}
+
+/** [NOVO] As ligações do grupo da URA (o receptivo): o "Derivou" da Argus deve estar aqui. */
+function imprimirReceptivo(r) {
+  if (!r) return;
+  console.log(`Grupo da URA (receptivo) ${r.grupo}: ${r.total} ligação(ões)`);
+  console.log(`  Campos: ${r.campos.join(', ') || '(nenhum)'}`);
+  for (const [campo, valores] of Object.entries(r.categorias)) {
+    const contagem = Object.entries(valores).sort((a, b) => b[1] - a[1]).map(([v, n]) => `${v}: ${n}`).join(' | ');
+    console.log(`  ${campo} → ${contagem}`);
+  }
+  console.log('');
 }
 
 /** Só ASCII: o console do Windows (PowerShell) mostra ✓/⚠ como quadradinho. */

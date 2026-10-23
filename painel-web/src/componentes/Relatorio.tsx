@@ -15,7 +15,7 @@ const CORES_TERMOMETRO: Record<EstadoTermometro, string> = {
 
 /** Siglas do relatório (o significado aparece ao passar o mouse). */
 const DICAS = {
-  transbordos: 'Transbordos: ligações da URA que NÃO foram para um humano (abandono, sem operador disponível ou time-out na fila), de 00:00 até agora.',
+  transbordos: 'Transbordos: os callbacks (o "Gerou Callback" da Argus): o cliente pediu um humano, esperou na fila e desistiu ou estourou o tempo, de 00:00 até agora.',
   tor: 'TOR — Tempo Ocioso sem Robô: tempo com alguém livre na URA e todos os robôs desligados (o que o pânico custa).',
   tme: 'TME — Tempo Médio de Espera: quanto, em média, o operador livre espera por uma ligação.',
   tpa: 'TPA — Tempo de Pânico Ativo: tempo em que o BenURA estava desligando ou reduzindo os robôs (0 livre, último livre saindo ou 1 fixo livre).',
@@ -154,7 +154,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
         </div>
       ) : <Vazio>Nada medido ainda hoje.</Vazio>}
       <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-        <b>TOR</b>: Tempo Ocioso sem Robô · <b>TME</b>: Tempo Médio de Espera · <b>TPA</b>: Tempo de Pânico Ativo · <b>Transbordos</b>: ligações da URA que não chegaram a um humano.
+        <b>TOR</b>: Tempo Ocioso sem Robô · <b>TME</b>: Tempo Médio de Espera · <b>TPA</b>: Tempo de Pânico Ativo · <b>Transbordos</b>: os callbacks ("Gerou Callback" da Argus).
       </p>
     </Cartao>
   );

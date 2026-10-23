@@ -296,9 +296,9 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
        - **TPA** (Tempo de Pânico Ativo);
        - o **status da URA**: o quadrado mostra o de agora e, aberto, o tempo em cada um hoje;
        - **pausas por tipo**.
-     - **Leads derivados e transbordos** (`GET /metricas/hoje`): "derivou" é lead derivado; abandonou a fila, sem agente e time-out são transbordo. Vêm de duas fontes, e cada ligação conta uma vez só (pelo `idLigacao`):
+     - **Leads derivados e transbordos** (`GET /metricas/hoje`): "derivou" é lead derivado; transbordo é o **"Gerou Callback" da Argus** (abandonou a fila ou time-out na fila). O "sem agente" vem do discador e não conta. Vêm de duas fontes, e cada ligação conta uma vez só (pelo `idLigacao`):
        - os webhooks da Argus **tipo 4** (robô com o cliente pedindo humano) e **tipo 5** (encerramento da URA receptiva), na hora;
-       - **[NOVO] o relatório de ligações** que o vigia de callbacks já lê a cada minuto (`ATENDIMENTO` = lead; `ABANDONO EM FILA` e `SEM AGENTE` = transbordo). Funciona sem webhook configurado, com até 1 min de atraso. Ao subir (e na virada do dia), o BenURA lê o dia desde 00:00.
+       - **[NOVO] o relatório de ligações** que o vigia de callbacks já lê a cada minuto (`ATENDIMENTO` = lead; `ABANDONO EM FILA` = transbordo). Funciona sem webhook configurado, com até 1 min de atraso. Ao subir (e na virada do dia), o BenURA lê o dia desde 00:00.
        - Gravado em `RODIZIO_ESTATISTICAS_FILE`, com as ligações já contadas (um reinício não conta em dobro); zera na virada do dia. O cartão diz de onde veio a última ("pelo relatório da Argus" ou "pelo webhook").
      - **Cliente de risco** (interruptor dele ligado) continua desligando os robôs parados em qualquer linha da tabela.
      - **Risco aceito:** numa URA agressiva com 1 livre comum, os robôs seguem discando até 60 s antes da saída dele, e pode haver callback.
@@ -365,6 +365,7 @@ Para descobrir **quando** e **por que** os robôs geram callback:
    - os campos do relatório e a contagem por status/resultado;
    - a linha do tempo de 15 em 15 min: derivou (`ATENDIMENTO`), callback (`OPER. VIRTUAL - ABANDONO EM FILA`, que é o "Gerou Callback" do painel) e sem agente (do discador);
    - cada callback com hora e robô;
+   - **[NOVO] o grupo da URA (`GRUPO_URA_ID`, o receptivo):** os campos e a contagem de cada valor (só campos com até 30 valores diferentes, como origem, serviço e tabulação). Serve para achar as ligações que vieram de um robô para um humano (o "Derivou" da Argus);
    - **"Quem está na URA agora":** em que grupo cada pessoa da URA está **logada na telefonia** (status do operador, só leitura). `ATENCAO: LOGADO EM OUTRO GRUPO` quer dizer que a pessoa aparece na URA, mas a derivação dos robôs não chega nela.
    Também grava o resultado em `logs/diagnostico-callbacks-AAAA-MM-DD.json` e o que imprimiu em `logs/AAAA-MM-DD/diagnostico-callbacks.txt`. CPF, telefone, nome do cliente e lead são descartados antes de imprimir ou gravar.
 

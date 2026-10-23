@@ -18,6 +18,8 @@ const { limitesMin: LIMITES_PAUSA } = require('../config/pausas');
 const MAX_INTERVALO_MS = 30_000;
 const TIPOS_PANICO = ['zero', 'saindo', 'fixo'];
 const ESTADOS_TERMOMETRO = ['medindo', 'calma', 'normal', 'agressiva'];
+/** [NOVO] Transbordo é o "Gerou Callback" da Argus: o "sem agente" vem do discador (0 s) e não conta. */
+const FORA_DOS_TRANSBORDOS = ['sem agente'];
 
 const zerados = (chaves) => Object.fromEntries(chaves.map((k) => [k, 0]));
 const hora = () => ({ livresMs: 0, derivacoes: 0, ociosoSemRobosMs: 0, panicoMs: 0, calmaMs: 0, agressivaMs: 0, leadsDerivados: 0, transbordos: 0 });
@@ -81,6 +83,12 @@ class EstatisticasDia {
     const salvo = this.repositorio?.carregar();
     if (salvo?.dia === dataLocal(this.fusoHorario, new Date(agora))) this.estado = { ...diaNovo(salvo.dia), ...salvo };
     this.contadas = new Set(Array.isArray(this.estado.contadas) ? this.estado.contadas : []);
+    // O que já tinha sido contado hoje como "sem agente" sai do total (as barras por hora ficam como estavam).
+    const e = this.estado;
+    for (const motivo of FORA_DOS_TRANSBORDOS) {
+      e.transbordos = Math.max(0, e.transbordos - (e.transbordosPorMotivo?.[motivo] ?? 0));
+      delete e.transbordosPorMotivo?.[motivo];
+    }
     return this;
   }
 
@@ -182,7 +190,7 @@ class EstatisticasDia {
 
   /**
    * [NOVO] Uma ligação da URA terminou (webhook 4 ou 5, ou o relatório de ligações): lead
-   * derivado ou transbordo.
+   * derivado ou transbordo (o "Gerou Callback" da Argus: abandonou a fila ou time-out na fila).
    * @param {{ chave: string|null, derivou: boolean, motivo: string, filaSeg: number|null, quando?: number|null }} encerramento
    *        quando: a hora da ligação (relatório), para a barra da hora certa; sem ela, agora
    * @param {'webhook'|'relatório'} [fonte]
@@ -192,6 +200,7 @@ class EstatisticasDia {
     this.virarDia(agora);
     const instante = quando ?? agora;
     if (dataLocal(this.fusoHorario, new Date(instante)) !== this.estado.dia) return false;
+    if (!derivou && FORA_DOS_TRANSBORDOS.includes(motivo)) return false;
     if (chave && this.contadas.has(chave)) return false;
     const h = this.daHora(instante);
     const e = this.estado;
