@@ -269,7 +269,7 @@ export function Ura() {
         {risco?.ativo && (
           <Interruptor comando="risco/desligar" titulo="Clientes de risco"
             estado={risco.desligaRobos?.ligado ? { texto: 'desliga os robôs', tom: 'perigo' } : { texto: 'só avisa', tom: 'ok' }}
-            resumo={`${risco.perfis?.risco ?? 0} cliente(s) de risco entre ${risco.perfis?.clientes ?? 0} com perfil.`}
+            resumo={`${risco.perfis?.risco ?? 0} cliente(s) de risco entre ${risco.perfis?.clientes ?? 0} com perfil${risco.alertas?.length ? ` · ${risco.alertas.length} em ligação agora` : ''}.`}
             ligar={{ texto: 'Desligar robôs com cliente de risco', perigo: true }} desligar={{ texto: 'Só avisar' }}
             rodape={<BotaoAvisos />}>
             <p>Cliente que gerou callback ou atende muito o robô nos últimos dias. Quando um robô fala com ele, o aviso aparece no topo, com som e notificação.</p>
