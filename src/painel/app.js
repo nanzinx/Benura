@@ -20,6 +20,8 @@ const { Servicos } = require('./servicos');
 const { DadosDoDia } = require('./dados-do-dia');
 const { criarServidorDoPainel } = require('./servidor');
 const { ControleAutomacao } = require('./automacao');
+const { Trava } = require('./trava');
+const { Parceiro } = require('./parceiro');
 const { criarExecutor } = require('../atualizador/executor');
 
 /** Monta as dependências (nada é iniciado aqui). */
@@ -30,29 +32,53 @@ function montarPainel(overrides) {
   const servicos = new Servicos({ cfg: p, token: cfg.http.tokenAdmin });
   const usuarios = new Usuarios({ arquivo: p.arquivoUsuarios, logger: log }).carregar();
   const sessoes = new Sessoes({ senha: p.senha, segredo: obterSegredo(p), horas: p.sessaoHoras, usuarios });
+  // [NOVO] Dois PCs (servidor e reserva): a trava na Cloudflare e o outro PC pela rede.
+  const parceiro = new Parceiro({
+    cfg: cfg.trava,
+    arquivos: {
+      usuarios: p.arquivoUsuarios,
+      posse: cfg.automacao.posse.arquivo,
+      dia: {
+        modoRobos: cfg.rodizio.arquivoModoRobos,
+        statusUra: cfg.rodizio.arquivoStatusUra,
+        retencao: cfg.automacao.arquivoRetencao,
+        travas: cfg.automacao.arquivoTravas,
+      },
+    },
+    logger: log,
+  });
+  let automacao = null;
+  const trava = new Trava({ cfg: cfg.trava, arquivoPosse: cfg.automacao.posse.arquivo, aoPerder: (motivo) => automacao?.pararPelaTrava(motivo), logger: log });
+  automacao = new ControleAutomacao({
+    cfg: { ...cfg.automacao, dryRunPeloEnv: cfg.argus.dryRunPeloEnv }, servicos, executar: criarExecutor({ cwd: cfg.atualizador.diretorio, logger: log }), logger: log,
+    trava, parceiro,
+  });
   const servidor = criarServidorDoPainel({
     sessoes,
     servicos,
-    automacao: new ControleAutomacao({
-      cfg: { ...cfg.automacao, dryRunPeloEnv: cfg.argus.dryRunPeloEnv }, servicos, executar: criarExecutor({ cwd: cfg.atualizador.diretorio, logger: log }), logger: log,
-    }),
+    automacao,
+    trava,
+    parceiro,
     dados: new DadosDoDia({ pasta: cfg.logs.pasta, fuso: cfg.agenda.fusoHorario }),
     cfg: { fuso: cfg.agenda.fusoHorario, origensPermitidas: p.origensPermitidas, proxySegredo: p.proxySegredo },
     logger: log,
   });
-  return { cfg, log, servidor, sessoes };
+  return { cfg, log, servidor, sessoes, trava, parceiro, automacao };
 }
 
 async function iniciarPainel() {
-  const { cfg, log, servidor, sessoes } = montarPainel();
-  ativarLogsEmArquivo(cfg, 'painel', { segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha, cfg.painel.proxySegredo] });
+  const { cfg, log, servidor, sessoes, trava, parceiro, automacao } = montarPainel();
+  ativarLogsEmArquivo(cfg, 'painel', { segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha, cfg.painel.proxySegredo, cfg.trava.segredo, cfg.trava.segredoLocal, cfg.trava.accessSegredo] });
   // Sem usuários nem senha o painel sobe assim mesmo (avisa na tela): o atualizador pode reiniciá-lo sem risco.
   validarConfig(cfg, { escopo: 'painel' }).avisos.forEach((a) => log.aviso(a));
   if (!sessoes.configurada) log.aviso('Nenhum usuário do painel ainda: rode "npm run usuarios -- criar" neste PC (ou coloque PAINEL_SENHA no .env para entrar uma vez e criar pelo painel).');
   else if (sessoes.emergencia) log.aviso('Painel sem usuários: vale a PAINEL_SENHA (acesso de emergência). Entre e crie os usuários em Serviços → Usuários.');
 
   await escutar(servidor, cfg.painel.porta);
-  registrarDesligamento({ logger: log, etapas: [() => fecharServidor(servidor)] });
+  const lacoTrava = trava.iniciar(() => ({ deveAgir: automacao.agindoDeVerdade(), ocupado: Boolean(automacao.andamento) }));
+  const lacoParceiro = parceiro.iniciar();
+  if (trava.ativa) log.info(`Dois PCs: este é o PC "${trava.nome}"; trava em ${cfg.trava.url}${parceiro.ativo ? `, outro PC em ${cfg.trava.parceiroUrl}` : ' (sem o outro PC configurado: os usuários não são copiados)'}.`);
+  registrarDesligamento({ logger: log, etapas: [() => lacoTrava.parar(), () => lacoParceiro.parar(), () => fecharServidor(servidor)] });
   log.info(`Painel da supervisão no ar: http://localhost:${cfg.painel.porta} (na rede: http://<IP deste PC>:${cfg.painel.porta}).`);
 }
 

@@ -58,6 +58,8 @@ export const api = {
   recarregarVendas: () => pedir<{ mensagem: string }>('POST', '/api/roteador/recarregar'),
   automacao: (ligar: boolean) => pedir<EstadoAutomacao>('POST', ligar ? '/api/automacao/religar' : '/api/automacao/desligar'),
   simulacao: (ligada: boolean) => pedir<EstadoAutomacao>('POST', '/api/simulacao', { ligada }),
+  // [NOVO] dois PCs: este PC pega a trava vencida do outro (ele caiu)
+  assumir: () => pedir<{ ok: true }>('POST', '/api/trava/assumir'),
   // [NOVO]
   metricasHoje: () => pedir<MetricasHoje>('GET', '/api/metricas/hoje'),
   statusUra: (pedido: { status?: StatusDaUra; modo: 'manual' | 'automatico' }) => pedir<StatusUra & { mudou: boolean }>('PUT', '/api/ura/status', pedido),

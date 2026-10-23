@@ -52,6 +52,11 @@ foreach ($nome in $portas.Keys) {
   }
 }
 
+Titulo 'Dois PCs (servidor e reserva)'
+Push-Location $Pasta
+& node scripts\reserva.js estado
+Pop-Location
+
 Titulo 'Túnel'
 $cloudflared = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
 if ($cloudflared) {

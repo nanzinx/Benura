@@ -14,6 +14,7 @@
 const { lerJson } = require('./arquivo-json');
 const { ArquivoDeEstado } = require('./persistencia-json');
 const { dataLocal } = require('./datas');
+const { posseValida } = require('./posse');
 
 /** @returns {{ desligada: boolean, desde: string|null, por: string|null }} */
 function lerAutomacao(arquivo) {
@@ -39,19 +40,26 @@ const esperarMs = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
 /**
  * Se a automação estiver desligada, espera (conferindo a cada `intervaloMs`)
- * até ser religada. Avisa uma vez no log.
- * @param {{ arquivo: string, intervaloMs?: number }} cfg - cfg.automacao
+ * até ser religada. [NOVO] Com a trava dos dois PCs, espera também a posse
+ * (utils/posse.js). Avisa uma vez no log.
+ * @param {{ arquivo: string, intervaloMs?: number, posse?: object }} cfg - cfg.automacao
  */
 async function aguardarAutomacaoLigada(cfg, log, servico, { esperar = esperarMs } = {}) {
   let estado = lerAutomacao(cfg.arquivo);
-  if (!estado.desligada) return;
-  log.aviso(`Automação desligada pelo painel${estado.desde ? ` em ${estado.desde}` : ''}${estado.por ? ` (${estado.por})` : ''}: `
-    + `o ${servico} espera, sem mexer na Argus. Para religar, use "Religar automação" no painel.`);
-  while (estado.desligada) {
-    await esperar(cfg.intervaloMs ?? 5000);
-    estado = lerAutomacao(cfg.arquivo);
+  if (estado.desligada) {
+    log.aviso(`Automação desligada pelo painel${estado.desde ? ` em ${estado.desde}` : ''}${estado.por ? ` (${estado.por})` : ''}: `
+      + `o ${servico} espera, sem mexer na Argus. Para religar, use "Religar automação" no painel.`);
+    while (estado.desligada) {
+      await esperar(cfg.intervaloMs ?? 5000);
+      estado = lerAutomacao(cfg.arquivo);
+    }
+    log.aviso(`Automação religada pelo painel: o ${servico} está iniciando.`);
   }
-  log.aviso(`Automação religada pelo painel: o ${servico} está iniciando.`);
+  if (posseValida(cfg.posse)) return;
+  log.aviso(`Trava dos dois PCs: este PC não está com ela (o outro PC pode estar agindo, ou o painel ainda não pegou): `
+    + `o ${servico} espera, sem mexer na Argus.`);
+  while (!posseValida(cfg.posse)) await esperar(cfg.intervaloMs ?? 5000);
+  log.aviso(`Trava dos dois PCs: posse confirmada, o ${servico} está iniciando.`);
 }
 
 /**
