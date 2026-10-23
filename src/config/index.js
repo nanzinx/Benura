@@ -104,9 +104,9 @@ function carregarConfig(overrides = {}) {
       dryRun: envBool('DRY_RUN') || lerJson(arquivoSimulacao).dados?.ligada === true,
       dryRunPeloEnv: envBool('DRY_RUN'),
       // Mover de grupo quem já está logado muda a lista na hora, mas a telefonia só troca
-      // quando a pessoa fica livre, com atraso. Quem fica preso no grupo antigo (na URA,
-      // a derivação dos robôs não chega e vira callback) é relogado (logaroperador).
-      alinharLogin: envBool('ALINHAR_LOGIN_APOS_TRANSFERIR', true),
+      // quando a pessoa fica livre, com atraso. [NOVO] Padrão: o BenURA só move (não loga nem
+      // desloga ninguém). true: quem fica preso no grupo antigo é logado de novo (logaroperador).
+      alinharLogin: envBool('ALINHAR_LOGIN_APOS_TRANSFERIR', false),
       esperaLoginMs: envNum('ALINHAR_LOGIN_ESPERA_MS', 1500),
       // A discadora troca o grupo sozinha quando a pessoa fica livre (com atraso):
       // só reloga quem continua no grupo antigo depois deste tempo.
@@ -186,6 +186,12 @@ function carregarConfig(overrides = {}) {
       idCampanhaRobos: envNum('CAMPANHA_ROBOS_ID', 0),
       // Minutos ocioso (Livre) seguidos na URA antes de voltar ao Ativo. Atender zera a contagem.
       tempoNaUraMs: envNum('TEMPO_MIN', 3) * 60_000,
+      // [NOVO] Com a URA cheia ligada, o limite de ociosidade é este (padrão 2 min).
+      tempoNaUraCheiaMs: envNum('URA_CHEIA_TEMPO_MIN', 2) * 60_000,
+      // [NOVO] Prioridade por tempo de casa (ramal menor = mais antigo): sobe primeiro, sai por
+      // último e ganha este tanto a mais por posição antes de sair por ociosidade, até o máximo.
+      prioridadeRamalPassoMs: envNum('PRIORIDADE_RAMAL_PASSO_S', 10) * 1000,
+      prioridadeRamalMaxMs: envNum('PRIORIDADE_RAMAL_MAX_S', 60) * 1000,
       // A regra do ocioso vale sempre. Quando o último livre da URA está a este tempo de
       // sair, os robôs param de discar para os que estão em ligação terminarem antes. 0 = não prepara.
       // (SEGURAR_ULTIMO_LIVRE_MS, do .env antigo, não vale mais: era 90 s, demais com poucos na URA.)

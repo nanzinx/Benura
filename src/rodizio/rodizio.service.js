@@ -22,7 +22,7 @@
 
 const {
   Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, ultimoLivreQueSai,
-  decidirRobos, alvoDeRobos, livresUteis, reconciliarMovidos, VALIDADE_STATUS_MS,
+  decidirRobos, alvoDeRobos, livresUteis, reconciliarMovidos, VALIDADE_STATUS_MS, porAntiguidade, bonusDeAntiguidade,
 } = require('../domain/rodizio');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
@@ -46,6 +46,9 @@ function desdeDoStatus(s) {
   const desde = s?.classe === Classe.LIVRE ? s.livreDesde : s?.classe === Classe.OFFLINE ? s.offlineDesde : s?.detalhe?.statusDesde;
   return desde != null ? new Date(desde).toISOString() : null;
 }
+
+/** [NOVO] 150000 → "2:30". */
+const formatarMinSeg = (ms) => `${Math.floor(ms / 60_000)}:${String(Math.round((ms % 60_000) / 1000)).padStart(2, '0')}`;
 
 class RodizioService {
   /**
@@ -266,7 +269,7 @@ class RodizioService {
     if (cheia) await this.levarTodosParaUra();
     else await this.elegiveis?.atualizar();
     // Na URA cheia, qualquer um que atender no Ativo volta (sem olhar elegíveis).
-    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal));
+    const alvos = porAntiguidade(this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal)), (a) => a.ramal);
     await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
   }
 
@@ -285,7 +288,8 @@ class RodizioService {
    * até atender lá (senão iria e voltaria a cada TEMPO_MIN).
    */
   async levarTodosParaUra() {
-    const alvos = this.operadoresDoAtivo().filter(({ ramal }) => !this.naoLevarNaUraCheia.has(ramal));
+    // [NOVO] Ramal menor (mais tempo de casa) sobe primeiro.
+    const alvos = porAntiguidade(this.operadoresDoAtivo().filter(({ ramal }) => !this.naoLevarNaUraCheia.has(ramal)), (a) => a.ramal);
     if (!alvos.length) return;
     this.log.info(`URA cheia: levando ${alvos.length} operador(es) do Ativo para a URA.`);
     await mapearComLimite(alvos, this.cfg.concorrencia, async ({ ramal, grupo }) => {
@@ -347,7 +351,8 @@ class RodizioService {
     await mapearComLimite(ramais, this.cfg.concorrencia, (ramal) => this.atualizarStatusUra(ramal));
     const agora = Date.now();
     // A regra do ocioso vale sempre, sem exceção: quem passou do TEMPO_MIN sai.
-    const ociosos = ramais.filter((ramal) => this.deveDevolver(ramal, agora));
+    // [NOVO] Saem do ramal maior para o menor (o de mais tempo de casa sai por último).
+    const ociosos = porAntiguidade(ramais.filter((ramal) => this.deveDevolver(ramal, agora))).reverse();
     if (this.modoDosRobos() === 'automatico') this.prepararSaidaDoUltimoLivre(ramais, agora);
     await this.avaliarRobos();
     this.registrarFoto(Date.now());
@@ -366,10 +371,12 @@ class RodizioService {
    * Se ele atender ou aparecer outro livre, os robôs voltam.
    */
   prepararSaidaDoUltimoLivre(ramais, agora) {
-    // No máximo metade do TEMPO_MIN: senão, com um livre só, os robôs nunca discariam.
-    const antecedenciaMs = Math.min(this.cfg.prepararSaidaMs ?? 0, (this.cfg.tempoNaUraMs ?? Infinity) / 2);
+    // No máximo metade do limite de ociosidade: senão, com um livre só, os robôs nunca discariam.
+    const antecedenciaMs = Math.min(this.cfg.prepararSaidaMs ?? 0, (this.limiteOciosoBaseMs() ?? Infinity) / 2);
     const saindo = antecedenciaMs > 0 ? ramais.filter((ramal) => this.deveDevolver(ramal, agora + antecedenciaMs)) : [];
-    const ramal = ultimoLivreQueSai({ saindo, ramaisUra: ramais, status: this.statusUra });
+    const ramal = ultimoLivreQueSai({
+      saindo, ramaisUra: ramais, status: this.statusUra, saidaEm: (r) => this.statusUra.get(r).livreDesde + this.limiteOciosoMs(r),
+    });
     if (ramal === this.ultimoSaindo?.ramal) return;
     this.ultimoSaindo = ramal ? { ramal, desde: agora } : null;
     if (!ramal || !this.robos.situacao(this.ramaisRobos.length).ligados) return;
@@ -490,6 +497,22 @@ class RodizioService {
     if (this.logadosEmOutroGrupo.delete(ramal) && logadoNaUra) this.log.info(`Ramal ${ramal} agora está logado no grupo da URA.`);
   }
 
+  /** [NOVO] Limite de ociosidade sem a prioridade: 2 min com a URA cheia (URA_CHEIA_TEMPO_MIN), senão o TEMPO_MIN. */
+  limiteOciosoBaseMs() {
+    return this.emUraCheia() && this.cfg.tempoNaUraCheiaMs ? this.cfg.tempoNaUraCheiaMs : this.cfg.tempoNaUraMs;
+  }
+
+  /**
+   * [NOVO] Limite de ociosidade deste ramal: o base mais a escada do tempo de casa (entre os
+   * humanos não fixos da URA, o ramal maior ganha 0 e cada posição acima, PRIORIDADE_RAMAL_PASSO_S).
+   */
+  limiteOciosoMs(ramal) {
+    const concorrentes = this.humanosNaUra().filter((r) => !this.permanentes.has(String(r)));
+    return this.limiteOciosoBaseMs() + bonusDeAntiguidade(ramal, concorrentes, {
+      passoMs: this.cfg.prioridadeRamalPassoMs ?? 0, maxMs: this.cfg.prioridadeRamalMaxMs ?? 0,
+    });
+  }
+
   deveDevolver(ramal, agora) {
     const info = this.statusUra.get(ramal);
     if (!info || this.emTransferencia.has(ramal)) return false;
@@ -498,7 +521,7 @@ class RodizioService {
     // Travado à mão na URA pelo painel: fica até liberarem.
     if (this.travadoEm(ramal) === 'ura') return false;
     return deveVoltarAoAtivo({
-      classe: info.classe, livreDesde: info.livreDesde, agora, ociosoMs: this.cfg.tempoNaUraMs, movido: this.movidos[ramal],
+      classe: info.classe, livreDesde: info.livreDesde, agora, ociosoMs: this.limiteOciosoMs(ramal), movido: this.movidos[ramal],
       offlineDesde: info.offlineDesde, offlineMs: this.cfg.offlineVoltaAposMs,
     });
   }
@@ -554,7 +577,8 @@ class RodizioService {
     if (this.emUraCheia()) this.naoLevarNaUraCheia.add(ramal); // sobe de novo ao atender no Ativo
     this.vigiarNoAtivo(ramal, destino);
     this.salvar();
-    this.log.info(`URA→ATIVO ramal=${ramal} destino=${destino} (motivo: ${motivo ?? motivoDaVolta({ ...info, agora: Date.now() })})`);
+    const limite = info.classe === Classe.LIVRE && !motivo ? `, limite ${formatarMinSeg(this.limiteOciosoMs(ramal))}${this.emUraCheia() ? ' na URA cheia' : ''}` : '';
+    this.log.info(`URA→ATIVO ramal=${ramal} destino=${destino} (motivo: ${motivo ?? motivoDaVolta({ ...info, agora: Date.now() })}${limite})`);
     return { ok: true };
   }
 
@@ -840,7 +864,15 @@ class RodizioService {
    */
   registrarEncerramentoUra(encerramento, agora = Date.now()) {
     this.ultimoEncerramentoEm = agora;
-    this.estatisticas?.registrarEncerramento(agora, encerramento);
+    this.estatisticas?.registrarEncerramento(agora, encerramento, 'webhook');
+  }
+
+  /**
+   * [NOVO] O mesmo, pelo relatório de ligações da Argus (vigia de callbacks): funciona sem os
+   * webhooks. A chave (idLigacao) é a mesma do webhook: a ligação conta uma vez só.
+   */
+  registrarEncerramentoDoRelatorio(encerramento, agora = Date.now()) {
+    return this.estatisticas?.registrarEncerramento(agora, encerramento, 'relatório') ?? false;
   }
 
   /** [NOVO] GET /metricas/hoje: leads derivados, transbordos e a espera, do dia (00:00 até agora). */
@@ -857,6 +889,8 @@ class RodizioService {
       // (só o painel deles). Fica null até existir uma fonte (ex.: um webhook de entrada na fila).
       emFilaAgora: null,
       ultimoWebhookEncerramento: this.ultimoEncerramentoEm ? new Date(this.ultimoEncerramentoEm).toISOString() : null,
+      // [NOVO] a última ligação contada (webhook ou relatório), e de onde veio
+      ultimoEncerramento: r?.ultimoEncerramento ?? null,
     };
   }
 
@@ -1032,8 +1066,9 @@ class RodizioService {
   async retomarRodizio(por = null) {
     const mudou = Boolean(await this.retencao?.desligar(por));
     await this.elegiveis?.atualizar();
-    const alvos = this.elegiveisNoAtivo();
-    if (!alvos) return { movidos: [], erros: [], semLista: true, mudou };
+    const lista = this.elegiveisNoAtivo();
+    if (!lista) return { movidos: [], erros: [], semLista: true, mudou };
+    const alvos = porAntiguidade(lista, (a) => a.ramal); // [NOVO] ramal menor volta primeiro
     const movidos = [];
     const erros = [];
     await mapearComLimite(alvos, this.cfg.concorrencia ?? 5, async ({ ramal, grupo }) => {

@@ -120,3 +120,48 @@ test('vigia: reinício logo depois de um callback — a 1ª leitura entrega o qu
   await vigia.verificar();
   assert.equal(entregues.length, 1, 'não repete');
 });
+
+test('[NOVO] vigia: leads derivados e transbordos pelo relatório; lê o dia desde 00:00 ao subir; não conta em dobro', async () => {
+  const { EstatisticasDia } = require('../../src/rodizio/estatisticas-dia');
+  const agora = T('10:13:00');
+  const gravado = {};
+  const repositorio = { carregar: () => gravado.estado, salvar: (e) => { gravado.estado = JSON.parse(JSON.stringify(e)); } };
+  const montar = () => new EstatisticasDia({ repositorio, fusoHorario: FUSO }).carregar(agora);
+  let estatisticas = montar();
+  const ligacoes = [
+    { idLigacao: 10, dataHoraLigacao: '2026-10-15T08:01:00', resultadoLigacao: 'ATENDIMENTO' },
+    { idLigacao: 11, dataHoraLigacao: '2026-10-15T08:05:00', resultadoLigacao: 'OPER. VIRTUAL - ABANDONO EM FILA' },
+    { idLigacao: 12, dataHoraLigacao: '2026-10-15T09:10:00', resultadoLigacao: 'SEM AGENTE' },
+    { idLigacao: 13, dataHoraLigacao: '2026-10-15T09:20:00', resultadoLigacao: 'OPER. VIRTUAL - ABANDONO' },
+  ];
+  const pedidos = [];
+  const entregues = [];
+  const montarVigia = () => new VigiaCallbacks({
+    client: { listarCampanhas: async () => [{ idCampanha: 3, ativo: true }], ligacoesDetalhadas: async (f, o) => { pedidos.push({ ...f, ...o }); return ligacoes; } },
+    rodizio: {
+      teveRoboLigado: () => false,
+      registrarCallbackDoRelatorio: (c) => entregues.push(c),
+      registrarEncerramentoDoRelatorio: (e) => estatisticas.registrarEncerramento(agora, e, 'relatório'),
+    },
+    cfg: { gruposRobosIds: [3], fuso: FUSO },
+    logger: loggerNulo,
+  });
+  const vigia = montarVigia();
+  await vigia.verificar(agora);
+  assert.deepEqual(pedidos[0], { idCampanha: 3, idGrupoUsuario: 3, ultimosMinutos: 10 * 60 + 13 + 1, maxPaginas: 40 }, 'desde 00:00, mesmo sem robô ligado');
+  assert.equal(entregues.length, 0, 'o dia antigo não vira ajuste nem raio-x');
+  let r = estatisticas.resumo();
+  assert.deepEqual([r.leadsDerivados, r.transbordos, r.transbordosPorMotivo], [1, 2, { 'abandonou a fila': 1, 'sem agente': 1 }]);
+  assert.deepEqual(r.ultimoEncerramento, { em: new Date(T('09:10:00')).toISOString(), fonte: 'relatório' });
+  assert.deepEqual(r.horas.map((h) => [h.hora, h.leadsDerivados, h.transbordos]), [['08', 1, 1], ['09', 0, 1]], 'na hora da ligação');
+
+  await vigia.verificar(agora);
+  assert.equal(pedidos.length, 1, 'o dia só é lido uma vez');
+  assert.equal(estatisticas.registrarEncerramento(agora, { chave: 'ligacao:10', derivou: true, motivo: 'derivou', filaSeg: 5 }, 'webhook'), false, 'o webhook da mesma ligação não conta de novo');
+
+  estatisticas.gravar(agora);
+  estatisticas = montar(); // reinício: relê o dia e não conta em dobro
+  await montarVigia().verificar(agora);
+  r = estatisticas.resumo();
+  assert.deepEqual([r.leadsDerivados, r.transbordos], [1, 2]);
+});

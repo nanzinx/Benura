@@ -12,16 +12,30 @@
  * Na primeira leitura, o callback de ligação que começou antes de o BenURA subir
  * só é marcado (não é dele e não há fotos da URA daquela hora); o que começou
  * depois é entregue normalmente (ex.: reinício logo após um callback).
+ *
+ * [NOVO] Leads derivados e transbordos do painel: cada ligação lida também conta nas
+ * estatísticas do dia ("ATENDIMENTO" = lead derivado; abandono em fila e sem agente =
+ * transbordo), sem depender dos webhooks 4 e 5. Ao subir (e na virada do dia), lê o dia
+ * desde 00:00 só para isso. A chave é o idLigacao, a mesma do webhook: não conta em dobro.
  */
 
 const { semDadosDeCliente, tipoDaLigacao, textoDaHora, duracaoDaLigacao } = require('../domain/diagnostico-callbacks');
 const { instanteLocal } = require('../domain/raio-x-callback');
+const { dataLocal, horaLocal } = require('../utils/datas');
 const { escolherCampanha } = require('../integrations/argus/campanha');
 
 /** Ligações vistas são esquecidas depois disso (a janela lida é bem menor). */
 const LEMBRAR_MS = 30 * 60_000;
 /** Só lê se houve robô ligado neste intervalo. */
 const ROBO_RECENTE_MS = 10 * 60_000;
+/** [NOVO] Resultado do relatório → lead derivado ou transbordo (o resto não conta). */
+const ENCERRAMENTOS = Object.freeze({
+  derivou: { derivou: true, motivo: 'derivou' },
+  callback: { derivou: false, motivo: 'abandonou a fila' },
+  semAgente: { derivou: false, motivo: 'sem agente' },
+});
+/** [NOVO] A leitura do dia inteiro pode ser longa. */
+const PAGINAS_DO_DIA = 40;
 
 class VigiaCallbacks {
   /**
@@ -41,6 +55,7 @@ class VigiaCallbacks {
 
   /** Um ciclo: lê o relatório e entrega os callbacks novos. */
   async verificar(agora = Date.now()) {
+    await this.lerDiaSePreciso(agora);
     if (!this.rodizio.teveRoboLigado(agora, ROBO_RECENTE_MS)) return;
     let ligacoes;
     try {
@@ -54,6 +69,7 @@ class VigiaCallbacks {
 
     for (const [id, quando] of this.vistas) if (agora - quando > LEMBRAR_MS) this.vistas.delete(id);
     this.contarNosPerfis(ligacoes, agora);
+    this.contarEncerramentos(ligacoes);
     const novos = ligacoes.map(semDadosDeCliente).filter((l) => tipoDaLigacao(l) === 'callback' && this.marcarNova(l, agora));
     const entregar = this.primeiraLeitura ? novos.filter((l) => this.depoisDoInicio(l)) : novos;
     if (this.primeiraLeitura && novos.length > entregar.length) {
@@ -76,15 +92,49 @@ class VigiaCallbacks {
     return inicio != null && inicio >= (this.rodizio.iniciadoEm ?? Infinity);
   }
 
-  async lerLigacoes() {
+  async lerLigacoes(ultimosMinutos = this.cfg.janelaMin, maxPaginas = 5) {
     this.idCampanha ??= await escolherCampanha(this.client, this.cfg.idCampanha);
     const todas = [];
     for (const idGrupoUsuario of this.cfg.gruposRobosIds) {
-      todas.push(...await this.client.ligacoesDetalhadas(
-        { idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos: this.cfg.janelaMin }, { maxPaginas: 5 },
-      ));
+      todas.push(...await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos }, { maxPaginas }));
     }
     return todas;
+  }
+
+  /**
+   * [NOVO] Ao subir e na virada do dia: lê o dia desde 00:00, só para os leads derivados e os
+   * transbordos (nada de ajuste dos robôs nem raio-x de callback antigo). Falhou: tenta de novo.
+   */
+  async lerDiaSePreciso(agora) {
+    const hoje = dataLocal(this.cfg.fuso, new Date(agora));
+    if (this.diaLido === hoje || !this.rodizio.registrarEncerramentoDoRelatorio) return;
+    const [h, m] = horaLocal(this.cfg.fuso, new Date(agora)).split(':').map(Number);
+    let ligacoes;
+    try {
+      ligacoes = await this.lerLigacoes(h * 60 + m + 1, PAGINAS_DO_DIA);
+    } catch (e) {
+      this.avisarFalha(e);
+      return;
+    }
+    this.diaLido = hoje;
+    const novas = this.contarEncerramentos(ligacoes);
+    this.log.info(`Vigia de callbacks: dia lido desde 00:00 (${ligacoes.length} ligação(ões) dos robôs; ${novas} nova(s) nos leads derivados e transbordos).`);
+  }
+
+  /** [NOVO] Cada ligação lida conta uma vez nos leads derivados e transbordos. @returns {number} quantas eram novas */
+  contarEncerramentos(ligacoes) {
+    if (!this.rodizio.registrarEncerramentoDoRelatorio) return 0;
+    let novas = 0;
+    for (const bruta of ligacoes) {
+      const l = semDadosDeCliente(bruta);
+      const tipo = ENCERRAMENTOS[tipoDaLigacao(l)];
+      if (!tipo) continue;
+      const contou = this.rodizio.registrarEncerramentoDoRelatorio({
+        chave: chaveDaLigacao(l), ...tipo, filaSeg: null, quando: instanteLocal(textoDaHora(l), this.cfg.fuso),
+      });
+      if (contou) novas += 1;
+    }
+    return novas;
   }
 
   /** @returns {boolean} true se ainda não tinha sido vista */

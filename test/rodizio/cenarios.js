@@ -80,6 +80,9 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       GRUPO_ROBOS_URA_ID: '3',
       GRUPOS_ATIVOS_IDS: '1',
       TEMPO_MIN: '0.1', // 6 s
+      URA_CHEIA_TEMPO_MIN: '0.1', // [NOVO] na URA cheia, o mesmo nos cenários
+      PRIORIDADE_RAMAL_PASSO_S: '0', // [NOVO] sem a escada do ramal (os cenários contam o tempo exato)
+      ALINHAR_LOGIN_APOS_TRANSFERIR: 'true', // os cenários de relogin testam o realinhar (desligado por padrão)
       // Peso do status da URA nos robôs por livre: neutro aqui (os cenários contam robôs exatos).
       ROBOS_FATOR_CALMA: '1',
       ROBOS_FATOR_AGRESSIVA: '1',

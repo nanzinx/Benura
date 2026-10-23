@@ -21,7 +21,7 @@ export const CLASSES: Record<Classe, { texto: string; tom: Tom }> = {
 
 /** Definições da Regra Global 4 (tooltip dos cards [NOVO]). */
 export const DEFINICOES = {
-  leads: 'Leads Derivados: ligações da URA encaminhadas a um operador humano, de 00:00 até agora. Cada ligação conta em uma só métrica (lead ou transbordo).',
+  leads: 'Leads Derivados: ligações da URA encaminhadas a um operador humano, de 00:00 até agora. Cada ligação conta em uma só métrica (lead ou transbordo). Vem do webhook da Argus ou do relatório de ligações (atualiza a cada minuto).',
   transbordos: 'Transbordos: ligações da URA que NÃO foram encaminhadas a operador (abandono, sem operador disponível ou time-out na fila), de 00:00 até agora. Cada ligação conta em uma só métrica.',
 };
 
@@ -38,6 +38,13 @@ function Kpi({ rotulo, valor, nota, Icone, tom, destaque, dica }: { rotulo: stri
   );
 }
 
+/** [NOVO] De onde veio a última ligação contada: o webhook ou o relatório de ligações. */
+function notaDaFonte(m: MetricasHoje | undefined) {
+  const u = m?.ultimoEncerramento ?? (m?.ultimoWebhookEncerramento ? { em: m.ultimoWebhookEncerramento, fonte: 'webhook' as const } : null);
+  if (!u) return 'nenhum hoje';
+  return `último às ${horaCurta(u.em)} · ${u.fonte === 'webhook' ? 'pelo webhook' : 'pelo relatório da Argus'}`;
+}
+
 /** [NOVO] Leads derivados (destaque positivo) e transbordos (sempre em vermelho), de GET /api/metricas/hoje. */
 function KpisDoDia({ m }: { m: MetricasHoje | undefined }) {
   const valor = (n: number | null | undefined) => (n == null ? '–' : n);
@@ -45,7 +52,7 @@ function KpisDoDia({ m }: { m: MetricasHoje | undefined }) {
   return (
     <>
       <Kpi rotulo="Leads Derivados Hoje" valor={valor(m?.leadsDerivadosHoje)} Icone={PhoneForwarded} tom="ok" dica={DEFINICOES.leads}
-        nota={m?.ultimoWebhookEncerramento ? `último às ${horaCurta(m.ultimoWebhookEncerramento)}` : 'sem webhook da Argus hoje'} />
+        nota={notaDaFonte(m)} />
       <Kpi rotulo="Transbordos Hoje" valor={valor(m?.transbordosHoje)} Icone={PhoneOff} tom="perigo" dica={DEFINICOES.transbordos} nota={motivos || 'nenhum até agora'} />
     </>
   );
