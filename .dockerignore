@@ -20,3 +20,8 @@ supervisores-grupos.json
 vendedores-ramais.json
 *.tsbuildinfo
 test
+functions
+scripts/windows
+cloudflared
+*.md
+!README.md

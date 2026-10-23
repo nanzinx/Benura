@@ -7,8 +7,23 @@
 #
 # Túnel da Cloudflare junto (opcional): ponha TUNNEL_TOKEN no .env e use
 #   docker compose --profile tunel up -d
+#
+# [NOVO] Endurecido: disco só de leitura, sem nenhuma permissão extra do Linux, sem virar
+# root, limites de processos, memória e log, e as portas só onde precisam (abaixo).
+
+# O mesmo endurecimento para os dois containers.
+x-endurecido: &endurecido
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 512
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
 services:
   benura:
+    <<: *endurecido
     build: .
     image: benura:local
     container_name: benura
@@ -19,20 +34,31 @@ services:
       # Estado do dia, chaves (painel-segredo.key, perfis-segredo.key), logs e os JSON da esteira.
       - ./dados:/dados
     tmpfs:
-      - /run/benura
+      # Travas e o PM2 (uid 1000 = o usuário "node" da imagem); /tmp para o npx.
+      - /run/benura:uid=1000,gid=1000,mode=0700,size=64m
+      - /tmp:uid=1000,gid=1000,mode=0700,size=64m
+    mem_limit: 1g
+    # Portas: por padrão só neste PC (127.0.0.1). O painel chega pelo túnel (no próprio
+    # container) e pelo navegador deste PC. Para abrir na rede da empresa (outro PC, a
+    # reserva, os webhooks da Argus), ponha no .env o IP deste PC na rede, ex.:
+    #   BENURA_IP_PAINEL=192.168.0.20   BENURA_IP_WEBHOOKS=192.168.0.20
     ports:
-      - "3000:3000" # rodízio: webhooks da Argus
-      - "3001:3001" # roteador: webhook de venda
-      - "3010:3010" # painel da supervisão
+      - "${BENURA_IP_WEBHOOKS:-127.0.0.1}:3000:3000" # rodízio: webhooks da Argus
+      - "${BENURA_IP_WEBHOOKS:-127.0.0.1}:3001:3001" # roteador: webhook de venda
+      - "${BENURA_IP_PAINEL:-127.0.0.1}:3010:3010" # painel da supervisão
     stop_grace_period: 30s
 
   # Cloudflare Tunnel: benura-api.benconsig.com.br → o painel. Usa a rede do container do
   # BenURA (network_mode), então o painel vê o túnel pelo localhost, como no servidor.
   tunel:
+    <<: *endurecido
     image: cloudflare/cloudflared:2026.9.3
     profiles: ["tunel"]
     restart: unless-stopped
     command: tunnel --no-autoupdate run
+    user: "65532:65532"
+    mem_limit: 256m
+    pids_limit: 128
     environment:
       # O token do túnel (Zero Trust → Networks → Tunnels → o túnel → Install connector), no .env.
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}

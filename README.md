@@ -675,7 +675,24 @@ A produção segue no **PM2 como serviço do Windows**, que tem o atualizador au
 - **Estado no volume `./dados`** (`DADOS_DIR=/dados`). Ficam lá os `state*.json`, as chaves (`painel-segredo.key`, `perfis-segredo.key`), os logs e o `supervisores-grupos.json`. Recriar o container não perde nada.
 - **Travas de instância única num `tmpfs`** (`/run/benura`). Num container novo os PIDs se repetem, e uma trava velha impediria a subida.
 - **Portas:** `3000` (webhooks da Argus), `3001` (webhook de venda) e `3010` (painel).
+  - **Por padrão, só no próprio PC** (`127.0.0.1`). O painel chega pelo túnel (que roda dentro do container) e pelo navegador do PC.
+  - **Para abrir na rede da empresa** (outro PC, a reserva ou os webhooks da Argus), ponha no `.env` o IP do PC na rede: `BENURA_IP_PAINEL=192.168.0.20` e `BENURA_IP_WEBHOOKS=192.168.0.20`.
 - **Configuração:** o mesmo `.env` do servidor (`env_file`).
+
+**Endurecido contra invasão** (se alguém achar uma falha no BenURA, fica preso e sem poder):
+- **Código só de leitura:** o código e as dependências são do `root` e o BenURA roda como o usuário `node`. Ninguém troca o BenURA nem planta código de dentro.
+- **Disco só de leitura** (`read_only`): só aceitam escrita o volume `dados/` e dois `tmpfs` pequenos (`/run/benura` para as travas e o PM2, `/tmp`).
+- **Sem permissões do Linux** (`cap_drop: ALL`) e **sem como virar root** (`no-new-privileges`).
+- **Limites:** 512 processos, 1 GB de memória e o log do Docker em 5 × 10 MB, para um ataque não derrubar o PC.
+- **Imagem mínima:**
+  - em duas etapas, sem o `npm ci` na imagem final;
+  - dependências instaladas sem rodar scripts de pacotes (`--ignore-scripts`);
+  - pacotes do sistema atualizados a cada build.
+- **O túnel (`cloudflared`)** também roda endurecido, com usuário sem privilégio.
+- **O teste do CI confere** tudo isso a cada mudança (`test/docker/fumaca.js`): usuário, permissões e escrita barrada no código e no sistema.
+
+> [!NOTE]
+> Isso protege o PC se o BenURA for invadido. A primeira barreira continua sendo a Cloudflare: o túnel (nenhuma porta aberta no roteador), o Access, os IPs permitidos e o login do BenURA.
 
 **No Windows 10/11 Pro:**
 1. Instale o Docker Desktop: `winget install Docker.DockerDesktop`. Ele usa o WSL2, então reinicie se pedir.
@@ -702,7 +719,7 @@ A produção segue no **PM2 como serviço do Windows**, que tem o atualizador au
 | Atualizar | `git pull` e `docker compose up -d --build` (o atualizador automático não roda no Docker) |
 | Parar (o estado fica em `dados\`) | `docker compose down` |
 
-**Teste da imagem:** o job `docker` do CI constrói a imagem e sobe com uma Argus falsa. Ele confere os quatro serviços no ar, o estado no volume, o Desligar/Religar pelo painel e um `docker restart`. Para rodar o mesmo teste no seu PC: `docker build -t benura:ci .` e depois `node test/docker/fumaca.js`.
+**Teste da imagem:** o job `docker` do CI constrói a imagem e sobe endurecida, com uma Argus falsa. Ele confere os quatro serviços no ar, o endurecimento, o estado no volume, o Desligar/Religar pelo painel e um `docker restart`. Para rodar o mesmo teste no seu PC: `docker build -t benura:ci .` e depois `node test/docker/fumaca.js`.
 
 ---
 
