@@ -151,9 +151,9 @@ test('[NOVO] vigia: leads derivados e transbordos pelo relatório; lê o dia des
   assert.deepEqual(pedidos[0], { idCampanha: 3, idGrupoUsuario: 3, ultimosMinutos: 10 * 60 + 13 + 1, maxPaginas: 200 }, 'desde 00:00, mesmo sem robô ligado');
   assert.equal(entregues.length, 0, 'o dia antigo não vira ajuste nem raio-x');
   let r = estatisticas.resumo();
-  assert.deepEqual([r.leadsDerivados, r.transbordos, r.transbordosPorMotivo], [1, 2, { 'abandonou a fila': 1, 'sem agente': 1 }]);
-  assert.deepEqual(r.ultimoEncerramento, { em: new Date(T('09:10:00')).toISOString(), fonte: 'relatório' });
-  assert.deepEqual(r.horas.map((h) => [h.hora, h.leadsDerivados, h.transbordos]), [['08', 1, 1], ['09', 0, 1]], 'na hora da ligação');
+  assert.deepEqual([r.leadsDerivados, r.transbordos, r.transbordosPorMotivo], [1, 1, { 'abandonou a fila': 1 }], 'transbordo = Gerou Callback: sem agente não conta');
+  assert.deepEqual(r.ultimoEncerramento, { em: new Date(T('08:05:00')).toISOString(), fonte: 'relatório' });
+  assert.deepEqual(r.horas.map((h) => [h.hora, h.leadsDerivados, h.transbordos]), [['08', 1, 1]], 'na hora da ligação');
 
   await vigia.verificar(agora);
   assert.equal(pedidos.length, 1, 'o dia só é lido uma vez');
@@ -163,7 +163,7 @@ test('[NOVO] vigia: leads derivados e transbordos pelo relatório; lê o dia des
   estatisticas = montar(); // reinício: relê o dia e não conta em dobro
   await montarVigia().verificar(agora);
   r = estatisticas.resumo();
-  assert.deepEqual([r.leadsDerivados, r.transbordos], [1, 2]);
+  assert.deepEqual([r.leadsDerivados, r.transbordos], [1, 1]);
 });
 
 test('[NOVO] vigia: o dia com dezenas de milhares de ligações não estoura a pilha; falhou, só tenta de novo em 5 min', async () => {

@@ -27,15 +27,24 @@ test('relatório do dia: cada ligação conta uma vez (lead ou transbordo) e as 
   assert.equal(e.registrarEncerramento(t0, { chave: 'a', derivou: true, motivo: 'derivou', filaSeg: 10 }), true);
   assert.equal(e.registrarEncerramento(t0, { chave: 'a', derivou: true, motivo: 'derivou', filaSeg: 10 }), false, 'reenviado: não conta de novo');
   e.registrarEncerramento(t0, { chave: 'b', derivou: false, motivo: 'abandonou a fila', filaSeg: 50 });
-  e.registrarEncerramento(t0, { chave: null, derivou: false, motivo: 'sem agente', filaSeg: null });
+  e.registrarEncerramento(t0, { chave: 'c', derivou: false, motivo: 'time-out na fila', filaSeg: null });
+  assert.equal(e.registrarEncerramento(t0, { chave: null, derivou: false, motivo: 'sem agente', filaSeg: null }), false, 'transbordo = Gerou Callback: sem agente não conta');
   e.amostrar(t0, { livres: 1, robosLigados: 1, pausas: ['ALMOÇO'] });
   e.amostrar(t0 + 30_000, { livres: 1, robosLigados: 1, pausas: ['ALMOÇO', 'BANHEIRO'] });
   const r = e.resumo();
   assert.deepEqual([r.leadsDerivados, r.transbordos], [1, 2]);
-  assert.deepEqual(r.transbordosPorMotivo, { 'abandonou a fila': 1, 'sem agente': 1 });
+  assert.deepEqual(r.transbordosPorMotivo, { 'abandonou a fila': 1, 'time-out na fila': 1 });
   assert.equal(r.filaMediaSeg, 30);
   assert.deepEqual(r.pausasMin, { 'ALMOÇO': 0.5, BANHEIRO: 0.5 });
   assert.deepEqual([r.horas[0].leadsDerivados, r.horas[0].transbordos], [1, 2]);
+});
+
+test('[NOVO] relatório do dia: o "sem agente" já contado hoje sai dos transbordos ao subir', () => {
+  const salvo = { dia: '2026-10-22', transbordos: 23, transbordosPorMotivo: { 'sem agente': 15, 'abandonou a fila': 8 } };
+  const e = new EstatisticasDia({ fusoHorario: 'America/Sao_Paulo', repositorio: { carregar: () => salvo } })
+    .carregar(new Date('2026-10-22T16:00:00Z').getTime());
+  const r = e.resumo();
+  assert.deepEqual([r.transbordos, r.transbordosPorMotivo], [8, { 'abandonou a fila': 8 }]);
 });
 
 test('status da URA: manual vence o termômetro até voltar ao automático; gravado em arquivo', () => {

@@ -125,6 +125,24 @@ function resumirLigacoes(ligacoes) {
 }
 
 /**
+ * [NOVO] Campos com poucos valores diferentes (origem, serviço, fila, tipo...) e a contagem de
+ * cada valor: é como achar, nas ligações do receptivo, o campo que diz "veio de um robô".
+ * Campo com mais de `maxValores` valores (horas, ids, durações) fica de fora: nada por ligação sai daqui.
+ * @returns {Record<string, Record<string, number>>}
+ */
+function contarCategorias(ligacoes, maxValores = 30) {
+  const contagens = {};
+  for (const ligacao of ligacoes.map(semDadosDeCliente)) {
+    for (const [campo, valor] of Object.entries(ligacao)) {
+      if (/^id|data|hora|tempo|dura|segundo/i.test(campo)) continue;
+      const porValor = (contagens[campo] ||= {});
+      porValor[String(valor)] = (porValor[String(valor)] || 0) + 1;
+    }
+  }
+  return Object.fromEntries(Object.entries(contagens).filter(([, v]) => Object.keys(v).length <= maxValores));
+}
+
+/**
  * Quem está na URA e em que grupo está LOGADO na telefonia (statusoperador.idGrupo,
  * "código do grupo logado" na doc 4.14). Estar no grupo da URA na lista de grupos
  * e logado em outro significa que a derivação dos robôs não chega na pessoa.
@@ -159,5 +177,5 @@ const minutosDesdeMeiaNoite = (hora) => {
 
 module.exports = {
   semDadosDeCliente, resumirLigacoes, minutosDesdeMeiaNoite, ehDeCliente, tipoDaLigacao, linhaDoTempo, minutoDoDia, conferirUra,
-  textoDaHora, duracaoDaLigacao,
+  textoDaHora, duracaoDaLigacao, contarResultados, contarCategorias,
 };

@@ -22,7 +22,7 @@ export const CLASSES: Record<Classe, { texto: string; tom: Tom }> = {
 /** Definições da Regra Global 4 (tooltip dos cards [NOVO]). */
 export const DEFINICOES = {
   leads: 'Leads Derivados: ligações da URA encaminhadas a um operador humano, de 00:00 até agora. Cada ligação conta em uma só métrica (lead ou transbordo). Vem do webhook da Argus ou do relatório de ligações (atualiza a cada minuto).',
-  transbordos: 'Transbordos: ligações da URA que NÃO foram encaminhadas a operador (abandono, sem operador disponível ou time-out na fila), de 00:00 até agora. Cada ligação conta em uma só métrica.',
+  transbordos: 'Transbordos: os callbacks (o "Gerou Callback" da Argus): o cliente pediu um humano, esperou na fila e desistiu ou estourou o tempo, de 00:00 até agora. Cada ligação conta em uma só métrica.',
 };
 
 function Kpi({ rotulo, valor, nota, Icone, tom, destaque, dica }: { rotulo: string; valor: ReactNode; nota?: ReactNode; Icone: ComponentType<{ className?: string }>; tom?: 'perigo' | 'ok'; destaque?: boolean; dica?: string }) {

@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 const {
-  resumirLigacoes, semDadosDeCliente, minutosDesdeMeiaNoite, minutoDoDia, conferirUra,
+  resumirLigacoes, semDadosDeCliente, minutosDesdeMeiaNoite, minutoDoDia, conferirUra, contarCategorias,
 } = require('../../src/domain/diagnostico-callbacks');
 const { ArgusClient } = require('../../src/integrations/argus/argus.client');
 const { RodizioService } = require('../../src/rodizio/rodizio.service');
@@ -175,4 +175,12 @@ test('linha do tempo da URA: uma linha só quando o número de livres muda', () 
   svc.statusUra.set('201', { classe: Classe.LIVRE, detalhe: { grupo: 7, origem: 'Receptivo' }, emCarencia: true });
   svc.registrarMudancaDeLivres(0, 0);
   assert.match(linhas.at(-1), /\| livres: 201 \(grupo 7, Receptivo, carência\)$/);
+});
+
+test('[NOVO] contarCategorias: só campos com poucos valores (achar o que diz "veio de um robô"), sem dado de cliente', () => {
+  const ligacoes = Array.from({ length: 40 }, (_, i) => ({
+    idLigacao: i, dataHoraLigacao: `2026-10-23T09:${String(i).padStart(2, '0')}:00`, telefone: `1199999${i}`, codigoCliente: i,
+    origem: i % 4 ? 'OPER. VIRTUAL' : 'DISCADOR', resultadoLigacao: 'ATENDIMENTO', tabulacao: `T${i}`,
+  }));
+  assert.deepEqual(contarCategorias(ligacoes), { origem: { 'OPER. VIRTUAL': 30, DISCADOR: 10 }, resultadoLigacao: { ATENDIMENTO: 40 } });
 });
