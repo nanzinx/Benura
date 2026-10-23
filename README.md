@@ -254,6 +254,15 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
    - Quem continua no grupo antigo por mais de `ALINHAR_LOGIN_APOS_MS` (**30 s**) ficou preso (ex.: no preditivo, emendando ligação). Aparece um aviso e, se estiver livre, o BenURA **reloga** a pessoa (`logaroperador`, que loga no grupo vinculado; se não bastar, desloga e loga). Isso vale também para quem foi movido à mão. Desligue com `ALINHAR_LOGIN_APOS_TRANSFERIR=false`.
    - **Carência depois da troca**: quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta como livre para os robôs depois de `CARENCIA_TROCA_GRUPO_MS` (**60 s**). Em 15/10 uma operadora já Livre e logada na URA não recebeu a derivação de um robô que discou 37 s depois da troca, e virou callback. A regra do ocioso não muda (o tempo livre conta normalmente).
    - Cada linha `URA: livres a→b` traz também quem está livre e como a Argus o vê: `livres: 2266423 (grupo 7, Receptivo, carência)`. Num callback com alguém "livre no painel", é essa linha que mostra o que o BenURA via.
+4. **[NOVO] Modo dos robôs pelo painel** (aba **URA e robôs**, cartão "Rodízio dos robôs"). Vale na hora, sem reiniciar.
+   - **Automático:** o BenURA liga e desliga sozinho, na ordem e conforme os livres (regra 5).
+   - **Só pânico:** a supervisão liga e o BenURA só desliga (abaixo).
+   - **Desligados:** para quando os callbacks não param.
+     - Os robôs parados desligam na hora; os em ligação, ao terminar.
+     - Se alguém ligar um robô pela Argus, o BenURA desliga de novo.
+     - O rodízio dos humanos, o roteador e as rotinas seguem normais, e uma faixa no topo avisa em qualquer aba.
+   - **Como fica gravado:** a escolha vai para `ROBOS_MODO_FILE` (`state-robos-modo.json`) e vale até alguém trocar, inclusive depois de reiniciar. Sem escolha, vale o `ROBOS_MODO` do `.env`.
+   - **API:** `PUT /robos/modo {"modo":"automatico|panico|desligados"}`, com token. O `/health` mostra `robos.modo`, `modoDesde` e `modoPor`.
 4. **Robôs: modo pânico (`ROBOS_MODO=panico`, o padrão)**: a supervisão liga os robôs pelo painel da Argus e o BenURA **nunca liga robôs**.
    - Com o pânico ligado (interruptor na página `/ura`, ou `POST`/`DELETE /panico` com token), o BenURA olha os livres da URA. Usa a mesma contagem do modo automático: carência da troca de grupo, telefonia em outro grupo e status sem resposta não contam.
 
@@ -294,6 +303,14 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
 
 5. **Robôs proporcionais aos livres** (`ROBOS_MODO=automatico`): ficam ligados `ROBOS_POR_LIVRE` robôs (padrão **7**) por humano **livre** no RECEPTIVO - URA.
    Com 1 livre, 7; com 2 livres, 14; e assim por diante, até o total de robôs (ou `ROBOS_MAXIMO`). Muitos robôs para poucos livres geram callback.
+   - **Ordem fixa, como à mão:** liga em ordem crescente: `OPER VIRTUAL 0/1, 2, 3…` pelo número do nome e, por último, os **DTMF**, também pelo número.
+     - Ao reduzir, tira **do último para o primeiro** (DTMF primeiro, depois 32, 31…), pulando quem está em ligação. Os primeiros da lista ficam sempre ligados.
+     - Os nomes vêm do `statusoperador`; robô sem nome lido entra pela ordem do ramal.
+   - **O status da URA pesa** (termômetro ou o escolhido no painel), sobre o "por livre" do momento:
+     - **calma** (livres esperando muito): × `ROBOS_FATOR_CALMA` (**1,3**), ou seja, 7 → 9 por livre;
+     - **agressiva** (cliente esperando): × `ROBOS_FATOR_AGRESSIVA` (**0,7**), ou seja, 7 → 5;
+     - **normal**: sem peso.
+     - Nunca fica abaixo de 1. O `/health` mostra `robos.porLivreComStatus`.
    - **Com 1 livre só**, no máximo `ROBOS_MAX_COM_1_LIVRE` (**6**) robôs, seja qual for o "por livre" do momento: dois clientes pedindo humano juntos com um livre só viram callback. `0` = sem esse teto.
    - **Ninguém livre** → todos desligados **na hora**. **Com gente livre**, a redução só acontece se a queda de livres durar `ROBOS_REDUZIR_APOS_MS` (**10 s**), para não reagir a cada piscada de status, e desliga **só os robôs que não estão em ligação**: derrubar um robô falando corta o cliente e vira callback. Os que estão em ligação saem nos ciclos seguintes, quando a ligação termina (o log mostra "N em ligação mantidos até terminar").
    - **Aumentar** espera `MIN_ROBOS_OFF_MS` (padrão **15 s**) desde a última redução e sobe **em degraus**: no máximo `ROBOS_DEGRAU` (**7**) robôs a cada `ROBOS_SUBIDA_INTERVALO_MS` (**10 s**). Religar todos de uma vez faz todos discarem juntos, as derivações chegam juntas e o excedente vira callback.

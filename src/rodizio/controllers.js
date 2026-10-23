@@ -174,6 +174,15 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
   const mover = acao((c) => acoes.mover(c.ramal, c.para, quem(c)));
   const liberar = acao((c) => acoes.liberar(c.ramal, quem(c)));
 
+  /** [NOVO] PUT /robos/modo { modo: automatico|panico|desligados } — o modo dos robôs, escolhido no painel. */
+  async function definirModoRobos({ corpo }) {
+    try {
+      return { status: 200, corpo: rodizio.definirModoRobos(corpo?.modo, quem(corpo)) };
+    } catch (e) {
+      return { status: 400, corpo: { erro: e.message } };
+    }
+  }
+
   /** Quem pediu (o painel manda o e-mail/IP da supervisão); só texto curto, vai para o log. */
   const quem = (corpo) => (typeof corpo?.por === 'string' ? corpo.por.slice(0, 120) : null);
 
@@ -230,6 +239,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     { metodo: 'DELETE', caminho: '/ura/cheia', handler: desligarUraCheia, protegida: true },
     { metodo: 'POST', caminho: '/webhook', handler: webhook, protegida: true, prefixo: true },
     { metodo: 'POST', caminho: '/robos/manual', handler: robosManual, protegida: true },
+    { metodo: 'PUT', caminho: '/robos/modo', handler: definirModoRobos, protegida: true },
     { metodo: 'POST', caminho: '/robos/automatico', handler: robosAutomatico, protegida: true },
     { metodo: 'POST', caminho: '/robos/por-livre', handler: robosPorLivre, protegida: true },
   ];

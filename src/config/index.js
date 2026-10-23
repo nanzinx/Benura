@@ -126,6 +126,8 @@ function carregarConfig(overrides = {}) {
       // fica com 1 livre ou menos (interruptor na página /ura). automatico: o BenURA liga e desliga
       // os robôs proporcionalmente aos livres (regras abaixo).
       robosModo: env('ROBOS_MODO', 'panico').toLowerCase() === 'automatico' ? 'automatico' : 'panico',
+      // [NOVO] Modo dos robôs escolhido no painel (automático, só pânico ou desligados); sem escolha, vale ROBOS_MODO.
+      arquivoModoRobos: env('ROBOS_MODO_FILE', path.join(DADOS, 'state-robos-modo.json')),
       arquivoPanico: env('RODIZIO_PANICO_FILE', path.join(DADOS, 'state-panico.json')),
       panicoPadrao: envBool('PANICO_PADRAO', true),
       // Pânico com 1 livre comum: os robôs só param quando ele está a isso de sair por ociosidade.
@@ -141,6 +143,10 @@ function carregarConfig(overrides = {}) {
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs
+      // [NOVO] Modo automático: o status da URA (termômetro ou o escolhido no painel) pesa nos robôs por livre.
+      // Calma (livres esperando muito) = mais robôs; agressiva (cliente esperando) = menos. Normal = 1.
+      robosFatorCalma: envNum('ROBOS_FATOR_CALMA', 1.3),
+      robosFatorAgressiva: envNum('ROBOS_FATOR_AGRESSIVA', 0.7),
       // Com 1 livre só na URA, no máximo estes robôs (dois clientes juntos = callback). 0 = sem teto.
       robosMaxComUmLivre: envNum('ROBOS_MAX_COM_1_LIVRE', 6),
       // Cada callback (cliente desistiu da fila: webhook tipo 5) baixa um degrau de robôs

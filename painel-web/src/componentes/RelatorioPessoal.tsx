@@ -16,7 +16,7 @@ import { AlertTriangle, BarChart3, ChevronDown, Crown, Search, Table2 } from 'lu
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { duracao, horaCurta, limiteDaPausa, minutos } from '../formatos';
 import type { AtendenteDoDia } from '../tipos';
-import { Cartao, Segmentado, Vazio } from '../ui/base';
+import { Cartao, Segmentado, useAberto, Vazio } from '../ui/base';
 import { useFlip } from '../ui/flip';
 import { TabelaAtendentes } from './TabelaAtendentes';
 
@@ -127,6 +127,8 @@ function Detalhe({ a, limites }: { a: AtendenteDoDia; limites: Record<string, nu
 
 export function RelatorioPessoal({ lista, limites = {} }: { lista: AtendenteDoDia[] | undefined; limites?: Record<string, number> }) {
   const [visao, setVisao] = useState<'barras' | 'tabela'>('barras');
+  // Os números da equipe ficam sempre à vista; o por atendente abre quando pedido (lembra a escolha).
+  const [verDetalhe, setVerDetalhe] = useAberto('relatorio-pessoal', false);
   const [ordem, setOrdem] = useState<Ordem>('atendimentos');
   const [busca, setBusca] = useState('');
   const [soEstouro, setSoEstouro] = useState(false);
@@ -182,8 +184,10 @@ export function RelatorioPessoal({ lista, limites = {} }: { lista: AtendenteDoDi
       extra={(
         <>
           <span className="hidden sm:inline">{todos.length} atendente(s) · só o tempo na URA</span>
-          <Segmentado rotulo="Visão do relatório" valor={visao} aoMudar={setVisao}
-            opcoes={[{ valor: 'barras', texto: 'Barras' }, { valor: 'tabela', texto: 'Tabela' }]} />
+          {verDetalhe && (
+            <Segmentado rotulo="Visão do relatório" valor={visao} aoMudar={setVisao}
+              opcoes={[{ valor: 'barras', texto: 'Barras' }, { valor: 'tabela', texto: 'Tabela' }]} />
+          )}
         </>
       )}
     >
@@ -198,8 +202,13 @@ export function RelatorioPessoal({ lista, limites = {} }: { lista: AtendenteDoDi
               nota={equipe.estouros ? `${equipe.comEstouro} atendente(s)` : 'ninguém passou do limite'} />
           </div>
 
-          {visao === 'tabela' ? <TabelaAtendentes lista={todos} /> : (
-            <>
+          <button type="button" onClick={() => setVerDetalhe(!verDetalhe)} aria-expanded={verDetalhe}
+            className="mb-1 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 py-2 text-sm font-medium text-azul-600 hover:border-azul-400 hover:bg-azul-50 dark:border-noite-600 dark:text-azul-300 dark:hover:bg-noite-800">
+            <ChevronDown className={clsx('size-4 transition-transform motion-reduce:transition-none', verDetalhe && 'rotate-180')} aria-hidden />
+            {verDetalhe ? 'Esconder o detalhe por atendente' : `Ver por atendente (${todos.length})`}
+          </button>
+          {!verDetalhe ? null : visao === 'tabela' ? <div className="mt-3"><TabelaAtendentes lista={todos} /></div> : (
+            <div className="mt-3">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <label className="relative min-w-48 flex-1">
                   <span className="sr-only">Buscar atendente</span>
@@ -278,12 +287,12 @@ export function RelatorioPessoal({ lista, limites = {} }: { lista: AtendenteDoDi
                   })}
                 </ul>
               ) : <Vazio>Ninguém com esse filtro.</Vazio>}
-            </>
+            </div>
           )}
-          <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          {verDetalhe && <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             {visao === 'barras' ? <BarChart3 className="size-3.5" aria-hidden /> : <Table2 className="size-3.5" aria-hidden />}
             Clique num atendente para ver as pausas por tipo e o detalhe. Conta só o tempo no grupo da URA, de hoje.
-          </p>
+          </p>}
         </>
       )}
     </Cartao>

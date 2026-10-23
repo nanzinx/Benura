@@ -10,9 +10,13 @@
  *
  * Quem está ligado é lido da Argus (sincronizar, a cada atualização de grupos)
  * e atualizado a cada comando que dá certo.
+ *
+ * [NOVO] Ordem fixa, como a supervisão faz à mão (domain/rodizio.ordenarRobos):
+ * liga em ordem crescente (OPER VIRTUAL 1, 2… e os DTMF no fim), um após o outro,
+ * e reduz do último para o primeiro, pulando quem está em ligação.
  */
 
-const { Classe, classificarStatus, escolherParaDesligar, jaEstavaDeslogado } = require('../domain/rodizio');
+const { Classe, classificarStatus, escolherParaDesligar, jaEstavaDeslogado, ordenarRobos } = require('../domain/rodizio');
 const { esperar } = require('../utils/http-client');
 const { mapearComLimite } = require('../utils/concorrencia');
 
@@ -22,7 +26,6 @@ const CARENCIA_COMANDO_MS = 15_000;
 /** Avisa no máximo uma vez nesse intervalo sobre robôs mexidos por fora. */
 const INTERVALO_AVISO_FORA_MS = 5 * 60_000;
 const ESPERA_ENTRE_TENTATIVAS_MS = 500;
-const LIGAR_EM_PARALELO = 5;
 
 class ControleRobos {
   /**
@@ -47,6 +50,15 @@ class ControleRobos {
     this.ultimoAvisoForaEm = 0;
     /** último "mantidos em ligação" logado (evita repetir a cada ciclo) */
     this.ultimoMantidos = null;
+    /** [NOVO] ramal → nome do robô (do statusoperador): dá a ordem "OPER VIRTUAL 1, 2…" */
+    this.nomes = new Map();
+    /** [NOVO] modo dos robôs agora (o rodízio troca pela escolha do painel) */
+    this.modoAtual = () => this.cfg.robosModo;
+  }
+
+  /** [NOVO] Os ramais na ordem de ligar (a de desligar é a inversa). */
+  emOrdem(ramais) {
+    return ordenarRobos(ramais, (r) => this.nomes.get(String(r)) ?? null);
   }
 
   /** Para a regra de decisão. */
@@ -76,7 +88,7 @@ class ControleRobos {
    */
   conferirMudancasPorFora(esperados, lidos, agora = Date.now()) {
     if (this.cfg.dryRun) return; // em DRY_RUN nada muda de verdade: a diferença é esperada
-    if (this.cfg.robosModo === 'panico') return; // no modo pânico, quem liga os robôs é a supervisão
+    if (['panico', 'desligados'].includes(this.modoAtual())) return; // fora do automático, quem liga os robôs é a supervisão
     const recente = (r) => agora - (this.ultimoComando.get(r) || 0) < CARENCIA_COMANDO_MS;
     const ligadosFora = [...lidos].filter((r) => !esperados.has(r) && !recente(r));
     const desligadosFora = [...esperados].filter((r) => !lidos.has(r) && !recente(r));
@@ -93,7 +105,9 @@ class ControleRobos {
 
   async lerClasse(ramal) {
     try {
-      return { ramal, classe: classificarStatus(await this.client.statusOperador(ramal), this.cfg.descricoesStatus) };
+      const status = await this.client.statusOperador(ramal);
+      if (status?.nome) this.nomes.set(String(ramal), String(status.nome).trim());
+      return { ramal, classe: classificarStatus(status, this.cfg.descricoesStatus) };
     } catch {
       return { ramal, classe: Classe.ERRO };
     }
@@ -124,7 +138,9 @@ class ControleRobos {
 
   /** Desliga o excesso sobre `alvo`, só entre os robôs que não estão em ligação. */
   async reduzirPoupando(alvo, motivo) {
-    const ligados = await Promise.all([...(this.ligados || [])].map((r) => this.lerClasse(r)));
+    // Do último para o primeiro da ordem: os primeiros da lista são os últimos a sair.
+    const emOrdemDeSaida = this.emOrdem([...(this.ligados || [])]).reverse();
+    const ligados = await Promise.all(emOrdemDeSaida.map((r) => this.lerClasse(r)));
     const excesso = ligados.length - alvo;
     if (excesso <= 0) return undefined;
 
@@ -210,12 +226,13 @@ class ControleRobos {
     const ligados = this.ligados || new Set();
     const faltam = alvo - ligados.size;
     const degrau = this.cfg.degrauSubida > 0 ? Math.min(faltam, this.cfg.degrauSubida) : faltam;
-    const candidatos = ramais.map(String).filter((r) => !ligados.has(r)).slice(0, degrau);
+    // Os próximos da ordem crescente que ainda não estão ligados, um após o outro (como à mão).
+    const candidatos = this.emOrdem(ramais).filter((r) => !ligados.has(r)).slice(0, degrau);
     if (!candidatos.length) return;
     this.ultimoAumento = Date.now();
 
-    const resultados = await mapearComLimite(candidatos, LIGAR_EM_PARALELO, (r) => this.logar(r));
-    const ok = candidatos.filter((_, i) => resultados[i]);
+    const ok = [];
+    for (const r of candidatos) if (await this.logar(r)) ok.push(r);
     this.ligados = new Set([...ligados, ...ok]);
     const resto = alvo - this.ligados.size;
     this.log.info(`ROBÔS AUMENTADOS para ${alvo} (${motivo}): +${ok.length}/${candidatos.length} | ligados agora: ${this.ligados.size}`

@@ -1,6 +1,6 @@
 import { clsx } from 'clsx';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { LoaderCircle } from 'lucide-react';
+import { useId, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { ChevronDown, Info, LoaderCircle } from 'lucide-react';
 
 type Variante = 'primario' | 'perigo' | 'secundario' | 'fantasma';
 
@@ -89,4 +89,85 @@ export function Segmentado<T extends string>({ opcoes, valor, aoMudar, rotulo }:
 
 export function Esqueleto({ className }: { className?: string }) {
   return <span className={clsx('inline-block animate-pulse rounded bg-slate-200 dark:bg-noite-800', className)} aria-hidden />;
+}
+
+/** [NOVO] Lembra se um bloco está aberto (por navegador). Sem acesso ao armazenamento, só não lembra. */
+export function useAberto(chave: string | undefined, padrao: boolean): [boolean, (v: boolean) => void] {
+  const ler = () => {
+    if (!chave) return padrao;
+    try {
+      const v = localStorage.getItem(`benura:aberto:${chave}`);
+      return v == null ? padrao : v === '1';
+    } catch {
+      return padrao;
+    }
+  };
+  const [aberto, setAberto] = useState(ler);
+  const mudar = (v: boolean) => {
+    setAberto(v);
+    if (!chave) return;
+    try { localStorage.setItem(`benura:aberto:${chave}`, v ? '1' : '0'); } catch { /* sem armazenamento */ }
+  };
+  return [aberto, mudar];
+}
+
+/**
+ * [NOVO] Cartão que abre e fecha: o título e um resumo ficam sempre à vista; o conteúdo
+ * só quando aberto. Lembra a escolha (`chave`).
+ */
+export function Recolhivel({ titulo, resumo, extra, children, chave, abertoPadrao = false, className, id }: {
+  titulo: ReactNode; resumo?: ReactNode; extra?: ReactNode; children: ReactNode; chave?: string; abertoPadrao?: boolean; className?: string; id?: string;
+}) {
+  const [aberto, setAberto] = useAberto(chave, abertoPadrao);
+  const idConteudo = useId();
+  return (
+    <section id={id} className={clsx('cartao min-w-0', className)}>
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <button type="button" onClick={() => setAberto(!aberto)} aria-expanded={aberto} aria-controls={idConteudo}
+          className="group inline-flex cursor-pointer items-center gap-2 text-left">
+          <ChevronDown className={clsx('size-4 text-slate-400 transition-transform duration-200 group-hover:text-azul-600 motion-reduce:transition-none', !aberto && '-rotate-90')} aria-hidden />
+          <h2 className="text-base font-semibold">{titulo}</h2>
+        </button>
+        {extra && <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500 dark:text-slate-400">{extra}</div>}
+      </header>
+      {resumo && <div className="mt-3">{resumo}</div>}
+      {aberto && <div id={idConteudo} className="mt-4 animate-entrar">{children}</div>}
+    </section>
+  );
+}
+
+/** [NOVO] "ⓘ Como funciona": a explicação longa só quando pedida. */
+export function ComoFunciona({ children, texto = 'Como funciona' }: { children: ReactNode; texto?: string }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <div className="text-sm">
+      <button type="button" onClick={() => setAberto((a) => !a)} aria-expanded={aberto}
+        className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-azul-600 hover:underline dark:text-azul-300">
+        <Info className="size-4" aria-hidden />{texto}
+        <ChevronDown className={clsx('size-3.5 transition-transform motion-reduce:transition-none', aberto && 'rotate-180')} aria-hidden />
+      </button>
+      {aberto && (
+        <div className="mt-2 grid animate-entrar gap-1.5 rounded-lg bg-slate-50 px-3 py-2.5 leading-relaxed text-slate-700 dark:bg-noite-800/60 dark:text-slate-300">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** [NOVO] Mostra só os primeiros `limite` itens, com "ver todos (N)". */
+export function VerMais<T>({ itens, limite, render, chave }: { itens: T[]; limite: number; render: (itens: T[]) => ReactNode; chave?: string }) {
+  const [todos, setTodos] = useAberto(chave ? `todos:${chave}` : undefined, false);
+  const visiveis = todos ? itens : itens.slice(0, limite);
+  return (
+    <>
+      {render(visiveis)}
+      {itens.length > limite && (
+        <button type="button" onClick={() => setTodos(!todos)}
+          className="mt-2 w-full cursor-pointer rounded-lg py-1.5 text-sm font-medium text-azul-600 hover:bg-azul-50 dark:text-azul-300 dark:hover:bg-noite-800">
+          {todos ? 'Mostrar menos' : `Ver todos (${itens.length})`}
+        </button>
+      )}
+    </>
+  );
 }

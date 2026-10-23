@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
 import { api, type ComandoUra, type PedidoAcao } from './api';
-import type { ResultadoRetomada, ResultadoTransferencia, StatusDaUra } from './tipos';
+import type { ModoRobos, ResultadoRetomada, ResultadoTransferencia, StatusDaUra } from './tipos';
 import { useRetorno } from './ui/retorno';
 
 /** "Ao vivo" ou pausado (o botão do topo). */
@@ -176,6 +176,26 @@ export function useAcaoOperador() {
       }
       if (p.acao === 'liberar' && r.estavaTravado === false) texto = `${quem} não estava travado`;
       avisar('ok', `${r.simulado ? '[Simulação] ' : ''}${texto}.`);
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
+  });
+}
+
+const TEXTO_MODO: Record<ModoRobos, string> = {
+  automatico: 'Robôs no automático: o BenURA liga e desliga conforme os livres.',
+  panico: 'Robôs em "só pânico": a supervisão liga pela Argus e o BenURA só desliga no pânico.',
+  desligados: 'Robôs desligados: os parados saem agora e os em ligação ao terminar. O resto da automação segue.',
+};
+
+/** [NOVO] Modo dos robôs (automático, só pânico ou desligados). */
+export function useModoRobos() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: api.modoRobos,
+    onSuccess: (r) => {
+      avisar('ok', r.mudou === false ? 'Já estava assim.' : TEXTO_MODO[r.modo]);
       cliente.invalidateQueries({ queryKey: ['visao'] });
     },
     onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),

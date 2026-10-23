@@ -17,6 +17,8 @@ const ACOES = Object.freeze([
   // [NOVO] status da URA (manual ou automático), métricas do dia e "Alocar Todos no Ativo"
   { metodo: 'PUT', caminho: '/api/ura/status', servico: 'rodizio', destino: '/ura/status', nome: 'mudar o status da URA', comQuem: true, limiteBytes: 1024 },
   { metodo: 'GET', caminho: '/api/metricas/hoje', servico: 'rodizio', destino: '/metricas/hoje' },
+  // [NOVO] modo dos robôs: automático, só pânico ou desligados
+  { metodo: 'PUT', caminho: '/api/robos/modo', servico: 'rodizio', destino: '/robos/modo', nome: 'mudar o modo dos robôs', comQuem: true, limiteBytes: 1024 },
   {
     metodo: 'POST', caminho: '/api/operadores/transferir-ura-ativo', servico: 'rodizio', destino: '/operadores/transferir-ura-ativo',
     nome: 'alocar todos da URA no Ativo', comQuem: true, limiteBytes: 1024, timeoutMs: 60_000,
