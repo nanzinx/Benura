@@ -195,22 +195,29 @@ test('[NOVO] receptivo: sem tempoStatus da Argus, o livre usa o que o rodízio m
   assert.ok(Math.abs(Date.now() - new Date(ura['204'].statusDesde).getTime() - 40_000) < 1000);
 });
 
-test('[NOVO] ociosidade: logo depois de subir, o livre já na URA conta pelo tempoStatus; quem o BenURA moveu conta do zero', async () => {
+test('[NOVO] ociosidade pelo tempoStatus da Argus: leitura que pisca não zera; atender zera', async () => {
   const { svc } = montar();
-  const status = { idGrupo: 7, descricaoStatus: 'Livre', tempoStatus: 4 * 60_000, nome: 'Eva' };
-  svc.lerStatus = async () => ({ classe: Classe.LIVRE, status });
-  svc.statusUra.delete('201');
-  await svc.atualizarStatusUra('201');
-  assert.ok(Math.abs(Date.now() - svc.statusUra.get('201').livreDesde - 4 * 60_000) < 1000, 'reinício não zera os 4 min livres');
-
-  // Movido pelo BenURA agora: já tem leitura (OUTRO), o tempo livre no Ativo não entra.
-  svc.statusUra.set('205', { classe: Classe.OUTRO, ts: Date.now() });
-  await svc.atualizarStatusUra('205');
-  assert.ok(Date.now() - svc.statusUra.get('205').livreDesde < 1000);
-
-  // Fora da subida (BenURA no ar há mais de 1 min): quem aparece na URA conta do zero.
-  svc.iniciadoEm = Date.now() - 5 * 60_000;
-  svc.statusUra.delete('206');
+  let lido = { classe: Classe.LIVRE, status: { idGrupo: 7, descricaoStatus: 'Livre', tempoStatus: 3 * 60_000, nome: 'Eva' } };
+  svc.lerStatus = async () => lido;
   await svc.atualizarStatusUra('206');
-  assert.ok(Date.now() - svc.statusUra.get('206').livreDesde < 1000);
+  assert.ok(Math.abs(Date.now() - svc.statusUra.get('206').livreDesde - 3 * 60_000) < 1000, 'livre há 3 min pela Argus');
+  assert.equal(svc.deveDevolver('206', Date.now()), true, 'passou do limite: sai');
+
+  // Uma leitura "deslogado" no meio não zera: a próxima volta com o tempo da Argus.
+  lido = { classe: Classe.OFFLINE, status: null };
+  await svc.atualizarStatusUra('206');
+  lido = { classe: Classe.LIVRE, status: { idGrupo: 7, descricaoStatus: 'Livre', tempoStatus: 3 * 60_000 + 5000 } };
+  await svc.atualizarStatusUra('206');
+  assert.equal(svc.deveDevolver('206', Date.now()), true);
+
+  // Atendeu: a Argus zera o tempo do status, e a contagem recomeça.
+  lido = { classe: Classe.LIVRE, status: { idGrupo: 7, descricaoStatus: 'Livre', tempoStatus: 2000 } };
+  await svc.atualizarStatusUra('206');
+  assert.equal(svc.deveDevolver('206', Date.now()), false);
+
+  // Sem tempoStatus da Argus: conta desde a primeira leitura livre.
+  lido = { classe: Classe.LIVRE, status: { idGrupo: 7, descricaoStatus: 'Livre' } };
+  svc.statusUra.delete('207');
+  await svc.atualizarStatusUra('207');
+  assert.ok(Date.now() - svc.statusUra.get('207').livreDesde < 1000);
 });

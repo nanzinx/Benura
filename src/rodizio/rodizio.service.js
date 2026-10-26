@@ -42,9 +42,6 @@ const AVISO_SEM_WEBHOOK_MS = 60 * 60_000;
 /** [NOVO] Operador virtual (robô) pelo nome da Argus: "OPER VIRT…" (ex.: "Oper Virtual 7"). */
 const ehOperadorVirtual = (nome) => /^oper\s*virt/i.test(String(nome || '').trim());
 
-/** [NOVO] Ao subir, o tempo livre de quem já estava na URA vem da Argus (um reinício não zera a ociosidade). */
-const SUBINDO_MS = 60_000;
-
 /**
  * [NOVO] Desde quando o operador está no status, para o painel: o tempoStatus da Argus (o mesmo
  * "Tempo" da tela dela, inclusive para livre); sem ele, o que o rodízio mediu.
@@ -390,15 +387,14 @@ class RodizioService {
     const dentroDaCarencia = anterior?.doWebhook && Date.now() - anterior.ts < this.cfg.carenciaWebhookMs;
     if (classe === Classe.LIVRE && dentroDaCarencia) return;
 
-    // Tempo ocioso: conta desde que ficou Livre; qualquer outro status zera.
+    // [NOVO] Tempo ocioso pelo tempoStatus da Argus (o "Tempo" da tela dela): uma leitura que pisca
+    // não zera, e atender zera porque o status da Argus muda. Sem ele, desde a primeira leitura livre.
     const agora = Date.now();
     const detalhe = lido.status ? this.detalheDoStatus(lido.status, agora) : null;
-    // [NOVO] Logo depois de subir, sem leitura anterior: o tempo livre vem da Argus. Quem o
-    // BenURA move para a URA já tem leitura (OUTRO) e conta do zero.
-    const subindo = !anterior && agora - this.iniciadoEm < SUBINDO_MS && detalhe?.statusDesde != null;
-    const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? (subindo ? detalhe.statusDesde : agora)) : undefined;
+    const daArgus = detalhe?.statusDesde ?? null;
+    const livreDesde = classe === Classe.LIVRE ? (daArgus ?? anterior?.livreDesde ?? agora) : undefined;
     // [NOVO] Preso no grupo antigo, mas livre na telefonia: não conta para os robôs, e o tempo ocioso corre igual.
-    const presoLivreDesde = preso && lido.classe === Classe.LIVRE ? (anterior?.presoLivreDesde ?? agora) : undefined;
+    const presoLivreDesde = preso && lido.classe === Classe.LIVRE ? (daArgus ?? anterior?.presoLivreDesde ?? agora) : undefined;
     const offlineDesde = classe === Classe.OFFLINE ? (anterior?.offlineDesde ?? agora) : undefined;
     const emCarencia = agora - (this.trocouEm.get(ramal) ?? -Infinity) < (this.cfg.carenciaTrocaMs ?? 0);
     if (classe === Classe.ATENDIMENTO && anterior?.classe !== Classe.ATENDIMENTO) {
@@ -545,7 +541,14 @@ class RodizioService {
   }
 
   async devolverAoAtivo(ramal) {
-    await this.moverParaAtivo(ramal);
+    const r = await this.moverParaAtivo(ramal);
+    // [NOVO] Passou do tempo e não saiu: diz por quê (uma vez, até conseguir).
+    this.naoSaiu ??= new Set();
+    if (r.ok) this.naoSaiu.delete(ramal);
+    else if (!this.semGrupoAvisados.has(ramal) && !this.naoSaiu.has(ramal)) { // sem grupo já tem o aviso dele
+      this.naoSaiu.add(ramal);
+      this.log.aviso(`Ramal ${ramal} passou do tempo livre na URA, mas não voltou ao Ativo: ${r.erro}.`);
+    }
   }
 
   /**
