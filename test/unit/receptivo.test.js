@@ -117,7 +117,7 @@ test('receptivo: uraAgora traz pausa, desde quando no status e virtual; métrica
   const ura = Object.fromEntries(svc.uraAgora().map((u) => [u.ramal, u]));
   assert.equal(ura['202'].pausa, 'ALMOÇO');
   assert.ok(Date.now() - new Date(ura['202'].statusDesde).getTime() >= 70 * 60_000 - 1000, 'tempoStatus da Argus');
-  assert.ok(Date.now() - new Date(ura['201'].statusDesde).getTime() >= 90_000 - 1000, 'livre: desde que ficou livre');
+  assert.ok(Math.abs(Date.now() - new Date(ura['201'].statusDesde).getTime() - 60_000) < 1000, '[NOVO] livre também pelo tempoStatus da Argus (não pelo relógio do rodízio)');
   assert.deepEqual([ura['900'].virtual, ura['201'].virtual, ura['201'].fixo], [true, false, true]);
   assert.equal(ura['203'].pausa, null);
   assert.ok(svc.resumo().pausasLimitesMin['almoço'] === 60);
@@ -186,4 +186,31 @@ test('[NOVO] retenção gravada em arquivo: um reinício continua pausado', asyn
   assert.equal(b.carregar().ativa, true);
   assert.equal(await a.desligar(), true);
   assert.deepEqual(gravado, { ativa: false, desde: null, por: null });
+});
+
+test('[NOVO] receptivo: sem tempoStatus da Argus, o livre usa o que o rodízio mediu', () => {
+  const { svc } = montar();
+  svc.statusUra.get('204').detalhe.statusDesde = null;
+  const ura = Object.fromEntries(svc.uraAgora().map((u) => [u.ramal, u]));
+  assert.ok(Math.abs(Date.now() - new Date(ura['204'].statusDesde).getTime() - 40_000) < 1000);
+});
+
+test('[NOVO] ociosidade: logo depois de subir, o livre já na URA conta pelo tempoStatus; quem o BenURA moveu conta do zero', async () => {
+  const { svc } = montar();
+  const status = { idGrupo: 7, descricaoStatus: 'Livre', tempoStatus: 4 * 60_000, nome: 'Eva' };
+  svc.lerStatus = async () => ({ classe: Classe.LIVRE, status });
+  svc.statusUra.delete('201');
+  await svc.atualizarStatusUra('201');
+  assert.ok(Math.abs(Date.now() - svc.statusUra.get('201').livreDesde - 4 * 60_000) < 1000, 'reinício não zera os 4 min livres');
+
+  // Movido pelo BenURA agora: já tem leitura (OUTRO), o tempo livre no Ativo não entra.
+  svc.statusUra.set('205', { classe: Classe.OUTRO, ts: Date.now() });
+  await svc.atualizarStatusUra('205');
+  assert.ok(Date.now() - svc.statusUra.get('205').livreDesde < 1000);
+
+  // Fora da subida (BenURA no ar há mais de 1 min): quem aparece na URA conta do zero.
+  svc.iniciadoEm = Date.now() - 5 * 60_000;
+  svc.statusUra.delete('206');
+  await svc.atualizarStatusUra('206');
+  assert.ok(Date.now() - svc.statusUra.get('206').livreDesde < 1000);
 });
