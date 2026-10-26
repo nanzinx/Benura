@@ -19,7 +19,7 @@ const DICAS = {
   tor: 'TOR — Tempo Ocioso sem Robô: tempo com alguém livre na URA e todos os robôs desligados (o que o pânico custa).',
   tme: 'TME — Tempo Médio de Espera: quanto, em média, o operador livre espera por uma ligação.',
   tpa: 'TPA — Tempo de Pânico Ativo: tempo em que o BenURA estava desligando ou reduzindo os robôs (0 livre, último livre saindo ou 1 fixo livre).',
-  leads: 'Leads atendidos por operador: ligações da URA que chegaram aos humanos (derivações) na hora.',
+  leads: 'Leads derivados: ligações dos robôs que a Argus derivou para um humano (o "Derivou" da Argus), na hora da ligação.',
   status: 'Status da URA ao longo do dia: clique para ver quanto tempo ela passou em cada um.',
 };
 
@@ -118,7 +118,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
         <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={r.transbordos ?? '–'} destaque={transbordos ? 'perigo' : undefined} nota={notaTransbordos} />
         <Numero rotulo="TOR" dica={DICAS.tor} valor={minutos(r.ociosoSemRobosMin)} destaque={r.ociosoSemRobosMin >= 15 ? 'alerta' : undefined}
           nota="ocioso sem robô" />
-        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(r.esperaPorDerivacaoSeg)} nota={`${r.derivacoes} lead(s) atendido(s) · ${minutos(r.livresMin)} livres`} />
+        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(r.esperaPorDerivacaoSeg)} nota={`${minutos(r.livresMin)} livres`} />
         <Numero rotulo="TPA" dica={DICAS.tpa} valor={minutos(panicoTotal)} nota={`pânico ativo · ${vezes} vez(es)`} />
         <div className="col-span-2 md:col-span-1"><StatusDoDia r={r} atual={statusAtual} /></div>
       </div>
@@ -128,7 +128,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
           <table className="tabela">
             <thead><tr>
               <th>Hora</th>
-              <th className="text-right"><abbr title={DICAS.leads} className="cursor-help no-underline">Leads Atend.</abbr></th>
+              <th className="text-right"><abbr title={DICAS.leads} className="cursor-help no-underline">Leads derivados</abbr></th>
               <th className="text-right"><abbr title={DICAS.tme} className="cursor-help no-underline">TME</abbr></th>
               <th className="text-right"><abbr title={DICAS.tor} className="cursor-help no-underline">TOR</abbr></th>
               <th className="text-right"><abbr title={DICAS.tpa} className="cursor-help no-underline">TPA</abbr></th>
@@ -141,7 +141,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
               return (
                 <tr key={x.hora} className={clsx(maisOciosa && 'bg-amarelo-100/60 dark:bg-amber-950/30')}>
                   <td className="numero whitespace-nowrap font-semibold">{x.hora}h{maisOciosa && <span className="ml-2 rounded-md bg-amarelo-500 px-1.5 py-0.5 text-[11px] font-bold text-marinho-950">mais ociosa</span>}</td>
-                  <td className="numero text-right">{x.derivacoes}</td>
+                  <td className="numero text-right">{x.leadsDerivados ?? 0}</td>
                   <td className="numero text-right">{duracao(x.esperaPorDerivacaoSeg)}</td>
                   <td className="numero text-right">{minutos(x.ociosoSemRobosMin)}</td>
                   <td className="numero text-right">{minutos(x.panicoMin)}</td>
@@ -153,7 +153,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
             {/* [NOVO] Total do dia (00:00 até agora), com os mesmos números dos quadros de cima. */}
             <tfoot><tr className="border-t-2 border-slate-300 font-bold dark:border-noite-600">
               <td className="numero whitespace-nowrap">Total</td>
-              <td className="numero text-right">{r.derivacoes}</td>
+              <td className="numero text-right">{r.leadsDerivados ?? 0}</td>
               <td className="numero text-right">{duracao(r.esperaPorDerivacaoSeg)}</td>
               <td className="numero text-right">{minutos(r.ociosoSemRobosMin)}</td>
               <td className="numero text-right">{minutos(panicoTotal)}</td>
