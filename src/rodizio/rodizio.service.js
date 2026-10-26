@@ -42,9 +42,16 @@ const AVISO_SEM_WEBHOOK_MS = 60 * 60_000;
 /** [NOVO] Operador virtual (robô) pelo nome da Argus: "OPER VIRT…" (ex.: "Oper Virtual 7"). */
 const ehOperadorVirtual = (nome) => /^oper\s*virt/i.test(String(nome || '').trim());
 
-/** [NOVO] Desde quando o operador está no status: livre e offline pelo que o rodízio mediu; o resto pelo tempoStatus da Argus. */
+/** [NOVO] Ao subir, o tempo livre de quem já estava na URA vem da Argus (um reinício não zera a ociosidade). */
+const SUBINDO_MS = 60_000;
+
+/**
+ * [NOVO] Desde quando o operador está no status, para o painel: o tempoStatus da Argus (o mesmo
+ * "Tempo" da tela dela, inclusive para livre); sem ele, o que o rodízio mediu.
+ */
 function desdeDoStatus(s) {
-  const desde = s?.classe === Classe.LIVRE ? s.livreDesde : s?.classe === Classe.OFFLINE ? s.offlineDesde : s?.detalhe?.statusDesde;
+  const medido = s?.classe === Classe.LIVRE ? s.livreDesde : s?.classe === Classe.OFFLINE ? s.offlineDesde : null;
+  const desde = s?.detalhe?.statusDesde ?? medido;
   return desde != null ? new Date(desde).toISOString() : null;
 }
 
@@ -385,12 +392,15 @@ class RodizioService {
 
     // Tempo ocioso: conta desde que ficou Livre; qualquer outro status zera.
     const agora = Date.now();
-    const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? agora) : undefined;
+    const detalhe = lido.status ? this.detalheDoStatus(lido.status, agora) : null;
+    // [NOVO] Logo depois de subir, sem leitura anterior: o tempo livre vem da Argus. Quem o
+    // BenURA move para a URA já tem leitura (OUTRO) e conta do zero.
+    const subindo = !anterior && agora - this.iniciadoEm < SUBINDO_MS && detalhe?.statusDesde != null;
+    const livreDesde = classe === Classe.LIVRE ? (anterior?.livreDesde ?? (subindo ? detalhe.statusDesde : agora)) : undefined;
     // [NOVO] Preso no grupo antigo, mas livre na telefonia: não conta para os robôs, e o tempo ocioso corre igual.
     const presoLivreDesde = preso && lido.classe === Classe.LIVRE ? (anterior?.presoLivreDesde ?? agora) : undefined;
     const offlineDesde = classe === Classe.OFFLINE ? (anterior?.offlineDesde ?? agora) : undefined;
     const emCarencia = agora - (this.trocouEm.get(ramal) ?? -Infinity) < (this.cfg.carenciaTrocaMs ?? 0);
-    const detalhe = lido.status ? this.detalheDoStatus(lido.status, agora) : null;
     if (classe === Classe.ATENDIMENTO && anterior?.classe !== Classe.ATENDIMENTO) {
       this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null, ramal);
     }
