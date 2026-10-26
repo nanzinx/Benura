@@ -150,6 +150,16 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
                 </tr>
               );
             })}</tbody>
+            {/* [NOVO] Total do dia (00:00 até agora), com os mesmos números dos quadros de cima. */}
+            <tfoot><tr className="border-t-2 border-slate-300 font-bold dark:border-noite-600">
+              <td className="numero whitespace-nowrap">Total</td>
+              <td className="numero text-right">{r.derivacoes}</td>
+              <td className="numero text-right">{duracao(r.esperaPorDerivacaoSeg)}</td>
+              <td className="numero text-right">{minutos(r.ociosoSemRobosMin)}</td>
+              <td className="numero text-right">{minutos(panicoTotal)}</td>
+              <td className="numero text-right">{minutos(r.termometroMin.calma)}</td>
+              <td className={clsx('numero text-right', transbordos && 'text-red-700 dark:text-red-400')}>{transbordos}</td>
+            </tr></tfoot>
           </table>
         </div>
       ) : <Vazio>Nada medido ainda hoje.</Vazio>}
