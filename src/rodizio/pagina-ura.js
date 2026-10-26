@@ -39,7 +39,7 @@ const PAGINA_URA = `<!doctype html>
 <body>
 <main>
   <h1>URA cheia</h1>
-  <p class="sub">Quando pedirem todo mundo na URA, e para ajustar os robôs por livre. O BenURA continua cuidando dos robôs (proporcionais aos livres), da telefonia e da regra do ocioso.</p>
+  <p class="sub">Quando pedirem a URA cheia (quem atender no Ativo sobe, sem olhar meta), e para ajustar os robôs por livre. O BenURA continua cuidando dos robôs (proporcionais aos livres), da telefonia e da regra do ocioso.</p>
 
   <div class="faixa" id="faixaRisco" hidden>
     <div>CLIENTE DE RISCO EM LIGAÇÃO COM ROBÔ</div>
@@ -107,8 +107,8 @@ const PAGINA_URA = `<!doctype html>
 
   <div class="cartao">
     <ul>
-      <li><b>Colocar todos na URA</b>: em até 5 s, todos os operadores dos grupos do Ativo vão para a URA, atendendo ou não.</li>
-      <li>A regra do ocioso continua valendo: quem ficar livre 3 min seguidos na URA volta ao Ativo, e volta à URA quando atender lá (mesmo sem ter batido a meta).</li>
+      <li><b>Ligar a URA cheia</b>: qualquer operador do Ativo que atender uma ligação sobe para a URA, mesmo sem ter batido a meta. Ninguém sobe só por estar no Ativo.</li>
+      <li>A regra do ocioso continua valendo: quem ficar livre 2 min seguidos na URA volta ao Ativo, e volta à URA quando atender lá.</li>
       <li>Quem está em ligação só passa a receber da URA quando ficar livre (a discadora troca a telefonia com atraso).</li>
       <li><b>Voltar ao normal</b>: só sobe para a URA quem é elegível (meta de ontem, venda hoje ou fixo).</li>
       <li>Vale até desligar ou até virar o dia.</li>
@@ -117,7 +117,7 @@ const PAGINA_URA = `<!doctype html>
       <label>Token (WEBHOOK_TOKEN, se configurado): <input type="password" id="token" autocomplete="off"></label>
     </div>
     <div class="linha">
-      <button id="ligar">Colocar todos na URA</button>
+      <button id="ligar">Ligar a URA cheia</button>
       <button id="desligar" class="secundario">Voltar ao normal</button>
       <span id="situacao"></span>
     </div>
@@ -207,7 +207,7 @@ const PAGINA_URA = `<!doctype html>
   });
 
   $('ligar').addEventListener('click', () => {
-    if (!confirm('Colocar todos os operadores do Ativo na URA?')) return;
+    if (!confirm('Ligar a URA cheia? Quem atender no Ativo sobe para a URA.')) return;
     uraCheia('POST', 'Ligando…', (c) => (c.mudou ? 'Ligada. Os operadores vão para a URA em até 5 s.' : 'Já estava ligada.'));
   });
 
