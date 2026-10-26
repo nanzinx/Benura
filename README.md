@@ -200,7 +200,7 @@ src/utils/                         HTTP com retry, persistência atômica, trava
    - Sem a lista do dia (roteador desligado, carga adiada porque o Carrossel falhou, arquivo de outro dia), **só os fixos** (`OPERADORES_FIXOS_URA` e `EQUIPES_FIXAS_URA`) sobem, e o log avisa uma vez. Quem não bateu meta nem vendeu não vai para a URA por falta de informação; para pôr todo mundo, use a URA cheia.
    - O `/health` mostra `elegiveisUra: { disponivel, total }`. Para voltar a girar todos sempre: `RODIZIO_SO_ELEGIVEIS=0`.
 2. **URA → Ativo**: **qualquer** humano do RECEPTIVO - URA **ocioso (Livre) há `TEMPO_MIN` minutos seguidos** (padrão **2**) volta ao Ativo, **sem exceção**: nem o último livre, nem na URA cheia.
-   Atender uma ligação (ou entrar em pausa) zera a contagem, como a coluna "Tempo" do painel.
+   [NOVO] O tempo livre é o `tempoStatus` da Argus (o "Tempo" da tela dela), não um relógio do BenURA: atender uma ligação ou entrar em pausa zera, uma leitura que pisca não. Quem passa do tempo e não volta ao Ativo (transferência recusada) aparece no log com o motivo.
    - **[NOVO] Com a URA cheia ligada, o limite é `URA_CHEIA_TEMPO_MIN`** (**2 min**).
    - **[NOVO] Prioridade por tempo de casa** (ramal menor = mais antigo):
      - **sobe primeiro**, na URA cheia, no rodízio e no "Retomar";
