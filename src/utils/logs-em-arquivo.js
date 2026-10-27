@@ -154,7 +154,7 @@ function ativarLogsEmArquivo(cfg, servico, extras = {}) {
     pasta: cfg.logs.pasta,
     fuso: cfg.agenda.fusoHorario,
     dias: cfg.logs.dias,
-    segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token],
+    segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.notificacoes?.webhook?.url, cfg.notificacoes?.webhook?.token],
     ...extras,
   });
 }

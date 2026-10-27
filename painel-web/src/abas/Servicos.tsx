@@ -10,6 +10,7 @@ import type { Servico, Visao } from '../tipos';
 import { Cartao, Esqueleto, Segmentado, Selo, Vazio } from '../ui/base';
 import { GerenciarUsuarios } from '../componentes/Usuarios';
 import { ConfiguracaoEmUso } from '../componentes/ConfiguracaoEmUso';
+import { AvisosBenhub } from '../componentes/AvisosBenhub';
 import { CartaoDoisPcs } from '../componentes/DoisPcs';
 import { semAcesso, usePode } from '../sessao';
 
@@ -160,6 +161,7 @@ export function Servicos() {
       {v?.doisPcs && <CartaoDoisPcs v={v} />}
       {v ? <Cartoes v={v} /> : <Esqueleto className="mb-5 h-32 w-full" />}
       {admin && <GerenciarUsuarios />}
+      {admin && v && <AvisosBenhub v={v} />}
       {admin && <ConfiguracaoEmUso />}
       {v && <Simulacao v={v} />}
       <Avisos />

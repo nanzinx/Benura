@@ -9,6 +9,8 @@
  *  - Às 08:00 só religa o que ela mesma desligou: desligada à mão fica desligada
  *    (e no PC reserva, que fica desligado, ela não liga nada).
  *  - Sem horário no .env, não faz nada.
+ *  - [NOVO] Antes de desligar, aoFimDoDia() (o resumo do dia para o BenHub), com o rodízio
+ *    ainda no ar. Se ele falhar, desliga do mesmo jeito.
  */
 
 const { dataLocal, horaLocal, diaDaSemanaLocal } = require('../utils/datas');
@@ -33,9 +35,10 @@ class AgendaAutomacao {
    * @param {{ estado(): { estado: string, por: string|null }, desligar(por: string): object, religar(por: string): object,
    *          prepararParaAgir?(por: string): Promise<{ ok: boolean, motivo?: string }> }} deps.automacao
    * @param {{ desligarAs: string, religarAs: string, fuso: string }} deps.cfg
+   * @param {() => Promise<void>} [deps.aoFimDoDia] - [NOVO] logo antes do desligamento das 18:00
    */
-  constructor({ automacao, cfg, logger, agora = Date.now }) {
-    Object.assign(this, { automacao, cfg, log: logger, agora });
+  constructor({ automacao, cfg, logger, agora = Date.now, aoFimDoDia = null }) {
+    Object.assign(this, { automacao, cfg, log: logger, agora, aoFimDoDia });
     this.feitas = new Set(); // "AAAA-MM-DD desligar|religar"
   }
 
@@ -50,7 +53,7 @@ class AgendaAutomacao {
     const dia = dataLocal(fuso, agora);
     const hora = horaLocal(fuso, agora);
     const util = DIAS_UTEIS.includes(diaDaSemanaLocal(fuso, agora));
-    if (util && this.cfg.desligarAs && naHora(hora, this.cfg.desligarAs)) this.uma(`${dia} desligar`, () => this.desligar());
+    if (util && this.cfg.desligarAs && naHora(hora, this.cfg.desligarAs)) return this.uma(`${dia} desligar`, () => this.desligar());
     if (util && this.cfg.religarAs && naHora(hora, this.cfg.religarAs)) return this.uma(`${dia} religar`, () => this.religar());
     return undefined;
   }
@@ -63,6 +66,15 @@ class AgendaAutomacao {
   }
 
   desligar() {
+    if (this.automacao.estado().estado !== 'ligada') return undefined;
+    if (!this.aoFimDoDia) return this.desligarJa();
+    return Promise.resolve()
+      .then(() => this.aoFimDoDia())
+      .catch((e) => this.log.aviso(`Agenda: o resumo do dia não saiu (${e.message}).`))
+      .then(() => this.desligarJa());
+  }
+
+  desligarJa() {
     if (this.automacao.estado().estado !== 'ligada') return;
     const r = this.automacao.desligar(POR_AGENDA);
     this.log.aviso(r.iniciado ? `Agenda: desligando a automação (${this.cfg.desligarAs}).` : `Agenda: não deu para desligar a automação (${r.motivo}).`);

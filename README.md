@@ -180,7 +180,7 @@ src/repositories/                  estado diário, exceções de ramal, auditori
 src/rodizio/                       rodízio Ativo ↔ URA e robôs
 src/retorno-fila/                  retorno de quem desistiu da fila
 src/rotinas/                       rotinas diárias (fim de expediente)
-src/notificacoes/                  avisos (log)
+src/notificacoes/                  avisos (log e, [NOVO], webhook do BenHub)
 src/atualizador/                   deploy automático
 src/utils/                         HTTP com retry, persistência atômica, trava de processo, laços periódicos
 ```
@@ -501,6 +501,12 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 - No log: `Agenda: desligando a automação (18:00)` e `Agenda: religando a automação (08:00)`. Para não ter agenda, deixe as duas variáveis vazias no `.env`.
 
 **[NOVO] Configuração em uso (aba Serviços, só administrador):** cada opção que o BenURA leu do `.env`, o valor em uso e o padrão. "Só as que mudei" mostra o que difere do padrão. Os avisos da configuração aparecem no topo. Senhas e tokens aparecem só como "definido" ou "vazio". A leitura é de quando o painel subiu: mudou o `.env`, rode `npx pm2 restart all`.
+
+**[NOVO] Avisos (BenHub) (aba Serviços, só administrador):** o painel avisa quando um serviço (roteador, rodízio ou rotinas) fica **mais de 5 min fora do ar** e quando ele volta, e manda o **resumo do dia às 18:00**, logo antes de a agenda desligar: Transbordos, Leads derivados, TME, OPL, TOR e TPA, com o dia anterior e a média de 7 dias.
+- Os avisos ficam sempre no log de hoje (`logs/notificacoes.jsonl`).
+- Com `NOTIFICADOR=webhook`, `NOTIFICACOES_WEBHOOK_URL` e `NOTIFICACOES_WEBHOOK_TOKEN`, também vão para o BenHub (ou qualquer webhook). É um `POST` em JSON `{ titulo, texto, nivel, origem: "BenURA", em }` com `Authorization: Bearer <token>`. Pedido ao BenHub: a rota `POST /api/notificacoes`.
+- Não avisam: o atualizador, a automação desligada ou mudando de estado, e o PC que não está agindo de verdade (o reserva ou a simulação). Assim os dois PCs não avisam em dobro.
+- **Testar envio** manda um aviso de teste e diz se chegou. A URL e o token não aparecem no painel nem nos logs.
 
 **Modo simulação (aba Serviços):** liga ou desliga o DRY_RUN sem editar o `.env`. Simulação ligada: o BenURA continua lendo a Argus e mostrando o que faria, mas não move ninguém nem mexe nos robôs.
 - **Como vale:** a escolha fica em `SIMULACAO_FILE` (`state-simulacao.json`) e os três serviços reiniciam em seguida (`npx pm2 startOrRestart`), porque o DRY_RUN é lido quando cada um sobe.

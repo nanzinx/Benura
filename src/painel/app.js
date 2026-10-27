@@ -24,6 +24,9 @@ const { AgendaAutomacao } = require('./agenda-automacao');
 const { Trava } = require('./trava');
 const { Parceiro } = require('./parceiro');
 const { criarExecutor } = require('../atualizador/executor');
+const { criarNotificador } = require('../notificacoes');
+const { textoDoResumo } = require('../notificacoes/resumo-do-dia');
+const { VigiaSaude } = require('./vigia-saude');
 
 /** Monta as dependências (nada é iniciado aqui). */
 function montarPainel(overrides) {
@@ -54,8 +57,12 @@ function montarPainel(overrides) {
     cfg: { ...cfg.automacao, dryRunPeloEnv: cfg.argus.dryRunPeloEnv }, servicos, executar: criarExecutor({ cwd: cfg.atualizador.diretorio, logger: log }), logger: log,
     trava, parceiro,
   });
+  // [NOVO] Avisos (log ou BenHub): serviço fora do ar, resumo das 18:00 e o "Testar envio".
+  const notificador = criarNotificador({ cfg, logger: log });
+  const vigiaSaude = new VigiaSaude({ servicos, automacao, notificador, fuso: cfg.agenda.fusoHorario, logger: log });
   const servidor = criarServidorDoPainel({
     sessoes,
+    notificador,
     servicos,
     automacao,
     trava,
@@ -65,8 +72,23 @@ function montarPainel(overrides) {
     configuracao: retratoDaConfiguracao(cfg),
     logger: log,
   });
-  const agenda = new AgendaAutomacao({ automacao, cfg: { ...cfg.automacao.agenda, fuso: cfg.agenda.fusoHorario }, logger: log });
-  return { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda };
+  const agenda = new AgendaAutomacao({
+    automacao, cfg: { ...cfg.automacao.agenda, fuso: cfg.agenda.fusoHorario }, logger: log,
+    aoFimDoDia: () => enviarResumoDoDia({ servicos, automacao, notificador, log }),
+  });
+  return { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda, vigiaSaude, notificador };
+}
+
+/** [NOVO] Às 18:00, antes de a agenda desligar: o relatório do dia (do rodízio, ainda no ar) vira aviso. */
+async function enviarResumoDoDia({ servicos, automacao, notificador, log }) {
+  if (!automacao.agindoDeVerdade()) return; // o reserva ou a simulação: quem manda é o PC que age
+  const r = await servicos.chamar('rodizio', '/health');
+  const relatorio = r.status === 200 ? r.corpo?.relatorio : null;
+  if (!relatorio) {
+    log.aviso('Resumo do dia: o rodízio não respondeu com o relatório; não saiu.');
+    return;
+  }
+  await notificador.notificar({ titulo: 'BenURA: resumo do dia', texto: textoDoResumo(relatorio), nivel: 'info' });
 }
 
 const ESCOPOS = ['roteador', 'rodizio', 'rotinas', 'atualizador', 'painel'];
@@ -93,8 +115,11 @@ function retratoDaConfiguracao(cfg) {
 }
 
 async function iniciarPainel() {
-  const { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda } = montarPainel();
-  ativarLogsEmArquivo(cfg, 'painel', { segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha, cfg.painel.proxySegredo, cfg.trava.segredo, cfg.trava.segredoLocal, cfg.trava.accessSegredo] });
+  const { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda, vigiaSaude } = montarPainel();
+  ativarLogsEmArquivo(cfg, 'painel', {
+    segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha, cfg.painel.proxySegredo, cfg.trava.segredo, cfg.trava.segredoLocal, cfg.trava.accessSegredo,
+      cfg.notificacoes.webhook.url, cfg.notificacoes.webhook.token],
+  });
   // Sem usuários nem senha o painel sobe assim mesmo (avisa na tela): o atualizador pode reiniciá-lo sem risco.
   validarConfig(cfg, { escopo: 'painel' }).avisos.forEach((a) => log.aviso(a));
   if (!sessoes.configurada) log.aviso('Nenhum usuário do painel ainda: rode "npm run usuarios -- criar" neste PC (ou coloque PAINEL_SENHA no .env para entrar uma vez e criar pelo painel).');
@@ -104,8 +129,9 @@ async function iniciarPainel() {
   const lacoTrava = trava.iniciar(() => ({ deveAgir: automacao.agindoDeVerdade(), ocupado: Boolean(automacao.andamento) }));
   const lacoParceiro = parceiro.iniciar();
   const lacoAgenda = agenda.iniciar();
+  const lacoSaude = vigiaSaude.iniciar();
   if (trava.ativa) log.info(`Dois PCs: este é o PC "${trava.nome}"; trava em ${cfg.trava.url}${parceiro.ativo ? `, outro PC em ${cfg.trava.parceiroUrl}` : ' (sem o outro PC configurado: os usuários não são copiados)'}.`);
-  registrarDesligamento({ logger: log, etapas: [() => lacoTrava.parar(), () => lacoParceiro.parar(), () => lacoAgenda.parar(), () => fecharServidor(servidor)] });
+  registrarDesligamento({ logger: log, etapas: [() => lacoTrava.parar(), () => lacoParceiro.parar(), () => lacoAgenda.parar(), () => lacoSaude.parar(), () => fecharServidor(servidor)] });
   log.info(`Painel da supervisão no ar: http://localhost:${cfg.painel.porta} (na rede: http://<IP deste PC>:${cfg.painel.porta}).`);
 }
 

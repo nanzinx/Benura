@@ -271,7 +271,12 @@ export interface Visao {
   automacao?: EstadoAutomacao;
   /** [NOVO] dois PCs (servidor e reserva); null sem a trava configurada */
   doisPcs?: DoisPcs | null;
+  /** [NOVO] para onde vão os avisos (log ou webhook do BenHub); sem o endereço */
+  notificacoes?: { tipo: 'log' | 'webhook'; destino: 'log' | 'definido' } | null;
 }
+
+/** [NOVO] POST /api/notificacoes/testar */
+export interface ResultadoTesteAviso { ok: boolean; destino: 'log' | 'webhook'; erro?: string }
 
 /** [NOVO] A trava dos dois PCs (só um age de verdade na Argus) e o outro PC, pela rede. */
 export interface DoisPcs {

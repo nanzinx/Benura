@@ -15,6 +15,7 @@
  *   GET  /api/visao         saúde dos serviços + rodízio + alertas (a cada 5 s)
  *   GET  /api/dia           linha do tempo, callbacks e avisos do dia (logs)
  *   GET  /api/configuracao  [NOVO] só administrador: opções lidas do .env e o padrão de cada (sem segredos)
+ *   POST /api/notificacoes/testar [NOVO] só administrador: manda um aviso de teste (log ou BenHub)
  *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
  *   POST /api/simulacao     { ligada } — botão "Modo simulação" (DRY_RUN)
  *   *    /api/rodizio/...   comandos da lista ACOES (servicos.js), levados com o token
@@ -184,7 +185,7 @@ function conferirOrigemDoPedido(req, origensPermitidas = []) {
  * @param {object} deps.logger
  * @returns {http.Server}
  */
-function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger, trava = null, parceiro = null, configuracao = null }) {
+function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger, trava = null, parceiro = null, configuracao = null, notificador = null }) {
   const estaticos = Object.fromEntries(fs.readdirSync(PUBLICO).filter((nome) => TIPOS[path.extname(nome)]).map((nome) => [
     nome === 'index.html' ? '/' : `/${nome}`, { tipo: TIPOS[path.extname(nome)], conteudo: fs.readFileSync(path.join(PUBLICO, nome)) },
   ]));
@@ -282,6 +283,8 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
       corpo: {
         agora: agora.toISOString(), servicos: saude, argus, alertas: alertas.status === 200 ? alertas.corpo : null, automacao: automacao.estado(),
         doisPcs: trava?.ativa ? { trava: trava.resumo(), parceiro: parceiro?.resumo() ?? { ativo: false } } : null,
+        // [NOVO] para onde vão os avisos (sem o endereço)
+        notificacoes: notificador?.descricao?.() ?? null,
       },
     };
   }
@@ -336,6 +339,17 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     if (pathname === '/api/usuarios' || pathname === '/api/usuarios/senha') return rotaDeUsuarios(req, pathname, sessao);
     if (req.method === 'GET' && pathname === '/api/visao') return visao();
     if (req.method === 'GET' && pathname === '/api/dia') return { status: 200, corpo: dados.resumo() };
+    if (req.method === 'POST' && pathname === '/api/notificacoes/testar') {
+      exigir(sessao, 'administrador');
+      conferirOrigem(req);
+      if (!notificador) throw new ErroPainel(404, 'Avisos indisponíveis.');
+      const quem = quemPediu(req, sessao.usuario);
+      // Para fora vai só o nome (sem e-mail nem endereço); o log do painel guarda quem foi.
+      const nome = sessao.usuario.emergencia ? 'o acesso de emergência' : sessao.usuario.nome;
+      const r = await notificador.notificar({ titulo: 'BenURA: teste de aviso', texto: `Teste pedido por ${nome} no painel. Se chegou, os avisos do BenURA estão funcionando.`, nivel: 'info' });
+      logger.info(`Painel: teste de aviso por ${quem} — ${r.ok ? `enviado (${r.destino})` : `falhou (${r.erro})`}.`);
+      return { status: 200, corpo: r };
+    }
     if (req.method === 'GET' && pathname === '/api/configuracao') {
       exigir(sessao, 'administrador');
       if (!configuracao) throw new ErroPainel(404, 'Configuração em uso indisponível.');

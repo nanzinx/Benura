@@ -319,6 +319,12 @@ function carregarConfig(overrides = {}) {
   cfg.notificacoes = {
     tipo: env('NOTIFICADOR', 'log'),
     arquivo: env('NOTIFICACOES_FILE', path.join(DADOS, 'logs', 'notificacoes.jsonl')),
+    // [NOVO] NOTIFICADOR=webhook: POST { titulo, texto, nivel, origem, em } aqui (ex.: o BenHub), com o token
+    webhook: {
+      url: env('NOTIFICACOES_WEBHOOK_URL', ''),
+      token: env('NOTIFICACOES_WEBHOOK_TOKEN', ''),
+      timeoutMs: envNum('NOTIFICACOES_WEBHOOK_TIMEOUT_MS', 5000),
+    },
   };
 
   // --- Rotinas diárias (rotinas.js / benura-rotinas) ---
@@ -478,6 +484,10 @@ function validarPainel(cfg) {
   const senha = cfg.painel.senha || '';
   const t = cfg.trava;
   if (t.url && !t.segredo) avisos.push('TRAVA_URL sem TRAVA_SEGREDO: a trava dos dois PCs vai recusar o pedido.');
+  const n = cfg.notificacoes;
+  if (n.tipo === 'webhook' && !n.webhook.url) avisos.push('NOTIFICADOR=webhook sem NOTIFICACOES_WEBHOOK_URL: os avisos ficam só no log.');
+  if (n.webhook.url && !/^https:\/\//.test(n.webhook.url)) avisos.push('NOTIFICACOES_WEBHOOK_URL sem https: o token iria aberto pela rede.');
+  if (n.webhook.url && n.tipo !== 'webhook') avisos.push('NOTIFICACOES_WEBHOOK_URL preenchida, mas NOTIFICADOR não é "webhook": os avisos ficam só no log.');
   if (t.url && !/^https:\/\//.test(t.url)) avisos.push('TRAVA_URL: use o endereço https do Pages, ex.: https://benura.benconsig.com.br/trava');
   if (t.parceiroUrl && !t.segredoLocal) avisos.push('TRAVA_PARCEIRO_URL sem TRAVA_SEGREDO_LOCAL: os usuários e o estado do dia não são copiados do outro PC.');
   if (t.segredoLocal && t.segredoLocal.length < 32) avisos.push('TRAVA_SEGREDO_LOCAL curto demais: use 32 caracteres ou mais.');
@@ -565,7 +575,8 @@ function validarAtualizador(cfg, fataisGerais) {
   return { fatais, avisos: [] };
 }
 
-const ehSegredo = (nome) => /TOKEN|SEGREDO|SENHA|SECRET|CLIENT_ID/.test(nome) && !/_FILE$/.test(nome);
+// Endereço de webhook também: o de chat (Slack, Teams...) leva o segredo no caminho.
+const ehSegredo = (nome) => /TOKEN|SEGREDO|SENHA|SECRET|CLIENT_ID|WEBHOOK_URL/.test(nome) && !/_FILE$/.test(nome);
 const oculto = (v) => (v ? 'definido' : 'vazio');
 // Endereço com usuário e senha (https://usuario:senha@host): a senha não sai.
 const semCredencial = (v) => v.replace(/^([a-z][\w+.-]*:\/\/)[^@/\s]+@/i, '$1***@');
