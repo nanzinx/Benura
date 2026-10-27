@@ -1023,6 +1023,7 @@ flowchart LR
   - Antes de recarregar, roda `npm test` na própria máquina; depois, espera o `/health` dos serviços. Qualquer falha volta ao commit anterior.
   - **[NOVO] Com a automação desligada** (pela agenda, à noite, ou pelo botão), atualiza o código e só recarrega o painel. Roteador, rodízio e rotinas sobem com o código novo no "Religar" (às 08:00, pela agenda).
   - Não atualiza se houver alteração local em arquivo versionado ou se a cópia local divergiu da `main`.
+  - [NOVO] **Nunca espera resposta:** roda o git sem a faxina automática (`-c gc.auto=0`), com a entrada fechada e `GIT_ASK_YESNO=false`. Assim ele não fica preso num "Unlink of file ... failed. Should I try again? (y/n)" do Git for Windows. No PC do servidor, para o `git pull` à mão não perguntar isso, rode uma vez na pasta do BenURA `git config gc.auto 0`. De vez em quando, faça a faxina com os serviços parados: `npx pm2 stop all`, `git gc`, `npx pm2 start all`.
   - Histórico em `logs/deploy.jsonl`; estado em `GET http://localhost:3002/health`.
 
 ### Configuração única no GitHub (precisa de admin do repositório)
