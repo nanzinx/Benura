@@ -394,6 +394,12 @@ function carregarConfig(overrides = {}) {
     arquivoRetencao: env('RETENCAO_ATIVO_FILE', path.join(DADOS, 'state-retencao-ativo.json')),
     // [NOVO] quem a supervisão mexeu à mão pelo painel: o rodízio e o roteador respeitam até liberar (ou virar o dia)
     arquivoTravas: env('TRAVAS_MANUAIS_FILE', path.join(DADOS, 'state-travas-manuais.json')),
+    // [NOVO] Agenda: o painel desliga a automação a esta hora e religa àquela, de segunda a sexta
+    // (vazio = sem agenda). Só religa o que ela mesma desligou.
+    agenda: {
+      desligarAs: env('AGENDA_DESLIGAR', '18:00'),
+      religarAs: env('AGENDA_RELIGAR', '08:00'),
+    },
   };
 
   // --- Retorno de quem desistiu da fila da URA (dentro do benura-rodizio) ---

@@ -20,6 +20,7 @@ const { Servicos } = require('./servicos');
 const { DadosDoDia } = require('./dados-do-dia');
 const { criarServidorDoPainel } = require('./servidor');
 const { ControleAutomacao } = require('./automacao');
+const { AgendaAutomacao } = require('./agenda-automacao');
 const { Trava } = require('./trava');
 const { Parceiro } = require('./parceiro');
 const { criarExecutor } = require('../atualizador/executor');
@@ -63,11 +64,12 @@ function montarPainel(overrides) {
     cfg: { fuso: cfg.agenda.fusoHorario, origensPermitidas: p.origensPermitidas, proxySegredo: p.proxySegredo },
     logger: log,
   });
-  return { cfg, log, servidor, sessoes, trava, parceiro, automacao };
+  const agenda = new AgendaAutomacao({ automacao, cfg: { ...cfg.automacao.agenda, fuso: cfg.agenda.fusoHorario }, logger: log });
+  return { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda };
 }
 
 async function iniciarPainel() {
-  const { cfg, log, servidor, sessoes, trava, parceiro, automacao } = montarPainel();
+  const { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda } = montarPainel();
   ativarLogsEmArquivo(cfg, 'painel', { segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha, cfg.painel.proxySegredo, cfg.trava.segredo, cfg.trava.segredoLocal, cfg.trava.accessSegredo] });
   // Sem usuários nem senha o painel sobe assim mesmo (avisa na tela): o atualizador pode reiniciá-lo sem risco.
   validarConfig(cfg, { escopo: 'painel' }).avisos.forEach((a) => log.aviso(a));
@@ -77,8 +79,9 @@ async function iniciarPainel() {
   await escutar(servidor, cfg.painel.porta);
   const lacoTrava = trava.iniciar(() => ({ deveAgir: automacao.agindoDeVerdade(), ocupado: Boolean(automacao.andamento) }));
   const lacoParceiro = parceiro.iniciar();
+  const lacoAgenda = agenda.iniciar();
   if (trava.ativa) log.info(`Dois PCs: este é o PC "${trava.nome}"; trava em ${cfg.trava.url}${parceiro.ativo ? `, outro PC em ${cfg.trava.parceiroUrl}` : ' (sem o outro PC configurado: os usuários não são copiados)'}.`);
-  registrarDesligamento({ logger: log, etapas: [() => lacoTrava.parar(), () => lacoParceiro.parar(), () => fecharServidor(servidor)] });
+  registrarDesligamento({ logger: log, etapas: [() => lacoTrava.parar(), () => lacoParceiro.parar(), () => lacoAgenda.parar(), () => fecharServidor(servidor)] });
   log.info(`Painel da supervisão no ar: http://localhost:${cfg.painel.porta} (na rede: http://<IP deste PC>:${cfg.painel.porta}).`);
 }
 
