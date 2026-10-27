@@ -22,11 +22,14 @@ const ESTADOS_TERMOMETRO = ['medindo', 'calma', 'normal', 'agressiva'];
 const FORA_DOS_TRANSBORDOS = ['sem agente'];
 
 const zerados = (chaves) => Object.fromEntries(chaves.map((k) => [k, 0]));
-const hora = () => ({ livresMs: 0, derivacoes: 0, ociosoSemRobosMs: 0, panicoMs: 0, calmaMs: 0, agressivaMs: 0, leadsDerivados: 0, transbordos: 0 });
+const hora = () => ({ livresMs: 0, derivacoes: 0, esperaSomaMs: 0, esperaQtd: 0, ociosoSemRobosMs: 0, panicoMs: 0, calmaMs: 0, agressivaMs: 0, leadsDerivados: 0, transbordos: 0 });
 const diaNovo = (dia) => ({
   dia,
   livresMs: 0,
   derivacoes: 0,
+  // [NOVO] TME: tempo livre de cada operador antes de cada ligação (soma e quantidade)
+  esperaSomaMs: 0,
+  esperaQtd: 0,
   ociosoSemRobosMs: 0,
   panicoMs: zerados(TIPOS_PANICO),
   panicoVezes: zerados(TIPOS_PANICO),
@@ -207,10 +210,20 @@ class EstatisticasDia {
     return this.estado.porRamal[ramal];
   }
 
-  /** @param {string} [ramal] - [NOVO] quem atendeu (relatório por atendente) */
-  registrarDerivacao(agora, ramal = null) {
-    this.doDia(agora).derivacoes += 1;
+  /**
+   * @param {string} [ramal] - [NOVO] quem atendeu (relatório por atendente)
+   * @param {number|null} [esperaMs] - [NOVO] há quanto tempo estava livre (o "Tempo" da Argus): entra no TME
+   */
+  registrarDerivacao(agora, ramal = null, esperaMs = null) {
+    const h = this.doDia(agora);
+    h.derivacoes += 1;
     this.estado.derivacoes += 1;
+    if (Number.isFinite(esperaMs) && esperaMs >= 0) {
+      for (const alvo of [h, this.estado]) {
+        alvo.esperaSomaMs = (alvo.esperaSomaMs ?? 0) + esperaMs;
+        alvo.esperaQtd = (alvo.esperaQtd ?? 0) + 1;
+      }
+    }
     if (ramal) this.atendenteDe(String(ramal)).atendimentos += 1;
   }
 
@@ -266,12 +279,15 @@ class EstatisticasDia {
   resumo() {
     const e = this.estado;
     const porDerivacao = (livresMs, derivacoes) => (derivacoes ? Math.round(livresMs / derivacoes / 1000) : null);
+    const tme = (x) => (x.esperaQtd ? Math.round(x.esperaSomaMs / x.esperaQtd / 1000) : null);
     const mapa = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, minutos(v)]));
     return {
       dia: e.dia,
       livresMin: minutos(e.livresMs),
       derivacoes: e.derivacoes,
+      // OPL (Ociosidade Por Lead): tempo livre somado ÷ ligações. TME: espera de cada um antes da ligação.
       esperaPorDerivacaoSeg: porDerivacao(e.livresMs, e.derivacoes),
+      tmeSeg: tme(e),
       ociosoSemRobosMin: minutos(e.ociosoSemRobosMs),
       panicoMin: mapa(e.panicoMs),
       panicoVezes: { ...e.panicoVezes },
@@ -288,6 +304,9 @@ class EstatisticasDia {
         livresMin: minutos(v.livresMs),
         derivacoes: v.derivacoes,
         esperaPorDerivacaoSeg: porDerivacao(v.livresMs, v.derivacoes),
+        tmeSeg: tme(v),
+        esperaSomaSeg: Math.round((v.esperaSomaMs ?? 0) / 1000),
+        esperaQtd: v.esperaQtd ?? 0,
         ociosoSemRobosMin: minutos(v.ociosoSemRobosMs),
         panicoMin: minutos(v.panicoMs),
         calmaMin: minutos(v.calmaMs),

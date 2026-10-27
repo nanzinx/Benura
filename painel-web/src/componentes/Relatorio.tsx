@@ -17,7 +17,8 @@ const CORES_TERMOMETRO: Record<EstadoTermometro, string> = {
 const DICAS = {
   transbordos: 'Transbordos: os callbacks (o "Gerou Callback" da Argus): o cliente pediu um humano, esperou na fila e desistiu ou estourou o tempo, de 00:00 até agora.',
   tor: 'TOR — Tempo Ocioso sem Robô: tempo com alguém livre na URA e todos os robôs desligados (o que o pânico custa).',
-  tme: 'TME — Tempo Médio de Espera: quanto, em média, o operador livre espera por uma ligação.',
+  tme: 'TME — Tempo Médio de Espera: quanto tempo, em média, cada operador ficou livre (o "Tempo" da Argus) antes de receber uma ligação.',
+  opl: 'OPL — Ociosidade Por Lead: o tempo livre de todos somado, dividido pelas ligações que chegaram aos humanos. Alto = gente demais livre para as ligações.',
   tpa: 'TPA — Tempo de Pânico Ativo: tempo em que o BenURA estava desligando ou reduzindo os robôs (0 livre, último livre saindo ou 1 fixo livre).',
   leads: 'Leads derivados: ligações dos robôs que a Argus derivou para um humano (o "Derivou" da Argus), na hora da ligação.',
   status: 'Status da URA ao longo do dia: clique para ver quanto tempo ela passou em cada um.',
@@ -96,7 +97,7 @@ function BarraTermometro({ r }: { r: RelatorioDoDia }) {
   );
 }
 
-/** Relatório do dia: transbordos, TOR, TME, TPA e o status da URA, também por hora. */
+/** Relatório do dia: transbordos, TOR, TME, OPL, TPA e o status da URA, também por hora. */
 export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undefined; statusAtual?: EstadoTermometro | null }) {
   if (!r) {
     return <Cartao titulo="Relatório do dia" className="mb-5"><Vazio>O relatório aparece quando o rodízio estiver rodando.</Vazio></Cartao>;
@@ -109,7 +110,9 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
   const ociosoTotal = soma((h) => h.ociosoSemRobosMin);
   const livresTotal = soma((h) => h.livresMin);
   const derivacoesTotal = soma((h) => h.derivacoes);
-  const tmeTotal = derivacoesTotal ? Math.round((livresTotal * 60) / derivacoesTotal) : null;
+  const oplTotal = derivacoesTotal ? Math.round((livresTotal * 60) / derivacoesTotal) : null;
+  const esperaQtdTotal = soma((h) => h.esperaQtd ?? 0);
+  const tmeTotal = esperaQtdTotal ? Math.round(soma((h) => h.esperaSomaSeg ?? 0) / esperaQtdTotal) : null;
   const calmaTotal = soma((h) => h.calmaMin);
   const vezes = r.panicoVezes.zero + r.panicoVezes.saindo + r.panicoVezes.fixo;
   const transbordos = r.transbordos ?? 0;
@@ -121,11 +124,12 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
 
   return (
     <Cartao titulo="Relatório do dia" extra={<span>hoje, no expediente, hora a hora</span>} className="mb-5">
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={r.transbordos ?? '–'} destaque={transbordos ? 'perigo' : undefined} nota={notaTransbordos} />
         <Numero rotulo="TOR" dica={DICAS.tor} valor={minutos(ociosoTotal)} destaque={ociosoTotal >= 15 ? 'alerta' : undefined}
           nota="ocioso sem robô" />
-        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(tmeTotal)} nota={`${minutos(livresTotal)} livres`} />
+        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(tmeTotal)} nota={`${esperaQtdTotal} ligação(ões) medida(s)`} />
+        <Numero rotulo="OPL" dica={DICAS.opl} valor={duracao(oplTotal)} nota={`${minutos(livresTotal)} livres`} />
         <Numero rotulo="TPA" dica={DICAS.tpa} valor={minutos(panicoTotal)} nota={`pânico ativo · ${vezes} vez(es)`} />
         <div className="col-span-2 md:col-span-1"><StatusDoDia r={r} atual={statusAtual} /></div>
       </div>
@@ -137,6 +141,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
               <th>Hora</th>
               <th className="text-right"><abbr title={DICAS.leads} className="cursor-help no-underline">Leads derivados</abbr></th>
               <th className="text-right"><abbr title={DICAS.tme} className="cursor-help no-underline">TME</abbr></th>
+              <th className="text-right"><abbr title={DICAS.opl} className="cursor-help no-underline">OPL</abbr></th>
               <th className="text-right"><abbr title={DICAS.tor} className="cursor-help no-underline">TOR</abbr></th>
               <th className="text-right"><abbr title={DICAS.tpa} className="cursor-help no-underline">TPA</abbr></th>
               <th className="text-right">Calma</th>
@@ -149,6 +154,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
                 <tr key={x.hora} className={clsx(maisOciosa && 'bg-amarelo-100/60 dark:bg-amber-950/30')}>
                   <td className="numero whitespace-nowrap font-semibold">{x.hora}h{maisOciosa && <span className="ml-2 rounded-md bg-amarelo-500 px-1.5 py-0.5 text-[11px] font-bold text-marinho-950">mais ociosa</span>}</td>
                   <td className="numero text-right">{x.leadsDerivados ?? 0}</td>
+                  <td className="numero text-right">{duracao(x.tmeSeg ?? null)}</td>
                   <td className="numero text-right">{duracao(x.esperaPorDerivacaoSeg)}</td>
                   <td className="numero text-right">{minutos(x.ociosoSemRobosMin)}</td>
                   <td className="numero text-right">{minutos(x.panicoMin)}</td>
@@ -162,6 +168,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
               <td className="numero whitespace-nowrap">Total</td>
               <td className="numero text-right">{r.leadsDerivados ?? 0}</td>
               <td className="numero text-right">{duracao(tmeTotal)}</td>
+              <td className="numero text-right">{duracao(oplTotal)}</td>
               <td className="numero text-right">{minutos(ociosoTotal)}</td>
               <td className="numero text-right">{minutos(panicoTotal)}</td>
               <td className="numero text-right">{minutos(calmaTotal)}</td>
@@ -171,7 +178,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
         </div>
       ) : <Vazio>Nada medido ainda hoje.</Vazio>}
       <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-        <b>TOR</b>: Tempo Ocioso sem Robô · <b>TME</b>: Tempo Médio de Espera · <b>TPA</b>: Tempo de Pânico Ativo · <b>Transbordos</b>: os callbacks ("Gerou Callback" da Argus).
+        <b>TOR</b>: Tempo Ocioso sem Robô · <b>TME</b>: Tempo Médio de Espera · <b>OPL</b>: Ociosidade Por Lead · <b>TPA</b>: Tempo de Pânico Ativo · <b>Transbordos</b>: os callbacks ("Gerou Callback" da Argus).
       </p>
     </Cartao>
   );

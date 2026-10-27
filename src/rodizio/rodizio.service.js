@@ -815,7 +815,7 @@ class RodizioService {
   registrarDerivacao(agora, esperaMs = null, ramal = null) {
     this.ultimoAtendimentoUraEm = agora;
     this.termometro?.registrarDerivacao(agora, esperaMs);
-    this.estatisticas?.registrarDerivacao(agora, ramal);
+    this.estatisticas?.registrarDerivacao(agora, ramal, esperaMs);
   }
 
   /** Fim do ciclo da URA: amostra para o termômetro e o relatório do dia. */
