@@ -225,7 +225,7 @@ async function iniciarRodizio() {
   ativarLogsEmArquivo(cfg, 'rodizio');
 
   exigirConfigValida(cfg, log);
-  await aguardarAutomacaoLigada(cfg.automacao, log, 'rodízio');
+  await aguardarAutomacaoLigada(cfg.automacao, log, 'rodízio', { app: 'benura-rodizio' });
   const vigia = vigiarPosse(cfg.automacao.posse, log, 'rodízio');
   const trava = adquirirTravaOuEncerrar(cfgRodizio.arquivoTrava, log);
   rodizio.inicializar();

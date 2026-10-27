@@ -1,12 +1,12 @@
 import { clsx } from 'clsx';
-import { Search } from 'lucide-react';
-import { useState } from 'react';
-import { useDia, useSimulacao, useVisao } from '../dados';
+import { Power, PowerOff, Search } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { EFEITO_DESLIGADO, NOMES_DOS_COMPONENTES, useComponente, useDia, useSimulacao, useVisao } from '../dados';
 import { FlaskConical } from 'lucide-react';
 import { Botao } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
 import { duracao, horaCurta } from '../formatos';
-import type { Servico, Visao } from '../tipos';
+import type { Componente, Servico, Visao } from '../tipos';
 import { Cartao, Esqueleto, Segmentado, Selo, Vazio } from '../ui/base';
 import { GerenciarUsuarios } from '../componentes/Usuarios';
 import { ConfiguracaoEmUso } from '../componentes/ConfiguracaoEmUso';
@@ -14,19 +14,51 @@ import { AvisosBenhub } from '../componentes/AvisosBenhub';
 import { CartaoDoisPcs } from '../componentes/DoisPcs';
 import { semAcesso, usePode } from '../sessao';
 
-function CartaoServico({ s, linhas, opcional, parado }: { s: Servico<{ uptime?: number }>; linhas: [string, string][]; opcional?: boolean; parado?: boolean }) {
+/** [NOVO] Ligar ou desligar só este componente (administrador), com o efeito na confirmação. */
+function LigaDesliga({ v, app }: { v: Visao; app: Componente }) {
+  const mutacao = useComponente();
+  const admin = usePode('administrador');
+  const { confirmar } = useRetorno();
+  const a = v.automacao;
+  const desligado = Boolean(a?.componentes?.[app]);
+  const nome = NOMES_DOS_COMPONENTES[app];
+  const ocupado = mutacao.isPending || !['ligada', 'desligada'].includes(a?.estado ?? 'ligada');
+  const trocar = async () => {
+    const ok = await confirmar(desligado
+      ? { titulo: `Ligar o ${nome}?`, texto: a?.estado === 'desligada' ? `A automação está desligada: o ${nome} sobe quando ela for religada.` : `O ${nome} volta a funcionar em alguns segundos.`, confirmar: `Ligar o ${nome}` }
+      : { titulo: `Desligar só o ${nome}?`, texto: `${EFEITO_DESLIGADO[app]} Fica desligado (mesmo se o PC reiniciar ou a agenda religar) até alguém clicar em "Ligar".`, confirmar: `Desligar o ${nome}`, perigo: true });
+    if (ok) mutacao.mutate({ app, ligar: desligado });
+  };
+  return (
+    <Botao variante={desligado ? 'primario' : 'secundario'} className="min-h-8 justify-self-start px-3 py-1" carregando={mutacao.isPending} disabled={ocupado}
+      semAcesso={admin ? null : semAcesso('administrador')} icone={desligado ? <Power className="size-4" aria-hidden /> : <PowerOff className="size-4" aria-hidden />} onClick={trocar}>
+      {desligado ? `Ligar o ${nome}` : 'Desligar'}
+    </Botao>
+  );
+}
+
+function CartaoServico({ s, linhas, opcional, parado, desligadoAMao, acao }: {
+  s: Servico<{ uptime?: number }>; linhas: [string, string][]; opcional?: boolean; parado?: boolean;
+  desligadoAMao?: { desde: string | null; por: string | null }; acao?: ReactNode;
+}) {
   const todas: [string, string][] = [['Resposta', s.online ? `${s.ms} ms` : '–'], ['No ar há', s.dados?.uptime != null ? duracao(s.dados.uptime) : '–'], ...(s.online ? linhas : [])];
   return (
     <div className="cartao grid content-start gap-3 p-4">
       <div className="flex items-start justify-between gap-2">
         <h2 className="font-semibold">{s.nome}</h2>
-        {parado && !s.online
-          ? <Selo tom="neutro">desligado pelo painel</Selo>
+        {(parado || desligadoAMao) && !s.online
+          ? <Selo tom={desligadoAMao ? 'alerta' : 'neutro'}>desligado pelo painel</Selo>
           : <Selo tom={s.online ? 'ok' : opcional ? 'neutro' : 'perigo'} pulsar={!s.online && !opcional}>{s.online ? 'no ar' : 'fora do ar'}</Selo>}
       </div>
+      {desligadoAMao && (
+        <p className="text-xs text-amber-800 dark:text-amber-200">
+          Desligado sozinho{desligadoAMao.desde ? ` às ${horaCurta(desligadoAMao.desde)}` : ''}{desligadoAMao.por ? ` por ${desligadoAMao.por}` : ''}.
+        </p>
+      )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         {todas.map(([k, v]) => [<dt key={`${k}-t`} className="text-slate-500 dark:text-slate-400">{k}</dt>, <dd key={`${k}-d`} className="text-right tabular-nums">{v}</dd>])}
       </dl>
+      {acao}
     </div>
   );
 }
@@ -37,11 +69,15 @@ function Cartoes({ v }: { v: Visao }) {
   const argusOk = v.argus.respondendo && !v.argus.tokenRecusado;
   const ultimoCiclo = v.argus.cicloUraHaSeg == null ? '–' : `${duracao(v.argus.cicloUraHaSeg)} atrás`;
   const parado = v.automacao?.estado === 'desligada';
+  const comp = v.automacao?.componentes ?? {};
   return (
     <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <CartaoServico parado={parado} s={roteador} linhas={[['Carga do dia', roteador.dados?.cargaInicialFeita ? 'feita' : 'pendente'], ['Última leitura de vendas', horaCurta(roteador.dados?.ultimoMonitoramento)]]} />
-      <CartaoServico parado={parado} s={rodizio} linhas={[['Último ciclo da URA', ultimoCiclo], ['Modo dos robôs', r?.robos?.modo === 'panico' ? 'pânico' : 'automático'], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]} />
-      <CartaoServico parado={parado} s={rotinas} linhas={[['Última execução', horaCurta(rotinas.dados?.ultimaExecucao)]]} />
+      <CartaoServico parado={parado} desligadoAMao={comp['benura-roteador']} acao={<LigaDesliga v={v} app="benura-roteador" />} s={roteador}
+        linhas={[['Carga do dia', roteador.dados?.cargaInicialFeita ? 'feita' : 'pendente'], ['Última leitura de vendas', horaCurta(roteador.dados?.ultimoMonitoramento)]]} />
+      <CartaoServico parado={parado} desligadoAMao={comp['benura-rodizio']} acao={<LigaDesliga v={v} app="benura-rodizio" />} s={rodizio}
+        linhas={[['Último ciclo da URA', ultimoCiclo], ['Modo dos robôs', r?.robos?.modo === 'panico' ? 'pânico' : 'automático'], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]} />
+      <CartaoServico parado={parado} desligadoAMao={comp['benura-rotinas']} acao={<LigaDesliga v={v} app="benura-rotinas" />} s={rotinas}
+        linhas={[['Última execução', horaCurta(rotinas.dados?.ultimaExecucao)]]} />
       {atualizador && <CartaoServico s={atualizador} linhas={[]} opcional />}
       <div className="cartao grid content-start gap-3 p-4">
         <div className="flex items-start justify-between gap-2">

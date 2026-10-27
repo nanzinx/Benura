@@ -17,6 +17,7 @@
  *   GET  /api/configuracao  [NOVO] só administrador: opções lidas do .env e o padrão de cada (sem segredos)
  *   POST /api/notificacoes/testar [NOVO] só administrador: manda um aviso de teste (log ou BenHub)
  *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
+ *   POST /api/automacao/componente           [NOVO] { app, ligar }: roteador, rodízio ou rotinas sozinho (administrador)
  *   POST /api/simulacao     { ligada } — botão "Modo simulação" (DRY_RUN)
  *   *    /api/rodizio/...   comandos da lista ACOES (servicos.js), levados com o token
  *   PUT  /api/ura/status                      [NOVO] status da URA (manual/automático)
@@ -42,6 +43,7 @@ const path = require('path');
 const { ACOES } = require('./servicos');
 const { ErroUsuarios, NOMES_PAPEIS, podeFazer } = require('./usuarios');
 const { tokenRecusadoRecentemente, segundosDoDia } = require('../domain/painel');
+const { COMPONENTES } = require('../utils/automacao');
 
 /** A página (build do painel-web/, já no git): servida pelo nome exato, sem varrer pastas. */
 const PUBLICO = path.join(__dirname, 'publico');
@@ -370,6 +372,25 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
       const estado = automacao.estado();
       if (!ligada && estado.estado === 'ligada' && !estado.simulacao?.fixaPeloEnv) await exigirTrava(quem);
       const r = automacao.definirSimulacao(ligada, quem);
+      if (!r.iniciado) throw new ErroPainel(409, r.motivo);
+      return { status: 202, corpo: automacao.estado() };
+    }
+    if (req.method === 'POST' && pathname === '/api/automacao/componente') {
+      exigir(sessao, 'administrador');
+      conferirOrigem(req);
+      let pedido;
+      try {
+        pedido = JSON.parse(await lerCorpo(req, 1024) || '{}');
+      } catch {
+        throw new ErroPainel(400, 'JSON inválido');
+      }
+      if (!COMPONENTES.includes(pedido.app) || typeof pedido.ligar !== 'boolean') {
+        throw new ErroPainel(400, `Envie { "app": ${COMPONENTES.map((c) => `"${c}"`).join(' | ')}, "ligar": true | false }`);
+      }
+      const quem = quemPediu(req, sessao.usuario);
+      // Ligar com a automação ligada volta a agir de verdade: com os dois PCs, precisa da trava.
+      if (pedido.ligar && automacao.estado().estado === 'ligada') await exigirTrava(quem);
+      const r = pedido.ligar ? automacao.religarComponente(pedido.app, quem) : automacao.desligarComponente(pedido.app, quem);
       if (!r.iniciado) throw new ErroPainel(409, r.motivo);
       return { status: 202, corpo: automacao.estado() };
     }

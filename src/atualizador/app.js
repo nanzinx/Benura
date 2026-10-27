@@ -36,6 +36,7 @@ function montarAtualizador(overrides) {
     aguardarSaude,
     automacaoDesligada: () => lerAutomacao(cfg.automacao.arquivo).desligada,
     appsDaAutomacao: APPS_DA_AUTOMACAO,
+    appsParados: () => Object.keys(lerAutomacao(cfg.automacao.arquivo).componentes),
     relogio: {
       momento: () => ({ diaSemana: diaDaSemanaLocal(cfg.agenda.fusoHorario), hora: horaLocal(cfg.agenda.fusoHorario) }),
     },
@@ -43,6 +44,7 @@ function montarAtualizador(overrides) {
       branch: a.branch,
       apps: a.apps,
       healthUrls: a.healthUrls,
+      saudePorApp: a.saudePorApp,
       healthTimeoutMs: a.healthTimeoutMs,
       expediente: { inicio: cfg.agenda.horarioCarga, fim: cfg.agenda.horarioFim },
     },

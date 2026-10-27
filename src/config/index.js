@@ -309,6 +309,12 @@ function carregarConfig(overrides = {}) {
     apps: envLista('ATUALIZADOR_APPS', 'benura-roteador,benura-rodizio,benura-rotinas,benura-painel'),
     healthUrls: envLista('ATUALIZADOR_HEALTH_URLS', [cfg.http.porta, cfg.rodizio.porta, envNum('ROTINAS_PORT', 3003)]
       .map((p) => `http://localhost:${p}/health`).join(',')),
+    // [NOVO] o /health de cada app: com o componente desligado à mão, o deploy não espera por ele
+    saudePorApp: {
+      'benura-roteador': `http://localhost:${cfg.http.porta}/health`,
+      'benura-rodizio': `http://localhost:${cfg.rodizio.porta}/health`,
+      'benura-rotinas': `http://localhost:${envNum('ROTINAS_PORT', 3003)}/health`,
+    },
     healthTimeoutMs: envNum('ATUALIZADOR_HEALTH_TIMEOUT_MS', 30_000),
     porta: envNum('ATUALIZADOR_PORT', 3002),
     arquivoLog: env('ATUALIZADOR_LOG_FILE', path.join(DADOS, 'logs', 'deploy.jsonl')),

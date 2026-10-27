@@ -492,6 +492,18 @@ As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico
 3. **Continua desligado:** a escolha fica em `AUTOMACAO_FILE` (`state-automacao.json`). Se algum serviço subir de novo (PC reiniciado, `pm2 start all`), ele espera sem mexer na Argus até alguém religar pelo painel.
 4. **Religar:** sobe os três de novo (`npx pm2 startOrRestart`). Os robôs continuam desligados: quem liga é a supervisão, pela Argus.
 
+**[NOVO] Um componente só (cartão dele na aba Serviços, só administrador):** "Desligar" para só o roteador, só o rodízio ou só as rotinas; "Ligar o …" volta. A confirmação diz o efeito:
+- **Roteador:** ninguém é movido entre Ativo e URA pelas vendas, e a lista de quem pode ir para a URA fica parada. O rodízio e o pânico seguem.
+- **Rodízio:** sem rodízio, pânico, URA cheia, status da URA, clientes de risco e relatório do dia. Os robôs são desligados antes, porque sem o rodízio ninguém mais os desliga.
+- **Rotinas:** sem a checagem de fim de expediente.
+
+Como funciona:
+- A marca fica no mesmo `AUTOMACAO_FILE`, em `componentes`. Um arquivo antigo, sem o campo, quer dizer tudo ligado.
+- O componente desligado espera ao subir (PC reiniciado, `pm2 start all`), como na automação toda.
+- "Desligar automação" e a agenda mexem só no todo e mantêm as marcas: o "Religar" (e as 08:00) sobe só quem não foi desligado à mão.
+- O atualizador não sobe nem espera o `/health` de quem está desligado. O "Fora do ar" e os avisos ignoram esse componente, e uma faixa amarela no topo mostra quem desligou.
+- Com os três desligados, este PC solta a trava dos dois PCs.
+
 Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o caminho de emergência continua sendo `npx pm2 stop all` no PC do BenURA.
 
 **[NOVO] Agenda da automação:** de segunda a sexta, o painel desliga a automação sozinho às `AGENDA_DESLIGAR` (**18:00**) e religa às `AGENDA_RELIGAR` (**08:00**), como se alguém apertasse os botões. A noite e o fim de semana não entram no relatório do dia.

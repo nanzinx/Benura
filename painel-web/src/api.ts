@@ -1,7 +1,7 @@
 /** Cliente da API do benura-painel. Escrita leva o cabeçalho X-Painel (o servidor exige). */
 
 import type {
-  ClienteDeRisco, ConfiguracaoEmUso, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada, ResultadoTesteAviso,
+  ClienteDeRisco, Componente, ConfiguracaoEmUso, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada, ResultadoTesteAviso,
   ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao,
 } from './tipos';
 import type { Papel, UsuarioDaSessao } from './sessao';
@@ -58,6 +58,7 @@ export const api = {
   limparEsteira: () => pedir<{ apagados: number }>('DELETE', '/api/roteador/manual'),
   recarregarVendas: () => pedir<{ mensagem: string }>('POST', '/api/roteador/recarregar'),
   automacao: (ligar: boolean) => pedir<EstadoAutomacao>('POST', ligar ? '/api/automacao/religar' : '/api/automacao/desligar'),
+  componente: (app: Componente, ligar: boolean) => pedir<EstadoAutomacao>('POST', '/api/automacao/componente', { app, ligar }),
   simulacao: (ligada: boolean) => pedir<EstadoAutomacao>('POST', '/api/simulacao', { ligada }),
   testarAviso: () => pedir<ResultadoTesteAviso>('POST', '/api/notificacoes/testar'),
   // [NOVO] dois PCs: este PC pega a trava vencida do outro (ele caiu)

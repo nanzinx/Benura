@@ -18,7 +18,7 @@ test('automação: sem arquivo está ligada; desligada espera (sem tocar em nada
   await aguardarAutomacaoLigada({ arquivo }, loggerNulo, 'teste'); // ligada: volta na hora
 
   await gravarAutomacao(arquivo, { desligada: true, desde: '2026-10-21T11:00:00.000Z', por: '192.168.0.5' }, loggerNulo);
-  assert.deepEqual(lerAutomacao(arquivo), { desligada: true, desde: '2026-10-21T11:00:00.000Z', por: '192.168.0.5' });
+  assert.deepEqual(lerAutomacao(arquivo), { desligada: true, desde: '2026-10-21T11:00:00.000Z', por: '192.168.0.5', componentes: {} });
   const avisos = [];
   let esperas = 0;
   await aguardarAutomacaoLigada({ arquivo, intervaloMs: 1 }, { ...loggerNulo, aviso: (m) => avisos.push(m) }, 'rodízio', {
@@ -150,4 +150,118 @@ test('simulação pelo painel: grava e reinicia os serviços; com a automação 
   const fixa = montarControle({ dryRunPeloEnv: true });
   await gravarAutomacao(fixa.arquivoSimulacao, { ligada: true }, loggerNulo);
   assert.match(fixa.controle.definirSimulacao(false, 'x').motivo, /fixa pelo \.env/);
+});
+
+// ---------------------------------------------------------------------------
+// [NOVO] Cada componente (roteador, rodízio, rotinas) liga e desliga sozinho.
+// ---------------------------------------------------------------------------
+const { componenteAtivo } = require('../../src/utils/automacao');
+
+test('componente: arquivo antigo (sem componentes) = tudo ligado; a regra única é global E componente', async () => {
+  const arquivo = arquivoTemp();
+  await gravarAutomacao(arquivo, { desligada: false }, loggerNulo);
+  const e = lerAutomacao(arquivo);
+  assert.deepEqual(e.componentes, {});
+  assert.equal(componenteAtivo(e, 'benura-rodizio'), true);
+  assert.equal(componenteAtivo({ desligada: false, componentes: { 'benura-rodizio': { desligado: true } } }, 'benura-rodizio'), false);
+  assert.equal(componenteAtivo({ desligada: false, componentes: { 'benura-rodizio': { desligado: true } } }, 'benura-roteador'), true);
+  assert.equal(componenteAtivo({ desligada: true, componentes: {} }, 'benura-roteador'), false);
+});
+
+test('componente: desligar o rodízio desliga os robôs antes e para só ele; religar sobe só ele', async () => {
+  const { controle, chamadas, arquivo, terminar } = montarControle({ ligadosPorChamada: [0] });
+  assert.deepEqual(controle.desligarComponente('benura-rodizio', 'ana@e.com'), { iniciado: true });
+  await terminar();
+  assert.deepEqual(chamadas, ['rodizio /automacao/encerrar-robos {"derrubar":false}', '$ npx pm2 stop benura-rodizio']);
+  const e = controle.estado();
+  assert.equal(e.estado, 'ligada', 'a automação continua ligada');
+  assert.equal(e.componentes['benura-rodizio'].desligado, true);
+  assert.equal(e.componentes['benura-rodizio'].por, 'ana@e.com');
+  assert.equal(controle.desligarComponente('benura-rodizio', 'x').iniciado, false, 'já está desligado');
+
+  chamadas.length = 0;
+  assert.deepEqual(controle.religarComponente('benura-rodizio', 'ana@e.com'), { iniciado: true });
+  await terminar();
+  assert.deepEqual(chamadas, ['$ npx pm2 startOrRestart ecosystem.config.js --only benura-rodizio']);
+  assert.equal(lerAutomacao(arquivo).componentes['benura-rodizio'], undefined);
+});
+
+test('componente: roteador e rotinas param sem mexer nos robôs; app fora da lista é recusado', async () => {
+  const { controle, chamadas, terminar } = montarControle();
+  controle.desligarComponente('benura-roteador', 'x');
+  await terminar();
+  assert.deepEqual(chamadas, ['$ npx pm2 stop benura-roteador']);
+  assert.equal(controle.desligarComponente('benura-painel', 'x').iniciado, false);
+  assert.equal(controle.desligarComponente('qualquer', 'x').iniciado, false);
+});
+
+test('componente: desligar e religar a automação toda mantém quem foi desligado à mão', async () => {
+  const { controle, chamadas, arquivo, terminar } = montarControle({ ligadosPorChamada: [0] });
+  controle.desligarComponente('benura-rotinas', 'x');
+  await terminar();
+  controle.desligar('agenda do BenURA');
+  await terminar();
+  assert.equal(lerAutomacao(arquivo).componentes['benura-rotinas'].desligado, true, 'o desligar global não apaga a marca');
+  chamadas.length = 0;
+  controle.religar('agenda do BenURA');
+  await terminar();
+  assert.deepEqual(chamadas, ['$ npx pm2 startOrRestart ecosystem.config.js --only benura-roteador,benura-rodizio'], 'as rotinas continuam paradas');
+  assert.equal(lerAutomacao(arquivo).desligada, false);
+  assert.equal(lerAutomacao(arquivo).componentes['benura-rotinas'].desligado, true);
+});
+
+test('componente: com a automação toda desligada, religar um componente só tira a marca (sobe ao religar tudo)', async () => {
+  const { controle, chamadas, arquivo, terminar } = montarControle({ ligadosPorChamada: [0] });
+  controle.desligarComponente('benura-rotinas', 'x');
+  await terminar();
+  controle.desligar('x');
+  await terminar();
+  chamadas.length = 0;
+  assert.equal(controle.religarComponente('benura-rotinas', 'x').iniciado, true);
+  await terminar();
+  assert.deepEqual(chamadas, [], 'nada sobe com a automação desligada');
+  assert.equal(lerAutomacao(arquivo).componentes['benura-rotinas'], undefined);
+});
+
+test('componente: a simulação reinicia só os ligados; com os três desligados, este PC não age de verdade', async () => {
+  const { controle, chamadas, terminar } = montarControle({ ligadosPorChamada: [0] });
+  controle.desligarComponente('benura-roteador', 'x');
+  await terminar();
+  chamadas.length = 0;
+  controle.definirSimulacao(true, 'x');
+  await terminar();
+  assert.deepEqual(chamadas, ['$ npx pm2 startOrRestart ecosystem.config.js --only benura-rodizio,benura-rotinas']);
+  controle.definirSimulacao(false, 'x');
+  await terminar();
+  assert.equal(controle.agindoDeVerdade(), true);
+  for (const app of ['benura-rodizio', 'benura-rotinas']) {
+    controle.desligarComponente(app, 'x');
+    await terminar();
+  }
+  assert.equal(controle.agindoDeVerdade(), false, 'os três parados: solta a trava dos dois PCs');
+});
+
+test('componente: o serviço desligado à mão espera ao subir (pm2 start all, reinício do PC)', async () => {
+  const arquivo = arquivoTemp();
+  await gravarAutomacao(arquivo, { desligada: false, componentes: { 'benura-rodizio': { desligado: true, desde: '2026-10-27T13:00:00.000Z', por: 'ana' } } }, loggerNulo);
+  const avisos = [];
+  let esperas = 0;
+  await aguardarAutomacaoLigada({ arquivo, intervaloMs: 1 }, { ...loggerNulo, aviso: (m) => avisos.push(m) }, 'rodízio', {
+    app: 'benura-rodizio',
+    esperar: async () => { if (++esperas === 2) await gravarAutomacao(arquivo, { desligada: false, componentes: {} }, loggerNulo); },
+  });
+  assert.equal(esperas, 2);
+  assert.match(avisos[0], /rodízio desligado pelo painel/i);
+  await aguardarAutomacaoLigada({ arquivo }, loggerNulo, 'roteador', { app: 'benura-roteador' }); // outro componente não espera
+});
+
+test('componente: rodízio já desligado à mão, desligar tudo não chama o rodízio (os robôs saíram antes)', async () => {
+  const { controle, chamadas, terminar } = montarControle({ ligadosPorChamada: [0] });
+  controle.desligarComponente('benura-rodizio', 'x');
+  await terminar();
+  chamadas.length = 0;
+  controle.desligar('x');
+  await terminar();
+  assert.deepEqual(chamadas, ['$ npx pm2 stop benura-roteador benura-rodizio benura-rotinas']);
+  assert.equal(controle.estado().aviso, null, 'sem o aviso de "rodízio sem resposta"');
 });

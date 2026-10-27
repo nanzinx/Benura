@@ -18,11 +18,18 @@
  * [NOVO] Dois PCs (trava.js): desligar ou ligar a simulação soltam a trava no fim;
  * religar e sair da simulação pegam antes (prepararParaAgir), e recusam com o outro
  * PC agindo de verdade.
+ *
+ * [NOVO] Cada componente (roteador, rodízio, rotinas) liga e desliga sozinho
+ * (desligarComponente / religarComponente): a marca fica em `componentes` no mesmo
+ * arquivo. Desligar o rodízio desliga os robôs antes (ninguém mais desligaria). O
+ * desligar/religar da automação toda mantém as marcas: religar sobe só os que não
+ * foram desligados à mão. Com os três desligados, este PC solta a trava.
  */
 
-const { lerAutomacao, gravarAutomacao, lerSimulacao } = require('../utils/automacao');
+const { COMPONENTES, componenteAtivo, lerAutomacao, gravarAutomacao, lerSimulacao } = require('../utils/automacao');
 
-const APPS = ['benura-roteador', 'benura-rodizio', 'benura-rotinas'];
+const APPS = COMPONENTES;
+const NOMES = { 'benura-roteador': 'roteador', 'benura-rodizio': 'rodízio', 'benura-rotinas': 'rotinas' };
 const REPETIR_ROBOS_MS = 5000;
 const esperarMs = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
@@ -47,13 +54,27 @@ class ControleAutomacao {
     const gravado = lerAutomacao(this.cfg.arquivo);
     const sim = lerSimulacao(this.cfg.arquivoSimulacao);
     const simulacao = { escolhida: sim.ligada, fixaPeloEnv: Boolean(this.cfg.dryRunPeloEnv), desde: sim.desde, por: sim.por };
-    if (this.andamento) return { ...this.andamento, desde: gravado.desde, por: gravado.por, simulacao };
-    return { estado: gravado.desligada ? 'desligada' : 'ligada', etapa: null, desde: gravado.desde, por: gravado.por, aviso: this.ultimoAviso, simulacao };
+    const { componentes } = gravado;
+    if (this.andamento) return { ...this.andamento, desde: gravado.desde, por: gravado.por, simulacao, componentes };
+    return { estado: gravado.desligada ? 'desligada' : 'ligada', etapa: null, desde: gravado.desde, por: gravado.por, aviso: this.ultimoAviso, simulacao, componentes };
   }
 
-  /** [NOVO] Este PC deve agir de verdade agora? (automação ligada e fora da simulação) */
+  /** [NOVO] Este PC deve agir de verdade agora? (automação ligada, algum componente ligado, fora da simulação) */
   agindoDeVerdade() {
-    return !lerAutomacao(this.cfg.arquivo).desligada && !this.cfg.dryRunPeloEnv && !lerSimulacao(this.cfg.arquivoSimulacao).ligada;
+    const gravado = lerAutomacao(this.cfg.arquivo);
+    return APPS.some((app) => componenteAtivo(gravado, app)) && !this.cfg.dryRunPeloEnv && !lerSimulacao(this.cfg.arquivoSimulacao).ligada;
+  }
+
+  /** [NOVO] Os apps que devem rodar agora (a automação ligada e não desligados à mão). */
+  appsAtivos(gravado = lerAutomacao(this.cfg.arquivo)) {
+    return APPS.filter((app) => !gravado.componentes[app]?.desligado);
+  }
+
+  /** Grava a automação toda sem perder as marcas de cada componente (e vice-versa). */
+  gravar(mudanca) {
+    const atual = lerAutomacao(this.cfg.arquivo);
+    const { desligada, desde, por, componentes } = { ...atual, ...mudanca };
+    return gravarAutomacao(this.cfg.arquivo, { desligada, desde, por, componentes }, this.log);
   }
 
   /**
@@ -96,7 +117,8 @@ class ControleAutomacao {
       this.log.aviso(`Painel: simulação ${ligada ? 'LIGADA' : 'DESLIGADA'} (${por}); vale quando a automação for religada.`);
       return this.concluir();
     }
-    const r = await this.executar('npx', ['pm2', 'startOrRestart', 'ecosystem.config.js', '--only', APPS.join(',')], { timeoutMs: 60_000 });
+    const apps = this.appsAtivos();
+    const r = apps.length ? await this.executar('npx', ['pm2', 'startOrRestart', 'ecosystem.config.js', '--only', apps.join(',')], { timeoutMs: 60_000 }) : { ok: true };
     if (!r.ok) this.avisar(`Não foi possível reiniciar os serviços pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npx pm2 restart all.`);
     this.log.aviso(`Painel: simulação ${ligada ? 'LIGADA: o BenURA só mostra o que faria' : 'DESLIGADA: o BenURA volta a agir de verdade'} (${por}).`);
     if (ligada) await this.trava?.soltar();
@@ -124,8 +146,9 @@ class ControleAutomacao {
 
   async executarDesligamento(por) {
     this.log.aviso(`Painel: automação sendo DESLIGADA (${por}).`);
-    await gravarAutomacao(this.cfg.arquivo, { desligada: true, desde: new Date(this.agora()).toISOString(), por }, this.log);
-    await this.desligarRobos();
+    const rodizioJaParado = Boolean(lerAutomacao(this.cfg.arquivo).componentes['benura-rodizio']);
+    await this.gravar({ desligada: true, desde: new Date(this.agora()).toISOString(), por });
+    if (!rodizioJaParado) await this.desligarRobos(); // desligado à mão, os robôs já saíram antes
     this.andamento.etapa = 'parando roteador, rodízio e rotinas';
     const r = await this.executar('npx', ['pm2', 'stop', ...APPS], { timeoutMs: 60_000 });
     if (!r.ok) this.avisar(`Não foi possível parar os serviços pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npx pm2 stop all.`);
@@ -156,11 +179,70 @@ class ControleAutomacao {
 
   async executarReligamento(por) {
     this.log.aviso(`Painel: automação sendo RELIGADA (${por}).`);
-    await gravarAutomacao(this.cfg.arquivo, { desligada: false, desde: new Date(this.agora()).toISOString(), por }, this.log);
-    const r = await this.executar('npx', ['pm2', 'startOrRestart', 'ecosystem.config.js', '--only', APPS.join(',')], { timeoutMs: 60_000 });
+    await this.gravar({ desligada: false, desde: new Date(this.agora()).toISOString(), por });
+    const apps = this.appsAtivos();
+    const r = apps.length ? await this.executar('npx', ['pm2', 'startOrRestart', 'ecosystem.config.js', '--only', apps.join(',')], { timeoutMs: 60_000 }) : { ok: true };
     if (!r.ok) this.avisar(`Não foi possível subir os serviços pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npm run pm2:iniciar.`);
-    this.log.aviso(`Painel: automação RELIGADA (${por}). Os robôs continuam desligados: quem liga é a supervisão, pela Argus.`);
+    const parados = APPS.filter((app) => !apps.includes(app)).map((app) => NOMES[app]);
+    this.log.aviso(`Painel: automação RELIGADA (${por}).${parados.length ? ` Continuam desligados à mão: ${parados.join(', ')}.` : ''} Os robôs continuam desligados: quem liga é a supervisão, pela Argus.`);
     this.concluir();
+  }
+
+  /**
+   * [NOVO] Desliga só um componente (botão no cartão dele, aba Serviços).
+   * @param {string} app - benura-roteador | benura-rodizio | benura-rotinas
+   * @returns {{ iniciado: boolean, motivo?: string }}
+   */
+  desligarComponente(app, por) {
+    if (!APPS.includes(app)) return { iniciado: false, motivo: `Componente desconhecido: ${app}.` };
+    if (this.andamento) return { iniciado: false, motivo: 'Espere terminar o que está em andamento.' };
+    if (lerAutomacao(this.cfg.arquivo).componentes[app]) return { iniciado: false, motivo: `O ${NOMES[app]} já está desligado.` };
+    this.andamento = { estado: 'reiniciando', etapa: `desligando o ${NOMES[app]}`, aviso: null };
+    this.ultimoAviso = null;
+    this.executarDesligarComponente(app, por).catch((e) => this.falhou(`desligar o ${NOMES[app]}`, e));
+    return { iniciado: true };
+  }
+
+  async executarDesligarComponente(app, por) {
+    this.log.aviso(`Painel: ${NOMES[app]} sendo DESLIGADO sozinho (${por}).`);
+    const antes = lerAutomacao(this.cfg.arquivo);
+    await this.gravar({ componentes: { ...antes.componentes, [app]: { desligado: true, desde: new Date(this.agora()).toISOString(), por } } });
+    if (!antes.desligada) {
+      // Sem o rodízio, ninguém desliga os robôs: desliga antes.
+      if (app === 'benura-rodizio') await this.desligarRobos();
+      this.andamento.etapa = `parando o ${NOMES[app]}`;
+      const r = await this.executar('npx', ['pm2', 'stop', app], { timeoutMs: 60_000 });
+      if (!r.ok) this.avisar(`Não foi possível parar o ${NOMES[app]} pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npx pm2 stop ${app}.`);
+    }
+    this.log.aviso(`Painel: ${NOMES[app]} DESLIGADO (${por}); o resto da automação segue.${this.andamento.aviso ? ` Atenção: ${this.andamento.aviso}` : ''}`);
+    if (!this.appsAtivos().length) await this.trava?.soltar(); // os três parados: este PC não age mais
+    this.concluir();
+  }
+
+  /** [NOVO] Liga de novo um componente desligado à mão. @returns {{ iniciado: boolean, motivo?: string }} */
+  religarComponente(app, por) {
+    if (!APPS.includes(app)) return { iniciado: false, motivo: `Componente desconhecido: ${app}.` };
+    if (this.andamento) return { iniciado: false, motivo: 'Espere terminar o que está em andamento.' };
+    if (!lerAutomacao(this.cfg.arquivo).componentes[app]) return { iniciado: false, motivo: `O ${NOMES[app]} já está ligado.` };
+    this.andamento = { estado: 'reiniciando', etapa: `ligando o ${NOMES[app]}`, aviso: null };
+    this.ultimoAviso = null;
+    this.executarReligarComponente(app, por).catch((e) => this.falhou(`ligar o ${NOMES[app]}`, e));
+    return { iniciado: true };
+  }
+
+  async executarReligarComponente(app, por) {
+    const antes = lerAutomacao(this.cfg.arquivo);
+    const componentes = { ...antes.componentes };
+    delete componentes[app];
+    await this.gravar({ componentes });
+    if (antes.desligada) {
+      this.log.aviso(`Painel: ${NOMES[app]} marcado para ligar (${por}); sobe quando a automação for religada.`);
+      return this.concluir();
+    }
+    const r = await this.executar('npx', ['pm2', 'startOrRestart', 'ecosystem.config.js', '--only', app], { timeoutMs: 60_000 });
+    if (!r.ok) this.avisar(`Não foi possível subir o ${NOMES[app]} pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npm run pm2:iniciar.`);
+    this.log.aviso(`Painel: ${NOMES[app]} LIGADO de novo (${por}).`);
+    return this.concluir();
   }
 
   avisar(texto) {
@@ -182,4 +264,4 @@ class ControleAutomacao {
 
 const ultimaLinha = (saida) => String(saida || 'sem saída').trim().split(/\r?\n/).pop().slice(0, 200);
 
-module.exports = { ControleAutomacao, APPS };
+module.exports = { ControleAutomacao, APPS, NOMES_DOS_COMPONENTES: NOMES };

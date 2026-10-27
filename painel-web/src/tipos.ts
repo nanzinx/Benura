@@ -256,7 +256,12 @@ export interface EstadoAutomacao {
   aviso: string | null;
   /** Botão "Modo simulação" (DRY_RUN): a escolha do painel; fixaPeloEnv = DRY_RUN=1 no .env. */
   simulacao?: { escolhida: boolean; fixaPeloEnv: boolean; desde: string | null; por: string | null };
+  /** [NOVO] componentes desligados à mão (só os desligados aparecem) */
+  componentes?: Partial<Record<Componente, { desligado: true; desde: string | null; por: string | null }>>;
 }
+
+/** [NOVO] Os componentes que o painel liga e desliga sozinhos (o app do PM2). */
+export type Componente = 'benura-roteador' | 'benura-rodizio' | 'benura-rotinas';
 
 export interface Visao {
   agora: string;

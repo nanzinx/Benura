@@ -140,7 +140,7 @@ async function iniciar() {
   ativarLogsEmArquivo(cfg, 'roteador');
 
   exigirConfigValida(cfg, log);
-  await aguardarAutomacaoLigada(cfg.automacao, log, 'roteador');
+  await aguardarAutomacaoLigada(cfg.automacao, log, 'roteador', { app: 'benura-roteador' });
   const vigia = vigiarPosse(cfg.automacao.posse, log, 'roteador');
   const trava = adquirirTravaOuEncerrar(cfg.arquivoTrava, log);
   logarResumo(cfg, log);

@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
 import { api, type ComandoUra, type PedidoAcao } from './api';
-import type { ModoRobos, ResultadoRetomada, ResultadoTransferencia, StatusDaUra } from './tipos';
+import type { Componente, ModoRobos, ResultadoRetomada, ResultadoTransferencia, StatusDaUra } from './tipos';
 import { useRetorno } from './ui/retorno';
 
 /** "Ao vivo" ou pausado (o botão do topo). */
@@ -33,6 +33,28 @@ export function useAutomacao() {
     onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
   });
 }
+
+/** [NOVO] Liga ou desliga só um componente (roteador, rodízio ou rotinas). */
+export function useComponente() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: ({ app, ligar }: { app: Componente; ligar: boolean }) => api.componente(app, ligar),
+    onSuccess: (_, { app, ligar }) => {
+      avisar('ok', `${ligar ? 'Ligando' : 'Desligando'} o ${NOMES_DOS_COMPONENTES[app]}…`);
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
+  });
+}
+
+/** [NOVO] Nome de cada componente e o que acontece com ele desligado (confirmação e Ajuda). */
+export const NOMES_DOS_COMPONENTES: Record<Componente, string> = { 'benura-roteador': 'roteador', 'benura-rodizio': 'rodízio', 'benura-rotinas': 'rotinas' };
+export const EFEITO_DESLIGADO: Record<Componente, string> = {
+  'benura-roteador': 'Ninguém é movido entre Ativo e URA pelas vendas, e a lista de quem pode ir para a URA fica parada. O rodízio e o pânico seguem.',
+  'benura-rodizio': 'Sem rodízio, pânico, URA cheia, status da URA, clientes de risco e relatório do dia. Os robôs são desligados antes; quem religa os robôs é a supervisão, pela Argus.',
+  'benura-rotinas': 'Sem a checagem de fim de expediente. O resto segue normal.',
+};
 
 /** Botão "Modo simulação" (DRY_RUN): grava e reinicia os serviços. */
 export function useSimulacao() {
