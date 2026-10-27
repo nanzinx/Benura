@@ -422,6 +422,14 @@ logs/2026-10-15/
 A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js`. Foi assim que a
 refatoração foi comparada com o script original.
 
+**[NOVO] Respostas reais da Argus nos testes.** `test/unit/argus-respostas.test.js` roda os parsers do BenURA (status do operador e `tempoStatus`, grupos, pausas, resultado das ligações) sobre cada arquivo em `test/fixtures/argus/`.
+- Hoje os arquivos são de **exemplo**, no formato visto em produção.
+- Para trocar por respostas reais, rode `npm run capturar:argus` no PC do BenURA. É só leitura, não muda nada na Argus.
+  - Ele lê `listargrupos`, `listarpausas`, o `statusoperador` de alguns da URA e meia hora do `ligacoesdetalhadas` (robôs e URA).
+  - Tira cliente, telefone, CPF e e-mail, troca nomes por "Operador N" e ramais por 9000NN, e confere de novo antes de gravar.
+  - Se sobrar algo com cara de dado pessoal, não grava nada.
+- Depois: `npm test` e o commit dos arquivos.
+
 <details>
 <summary><b>🐞 Correções em relação ao script original</b></summary>
 

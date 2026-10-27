@@ -1,0 +1,12 @@
+{
+  "origem": "exemplo",
+  "nota": "Formato do statusoperador como o BenURA recebe (campos vistos em produção). Troque por uma captura real: npm run capturar:argus.",
+  "comando": "statusoperador",
+  "resposta": [
+    { "ramal": "900001", "nome": "Operador 1", "descricaoStatus": "Livre", "descricaoPausa": "", "tempoStatus": 95000, "idGrupo": 2, "grupo": "URA RECEPTIVO", "origemDerivacao": "" },
+    { "ramal": "900002", "nome": "Operador 2", "descricaoStatus": "Em Atendimento", "descricaoPausa": "", "tempoStatus": 41000, "idGrupo": 2, "grupo": "URA RECEPTIVO", "origemDerivacao": "URA" },
+    { "ramal": "900003", "nome": "Operador 3", "descricaoStatus": "Pausa", "descricaoPausa": "Banheiro", "tempoStatus": 312000, "idGrupo": 2, "grupo": "URA RECEPTIVO", "origemDerivacao": "" },
+    { "ramal": "900004", "nome": "Operador 4", "descricaoStatus": "Livre", "descricaoPausa": "", "tempoStatus": 20000, "idGrupo": 1, "grupo": "ATIVO 1", "origemDerivacao": "" },
+    { "ramal": "900005", "nome": "Oper Virtual 11", "descricaoStatus": "Deslogado", "descricaoPausa": "", "tempoStatus": 0, "idGrupo": 9, "grupo": "ROBOS", "origemDerivacao": "" }
+  ]
+}

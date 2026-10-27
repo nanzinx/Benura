@@ -1,0 +1,11 @@
+{
+  "origem": "exemplo",
+  "nota": "Formato do ligacoesdetalhadas dos grupos de robôs (campos vistos em produção, dados de cliente já removidos). Troque por uma captura real: npm run capturar:argus.",
+  "comando": "ligacoesdetalhadas",
+  "resposta": [
+    { "idLigacao": "20261027100312000045", "idLote": 9, "lote": "EXPORTAR-INSS-B", "nrLead": 0, "codCliente": "(removido)", "nomeCliente": "(removido)", "cpfCnpj": "(removido)", "dddTelefone": "(removido)", "camposCRM": [], "historico": "(removido)", "usuarioOperador": "Oper Virtual 11", "dataHoraLigacao": "2026-10-27T10:03:12", "resultadoLigacao": "OPER. VIRTUAL - ABANDONO EM FILA", "statusAtendimento": "", "tempoSegundos": 63 },
+    { "idLigacao": "20261027100415000046", "idLote": 9, "lote": "EXPORTAR-INSS-B", "nrLead": 0, "codCliente": "(removido)", "nomeCliente": "(removido)", "cpfCnpj": "(removido)", "dddTelefone": "(removido)", "camposCRM": [], "historico": "(removido)", "usuarioOperador": "Oper Virtual 11", "dataHoraLigacao": "2026-10-27T10:04:15", "resultadoLigacao": "ATENDIMENTO", "statusAtendimento": "", "tempoSegundos": 187 },
+    { "idLigacao": "20261027100430000047", "idLote": 9, "lote": "EXPORTAR-INSS-B", "nrLead": 0, "codCliente": "(removido)", "nomeCliente": "(removido)", "cpfCnpj": "(removido)", "dddTelefone": "(removido)", "camposCRM": [], "historico": "(removido)", "usuarioOperador": "Oper Virtual 12", "dataHoraLigacao": "2026-10-27T10:04:30", "resultadoLigacao": "SEM AGENTE", "statusAtendimento": "", "tempoSegundos": 0 },
+    { "idLigacao": "20261027100501000048", "idLote": 9, "lote": "EXPORTAR-INSS-B", "nrLead": 0, "codCliente": "(removido)", "nomeCliente": "(removido)", "cpfCnpj": "(removido)", "dddTelefone": "(removido)", "camposCRM": [], "historico": "(removido)", "usuarioOperador": "Oper Virtual 12", "dataHoraLigacao": "2026-10-27T10:05:01", "resultadoLigacao": "OPER. VIRTUAL - ABANDONO", "statusAtendimento": "", "tempoSegundos": 12 }
+  ]
+}

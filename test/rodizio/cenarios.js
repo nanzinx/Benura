@@ -659,7 +659,7 @@ const CENARIOS = {
     const local = (ms) => new Intl.DateTimeFormat('sv-SE', {
       timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
     }).format(new Date(Date.now() - ms)).replace(' ', 'T');
-    const cliente = { dddTelefone: '11980821594', nomeCliente: 'CLIENTE TESTE', usuarioOperador: 'Oper Virtual 7' };
+    const cliente = { dddTelefone: '11900000001', nomeCliente: 'CLIENTE TESTE', usuarioOperador: 'Oper Virtual 7' };
     r.argus.estado.ligacoes.push({ ...cliente, idLigacao: 1, dataHoraLigacao: local(3000), resultadoLigacao: 'OPER. VIRTUAL - ABANDONO EM FILA', tempoSegundos: 2 });
     await aguardar(async () => (await (await fetch(`${r.base}/perfis/risco`)).json()).clientes.length === 1, { timeoutMs: 8000, descricao: 'perfil de risco' });
     if (ligados().length !== 10) throw new Error('mexeu nos robôs antes do cliente de risco ligar');
@@ -667,12 +667,12 @@ const CENARIOS = {
     r.argus.estado.ligacoes.push({ ...cliente, idLigacao: 2, dataHoraLigacao: local(1000), resultadoLigacao: 'LIGAÇÃO EM CURSO', tempoSegundos: 0 });
     await aguardar(async () => (await (await fetch(`${r.base}/alertas`)).json()).alertas.length === 1, { timeoutMs: 8000, descricao: 'alerta' });
     const { alertas } = await (await fetch(`${r.base}/alertas`)).json();
-    if (alertas[0].mascara !== '(11) 9****-1594' || JSON.stringify(alertas).includes('98082')) throw new Error(`alerta: ${JSON.stringify(alertas)}`);
+    if (alertas[0].mascara !== '(11) 9****-0001' || JSON.stringify(alertas).includes('900000001')) throw new Error(`alerta: ${JSON.stringify(alertas)}`);
     await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: 'robôs desligados pelo cliente de risco' });
     if (!r.saida.join('').includes('CLIENTE DE RISCO em ligação')) throw new Error('não registrou no log');
     if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Clientes de risco')) throw new Error('a /ura não mostra os clientes de risco');
     const gravado = fs.existsSync(path.join(r.pasta, 'state-perfis-clientes.json')) ? fs.readFileSync(path.join(r.pasta, 'state-perfis-clientes.json'), 'utf8') : '';
-    if (/98082|CLIENTE TESTE/.test(gravado)) throw new Error('telefone ou nome no arquivo de perfis');
+    if (/900000001|CLIENTE TESTE/.test(gravado)) throw new Error('telefone ou nome no arquivo de perfis');
   },
 
   async 'Robôs: modo manual — a supervisão assume e o BenURA não mexe; ao devolver, volta a agir'(r) {

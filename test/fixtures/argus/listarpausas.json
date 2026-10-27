@@ -1,0 +1,10 @@
+{
+  "origem": "exemplo",
+  "nota": "Formato do listarpausas. Troque por uma captura real: npm run capturar:argus.",
+  "comando": "listarpausas",
+  "resposta": [
+    { "idPausa": 1, "pausaDesc": "Banheiro" },
+    { "idPausa": 2, "pausaDesc": "Lanche" },
+    { "idPausa": 3, "pausaDesc": "Feedback" }
+  ]
+}

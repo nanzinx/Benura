@@ -8,7 +8,7 @@
  * falando com ele, a supervisão é avisada (e, se quiser, os robôs desligam).
  *
  * Não se guarda o telefone: a chave é um HMAC do número (com um segredo local)
- * e, para mostrar na tela, só a versão mascarada, ex.: (11) 9****-1594.
+ * e, para mostrar na tela, só a versão mascarada, ex.: (11) 9****-0001.
  * Nada de nome, CPF ou lead.
  */
 
@@ -28,7 +28,7 @@ function normalizarTelefone(texto) {
   return d.length === 10 || d.length === 11 ? d : null;
 }
 
-/** (11) 9****-1594 */
+/** (11) 9****-0001 */
 function mascarar(telefone) {
   const ddd = telefone.slice(0, 2);
   const fim = telefone.slice(-4);
