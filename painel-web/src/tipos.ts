@@ -137,6 +137,10 @@ export interface HoraDoRelatorio {
   livresMin: number;
   derivacoes: number;
   esperaPorDerivacaoSeg: number | null;
+  /** [NOVO] TME da hora: média do tempo livre antes de cada ligação; e a soma e a quantidade, para o total */
+  tmeSeg?: number | null;
+  esperaSomaSeg?: number;
+  esperaQtd?: number;
   ociosoSemRobosMin: number;
   panicoMin: number;
   calmaMin: number;

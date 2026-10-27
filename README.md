@@ -292,7 +292,8 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
      - **Relatório do dia** (visão geral do painel, `relatorio` no `/health`), também por hora:
        - **Transbordos**;
        - **TOR** (Tempo Ocioso sem Robô): gente livre e nenhum robô ligado;
-       - **TME** (Tempo Médio de Espera do operador livre);
+       - **TME** (Tempo Médio de Espera): [NOVO] quanto tempo, em média, cada operador ficou livre (o "Tempo" da Argus) antes de receber uma ligação. É a mesma espera que o termômetro usa;
+       - **OPL** (Ociosidade Por Lead): o tempo livre de todos somado, dividido pelas ligações que chegaram aos humanos (a conta que antes se chamava TME). Alta = gente demais livre para as ligações;
        - [NOVO] **Só o expediente** (`AGENDA_RELIGAR` às `AGENDA_DESLIGAR`, 08:00 às 18:00): fora dele o tempo não conta (TOR, TPA, livres, termômetro, pausas) e a hora não aparece. Os quadros e o total somam as horas mostradas;
        - **Leads derivados** (a mesma conta do cartão "Leads derivados hoje", o "Derivou" da Argus, na hora da ligação), com uma linha de **Total** no fim;
        - **TPA** (Tempo de Pânico Ativo);
