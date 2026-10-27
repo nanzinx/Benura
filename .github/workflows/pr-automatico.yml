@@ -62,9 +62,18 @@ jobs:
             echo "_PR aberto automaticamente pela esteira (workflow \`pr-automatico\`). O merge acontece sozinho quando o CI passa e alguém aprova._"
           } > corpo-pr.md
 
-          url=$(gh pr create --base main --head "$BRANCH" --title "$titulo" --body-file corpo-pr.md)
-          echo "PR aberto: $url"
-          echo "numero=${url##*/}" >> "$GITHUB_OUTPUT"
+          # Outro push pode ter aberto o PR entre o "gh pr list" acima e aqui: isso não é erro.
+          if url=$(gh pr create --base main --head "$BRANCH" --title "$titulo" --body-file corpo-pr.md 2>erro-pr.txt); then
+            echo "PR aberto: $url"
+            echo "numero=${url##*/}" >> "$GITHUB_OUTPUT"
+          elif grep -q "already exists" erro-pr.txt; then
+            numero=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')
+            echo "PR #$numero já tinha sido aberto para $BRANCH."
+            echo "numero=$numero" >> "$GITHUB_OUTPUT"
+          else
+            cat erro-pr.txt >&2
+            exit 1
+          fi
 
       - name: Ligar merge automático
         if: ${{ vars.AUTO_MERGE_ATIVO == 'true' && steps.pr.outputs.numero != '' }}

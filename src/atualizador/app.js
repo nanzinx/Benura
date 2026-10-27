@@ -20,6 +20,7 @@ const { registrarDesligamento, fecharServidor, escutar } = require('../utils/cic
 const { criarServidor } = require('../http/server');
 const { AuditoriaRepository } = require('../repositories/auditoria.repository');
 const { lerAutomacao } = require('../utils/automacao');
+const { APPS: APPS_DA_AUTOMACAO } = require('../painel/automacao');
 const { criarExecutor } = require('./executor');
 const { aguardarSaude } = require('./saude');
 const { AtualizadorService, Resultado } = require('./atualizador.service');
@@ -34,6 +35,7 @@ function montarAtualizador(overrides) {
     executar: criarExecutor({ cwd: a.diretorio, logger: log }),
     aguardarSaude,
     automacaoDesligada: () => lerAutomacao(cfg.automacao.arquivo).desligada,
+    appsDaAutomacao: APPS_DA_AUTOMACAO,
     relogio: {
       momento: () => ({ diaSemana: diaDaSemanaLocal(cfg.agenda.fusoHorario), hora: horaLocal(cfg.agenda.fusoHorario) }),
     },

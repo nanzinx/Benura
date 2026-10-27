@@ -23,7 +23,6 @@ const { podeFazerDeploy } = require('../domain/janela-deploy');
 
 const Resultado = Object.freeze({
   FORA_DA_JANELA: 'FORA_DA_JANELA',
-  AUTOMACAO_DESLIGADA: 'AUTOMACAO_DESLIGADA',
   SEM_MUDANCA: 'SEM_MUDANCA',
   ABORTADO: 'ABORTADO',
   IMPLANTADO: 'IMPLANTADO',
@@ -48,10 +47,11 @@ class AtualizadorService {
    *           expediente: { inicio: string, fim: string } }} deps.cfg
    * @param {{ registrar(acao: string, dados: object): Promise<object> }} deps.auditoria
    * @param {object} deps.logger
-   * @param {() => boolean} [deps.automacaoDesligada] - botão "Desligar automação" do painel
+   * @param {() => boolean} [deps.automacaoDesligada] - botão "Desligar automação" do painel (ou a agenda, à noite)
+   * @param {string[]} [deps.appsDaAutomacao] - apps que o botão para; com ela desligada, ficam parados
    */
-  constructor({ executar, aguardarSaude, relogio, cfg, auditoria, logger, automacaoDesligada = () => false }) {
-    Object.assign(this, { executar, aguardarSaude, relogio, cfg, auditoria, log: logger, automacaoDesligada });
+  constructor({ executar, aguardarSaude, relogio, cfg, auditoria, logger, automacaoDesligada = () => false, appsDaAutomacao = [] }) {
+    Object.assign(this, { executar, aguardarSaude, relogio, cfg, auditoria, log: logger, automacaoDesligada, appsDaAutomacao });
     this.ultimo = null;
   }
 
@@ -65,7 +65,6 @@ class AtualizadorService {
    * @returns {Promise<{ resultado: string }>}
    */
   async verificar({ ignorarJanela = false } = {}) {
-    if (this.automacaoDesligada()) return this.concluir({ resultado: Resultado.AUTOMACAO_DESLIGADA }, false);
     if (!ignorarJanela && !this.janelaAberta()) return this.concluir({ resultado: Resultado.FORA_DA_JANELA }, false);
 
     await this.etapa('git fetch', 'git', ['fetch', '--quiet', 'origin', this.cfg.branch]);
@@ -113,18 +112,36 @@ class AtualizadorService {
     await this.etapa('npm test', 'npm', ['test']);
   }
 
+  /**
+   * [NOVO] O que recarregar agora. Com a automação desligada (ex.: pela agenda, à noite),
+   * roteador, rodízio e rotinas ficam parados esperando: sobem com o código novo no
+   * "Religar", e o /health deles não responde, então não há saúde a esperar.
+   */
+  alvos() {
+    if (!this.automacaoDesligada()) return { apps: this.cfg.apps, healthUrls: this.cfg.healthUrls };
+    return { apps: this.cfg.apps.filter((a) => !this.appsDaAutomacao.includes(a)), healthUrls: [], desligada: true };
+  }
+
   /** Recarrega os serviços e espera a saúde. @returns {Promise<object|null>} falha, ou null se ok */
   async ativar() {
-    const recarga = await this.recarregar();
+    const { apps, healthUrls, desligada } = this.alvos();
+    if (desligada) this.log.info(`Automação desligada: código atualizado; ${this.appsDaAutomacao.join(', ')} sobem com ele ao religar.`);
+    const recarga = await this.recarregar(apps);
     if (!recarga.ok) return { etapa: 'pm2 startOrReload', saida: recarga.saida };
 
-    const saude = await this.aguardarSaude(this.cfg.healthUrls, { timeoutMs: this.cfg.healthTimeoutMs });
+    const saude = await this.saude(healthUrls);
     if (!saude.ok) return { etapa: 'health', saida: `sem resposta: ${saude.falharam.join(', ')}` };
     return null;
   }
 
-  recarregar() {
-    return this.executar('npx', ['pm2', 'startOrReload', 'ecosystem.config.js', '--only', this.cfg.apps.join(',')]);
+  saude(urls) {
+    if (!urls.length) return { ok: true, falharam: [] };
+    return this.aguardarSaude(urls, { timeoutMs: this.cfg.healthTimeoutMs });
+  }
+
+  recarregar(apps) {
+    if (!apps.length) return { ok: true, saida: '' };
+    return this.executar('npx', ['pm2', 'startOrReload', 'ecosystem.config.js', '--only', apps.join(',')]);
   }
 
   /** Volta ao commit anterior; reinstala e recarrega se preciso. */
@@ -134,8 +151,9 @@ class AtualizadorService {
     if (dependenciasMudaram) await this.executar('npm', ['ci', '--no-audit', '--no-fund']);
     if (!recarregar) return;
 
-    await this.recarregar();
-    const saude = await this.aguardarSaude(this.cfg.healthUrls, { timeoutMs: this.cfg.healthTimeoutMs });
+    const { apps, healthUrls } = this.alvos();
+    await this.recarregar(apps);
+    const saude = await this.saude(healthUrls);
     if (!saude.ok) this.log.erro(`Mesmo após reverter, sem resposta de: ${saude.falharam.join(', ')}. Verifique a máquina.`);
   }
 

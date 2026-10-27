@@ -487,7 +487,7 @@ As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico
 **Botão "Desligar automação" (topo, vermelho):** desliga o BenURA de vez, sem precisar do PowerShell. A confirmação pede para digitar `DESLIGAR`.
 1. **Robôs primeiro:** o rodízio para de mover gente e desliga os robôs parados. Os em ligação terminam a chamada; passado `AUTOMACAO_ESPERA_ROBOS_MS` (**90 s**), os que sobrarem são derrubados.
 2. **Serviços depois:** roteador, rodízio e rotinas param (`npx pm2 stop`). O painel continua no ar, com uma faixa vermelha e o botão **"Religar automação"**.
-3. **Continua desligado:** a escolha fica em `AUTOMACAO_FILE` (`state-automacao.json`). Se algum serviço subir de novo (PC reiniciado, `pm2 start all`, atualizador), ele espera sem mexer na Argus até alguém religar pelo painel.
+3. **Continua desligado:** a escolha fica em `AUTOMACAO_FILE` (`state-automacao.json`). Se algum serviço subir de novo (PC reiniciado, `pm2 start all`), ele espera sem mexer na Argus até alguém religar pelo painel.
 4. **Religar:** sobe os três de novo (`npx pm2 startOrRestart`). Os robôs continuam desligados: quem liga é a supervisão, pela Argus.
 
 Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o caminho de emergência continua sendo `npx pm2 stop all` no PC do BenURA.
@@ -990,6 +990,7 @@ flowchart LR
 - **Deploy** (`atualizador.js`): roda **na máquina de produção** e *busca* a `main`, sem precisar de IP público, porta aberta nem SSH.
   - Só atualiza fora do expediente: em dias úteis, fora de `HORARIO_CARGA`–`HORARIO_FIM`; sábado e domingo são livres.
   - Antes de recarregar, roda `npm test` na própria máquina; depois, espera o `/health` dos serviços. Qualquer falha volta ao commit anterior.
+  - **[NOVO] Com a automação desligada** (pela agenda, à noite, ou pelo botão), atualiza o código e só recarrega o painel. Roteador, rodízio e rotinas sobem com o código novo no "Religar" (às 08:00, pela agenda).
   - Não atualiza se houver alteração local em arquivo versionado ou se a cópia local divergiu da `main`.
   - Histórico em `logs/deploy.jsonl`; estado em `GET http://localhost:3002/health`.
 

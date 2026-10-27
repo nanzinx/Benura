@@ -65,12 +65,13 @@ function montar({
     aguardarSaude: async (urls) => ({ ok: saudeOk || estado.head !== remoto, falharam: saudeOk ? [] : urls }),
     relogio: { momento: () => janela },
     cfg: {
-      branch: 'main', apps: ['benura-roteador', 'benura-rodizio'],
+      branch: 'main', apps: ['benura-roteador', 'benura-rodizio', 'benura-painel'],
       healthUrls: ['http://localhost:3001/health'], healthTimeoutMs: 100, expediente: EXPEDIENTE,
     },
     auditoria: { registrar: async (acao, dados) => eventos.push({ acao, ...dados }) },
     logger: loggerNulo,
     automacaoDesligada: () => automacaoDesligada,
+    appsDaAutomacao: ['benura-roteador', 'benura-rodizio', 'benura-rotinas'],
   });
   return { servico, comandos, eventos, estado, foi: (re) => comandos.some((c) => re.test(c)) };
 }
@@ -82,10 +83,18 @@ test('fora da janela: não toca em nada', async () => {
   assert.equal(ctx.eventos.length, 0, 'não polui a auditoria');
 });
 
-test('automação desligada pelo painel: não atualiza (os serviços estão esperando, o /health falharia)', async () => {
-  const ctx = montar({ automacaoDesligada: true });
-  assert.equal((await ctx.servico.verificar({ ignorarJanela: true })).resultado, Resultado.AUTOMACAO_DESLIGADA);
-  assert.equal(ctx.comandos.length, 0);
+test('[NOVO] automação desligada (ex.: pela agenda, à noite): atualiza o código e só recarrega o painel', async () => {
+  const ctx = montar({ automacaoDesligada: true, saudeOk: false });
+  assert.equal((await ctx.servico.verificar()).resultado, Resultado.IMPLANTADO, 'a saúde dos parados não é esperada');
+  assert.ok(ctx.foi(/^git merge --ff-only/) && ctx.foi(/^npm test/));
+  const recargas = ctx.comandos.filter((c) => /pm2 startOrReload/.test(c));
+  assert.deepEqual(recargas, ['npx pm2 startOrReload ecosystem.config.js --only benura-painel'], 'roteador e rodízio sobem com o código novo ao religar');
+});
+
+test('[NOVO] automação desligada e testes falhando: volta ao commit anterior sem subir nada', async () => {
+  const ctx = montar({ automacaoDesligada: true, testesPassam: false });
+  assert.equal((await ctx.servico.verificar()).resultado, Resultado.REVERTIDO);
+  assert.ok(!ctx.foi(/pm2/));
 });
 
 test('--ignorar-janela atualiza mesmo no expediente', async () => {
