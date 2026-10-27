@@ -180,7 +180,7 @@ src/repositories/                  estado diário, exceções de ramal, auditori
 src/rodizio/                       rodízio Ativo ↔ URA e robôs
 src/retorno-fila/                  retorno de quem desistiu da fila
 src/rotinas/                       rotinas diárias (fim de expediente)
-src/notificacoes/                  avisos (log)
+src/notificacoes/                  avisos (log e, [NOVO], webhook do BenHub)
 src/atualizador/                   deploy automático
 src/utils/                         HTTP com retry, persistência atômica, trava de processo, laços periódicos
 ```
@@ -298,7 +298,9 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
        - **Leads derivados** (a mesma conta do cartão "Leads derivados hoje", o "Derivou" da Argus, na hora da ligação), com uma linha de **Total** no fim;
        - **TPA** (Tempo de Pânico Ativo);
        - o **status da URA**: o quadrado mostra o de agora e, aberto, o tempo em cada um hoje;
-       - **pausas por tipo**.
+       - **pausas por tipo**;
+       - [NOVO] **comparação** embaixo de cada quadro (Transbordos, TOR, TME, OPL, TPA): o **dia anterior** com dados (segunda compara com sexta) e a **média dos últimos 7 dias**. TME e OPL da semana saem das somas, não da média das médias. Hoje ainda não acabou: compare com calma. Os totais de cada dia ficam em `RODIZIO_HISTORICO_FILE` (últimos 60). O dia vai para lá na virada, ou quando o rodízio sobe no dia seguinte (à noite ele fica parado pela agenda);
+       - [NOVO] botão **Planilha**: baixa o relatório de hoje em Excel (`.xlsx`), com as abas **hora a hora** (com o total), **Comparação** e **Por atendente**. Tempos em minutos ou segundos, como números, para fazer contas no Excel.
      - **Leads derivados e transbordos** (`GET /metricas/hoje`): "derivou" é lead derivado; transbordo é o **"Gerou Callback" da Argus** (abandonou a fila ou time-out na fila). O "sem agente" vem do discador e não conta. Vêm de duas fontes, e cada ligação conta uma vez só (pelo `idLigacao`):
        - os webhooks da Argus **tipo 4** (robô com o cliente pedindo humano) e **tipo 5** (encerramento da URA receptiva), na hora;
        - **[NOVO] o relatório de ligações** que o vigia de callbacks já lê a cada minuto (`ATENDIMENTO` = lead; `ABANDONO EM FILA` = transbordo). Funciona sem webhook configurado, com até 1 min de atraso. Ao subir (e na virada do dia), o BenURA lê o dia desde 00:00.
@@ -420,6 +422,14 @@ logs/2026-10-15/
 A mesma suíte roda contra outra versão do script: `node test/rodizio/cenarios.js caminho/para/versao.js`. Foi assim que a
 refatoração foi comparada com o script original.
 
+**[NOVO] Respostas reais da Argus nos testes.** `test/unit/argus-respostas.test.js` roda os parsers do BenURA (status do operador e `tempoStatus`, grupos, pausas, resultado das ligações) sobre cada arquivo em `test/fixtures/argus/`.
+- Hoje os arquivos são de **exemplo**, no formato visto em produção.
+- Para trocar por respostas reais, rode `npm run capturar:argus` no PC do BenURA. É só leitura, não muda nada na Argus.
+  - Ele lê `listargrupos`, `listarpausas`, o `statusoperador` de alguns da URA e meia hora do `ligacoesdetalhadas` (robôs e URA).
+  - Tira cliente, telefone, CPF e e-mail, troca nomes por "Operador N" e ramais por 9000NN, e confere de novo antes de gravar.
+  - Se sobrar algo com cara de dado pessoal, não grava nada.
+- Depois: `npm test` e o commit dos arquivos.
+
 <details>
 <summary><b>🐞 Correções em relação ao script original</b></summary>
 
@@ -480,7 +490,8 @@ Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado p
 | **Receptivo URA** | Resumo (humanos, livres, pausa, fila, espera, leads derivados), status da URA, operadores com o tempo no status e os selos de fixo e de travado, pausas com limite (excedidas em vermelho) e o total do dia por tipo, o menu de ações de cada atendente (pausar, sair da pausa, ficar disponível, mandar para o Ativo / trazer para a URA com trava, deslogar), quem está no Ativo agora, o relatório do dia por atendente ([veja](#ações-por-atendente-e-trava-manual-aba-receptivo)) e o botão **Alocar Todos no Ativo**, que segura todos no Ativo até **Retomar rodízio da URA** ([veja](#todos-no-ativo-até-a-segunda-ordem)) |
 | **URA e robôs** | Pânico, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
 | **Esteira manual** | Colar ou escolher o CSV da esteira quando o Carrossel cair, ver o que ela decidiu, apagar e recarregar as vendas |
-| **Serviços** | Roteador, rodízio, rotinas e atualizador no ar ou não, a Argus respondendo (ou recusando o token), DRY_RUN e os avisos do dia |
+| **Serviços** | Roteador, rodízio, rotinas e atualizador no ar ou não (e, [NOVO], o liga/desliga de cada um), a Argus respondendo (ou recusando o token), DRY_RUN, os avisos do dia e, para administrador, usuários, avisos (BenHub) e configuração em uso |
+| **[NOVO] Ajuda** | O manual da supervisão, com busca: o dia do BenURA, robôs e pânico, URA cheia, status da URA, todos no Ativo, ações por atendente, as siglas do relatório, as faixas, desligar, avisos, papéis e o que fazer quando algo dá errado. O conteúdo fica em `painel-web/src/ajuda.ts`; mudou uma regra, mude lá também |
 
 As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico ativo, rodízio pausado (todos no Ativo), serviço fora do ar e token da Argus recusado.
 
@@ -489,6 +500,18 @@ As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico
 2. **Serviços depois:** roteador, rodízio e rotinas param (`npx pm2 stop`). O painel continua no ar, com uma faixa vermelha e o botão **"Religar automação"**.
 3. **Continua desligado:** a escolha fica em `AUTOMACAO_FILE` (`state-automacao.json`). Se algum serviço subir de novo (PC reiniciado, `pm2 start all`), ele espera sem mexer na Argus até alguém religar pelo painel.
 4. **Religar:** sobe os três de novo (`npx pm2 startOrRestart`). Os robôs continuam desligados: quem liga é a supervisão, pela Argus.
+
+**[NOVO] Um componente só (cartão dele na aba Serviços, só administrador):** "Desligar" para só o roteador, só o rodízio ou só as rotinas; "Ligar o …" volta. A confirmação diz o efeito:
+- **Roteador:** ninguém é movido entre Ativo e URA pelas vendas, e a lista de quem pode ir para a URA fica parada. O rodízio e o pânico seguem.
+- **Rodízio:** sem rodízio, pânico, URA cheia, status da URA, clientes de risco e relatório do dia. Os robôs são desligados antes, porque sem o rodízio ninguém mais os desliga.
+- **Rotinas:** sem a checagem de fim de expediente.
+
+Como funciona:
+- A marca fica no mesmo `AUTOMACAO_FILE`, em `componentes`. Um arquivo antigo, sem o campo, quer dizer tudo ligado.
+- O componente desligado espera ao subir (PC reiniciado, `pm2 start all`), como na automação toda.
+- "Desligar automação" e a agenda mexem só no todo e mantêm as marcas: o "Religar" (e as 08:00) sobe só quem não foi desligado à mão.
+- O atualizador não sobe nem espera o `/health` de quem está desligado. O "Fora do ar" e os avisos ignoram esse componente, e uma faixa amarela no topo mostra quem desligou.
+- Com os três desligados, este PC solta a trava dos dois PCs.
 
 Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o caminho de emergência continua sendo `npx pm2 stop all` no PC do BenURA.
 
@@ -499,6 +522,12 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 - No log: `Agenda: desligando a automação (18:00)` e `Agenda: religando a automação (08:00)`. Para não ter agenda, deixe as duas variáveis vazias no `.env`.
 
 **[NOVO] Configuração em uso (aba Serviços, só administrador):** cada opção que o BenURA leu do `.env`, o valor em uso e o padrão. "Só as que mudei" mostra o que difere do padrão. Os avisos da configuração aparecem no topo. Senhas e tokens aparecem só como "definido" ou "vazio". A leitura é de quando o painel subiu: mudou o `.env`, rode `npx pm2 restart all`.
+
+**[NOVO] Avisos (BenHub) (aba Serviços, só administrador):** o painel avisa quando um serviço (roteador, rodízio ou rotinas) fica **mais de 5 min fora do ar** e quando ele volta, e manda o **resumo do dia às 18:00**, logo antes de a agenda desligar: Transbordos, Leads derivados, TME, OPL, TOR e TPA, com o dia anterior e a média de 7 dias.
+- Os avisos ficam sempre no log de hoje (`logs/notificacoes.jsonl`).
+- Com `NOTIFICADOR=webhook`, `NOTIFICACOES_WEBHOOK_URL` e `NOTIFICACOES_WEBHOOK_TOKEN`, também vão para o BenHub (ou qualquer webhook). É um `POST` em JSON `{ titulo, texto, nivel, origem: "BenURA", em }` com `Authorization: Bearer <token>`. Pedido ao BenHub: a rota `POST /api/notificacoes`.
+- Não avisam: o atualizador, a automação desligada ou mudando de estado, e o PC que não está agindo de verdade (o reserva ou a simulação). Assim os dois PCs não avisam em dobro.
+- **Testar envio** manda um aviso de teste e diz se chegou. A URL e o token não aparecem no painel nem nos logs.
 
 **Modo simulação (aba Serviços):** liga ou desliga o DRY_RUN sem editar o `.env`. Simulação ligada: o BenURA continua lendo a Argus e mostrando o que faria, mas não move ninguém nem mexe nos robôs.
 - **Como vale:** a escolha fica em `SIMULACAO_FILE` (`state-simulacao.json`) e os três serviços reiniciam em seguida (`npx pm2 startOrRestart`), porque o DRY_RUN é lido quando cada um sobe.
@@ -542,7 +571,7 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 
 **A interface** fica em `painel-web/`, feita com **React + TypeScript + Tailwind CSS** (Vite), Recharts nos gráficos e React Query para as atualizações:
 - **Interação:** filtros e busca nas tabelas e nos avisos, gráficos com dica ao passar o mouse e período (dia todo, 3 h, 1 h), confirmação antes dos comandos que pesam e avisos rápidos do resultado.
-- **Tela:** tema claro, escuro ou do sistema; botão **Ao vivo/Pausado**; atalhos `1`–`4` (abas) e `P` (pausa); CSV arrastado direto para a esteira.
+- **Tela:** tema claro, escuro ou do sistema; botão **Ao vivo/Pausado**; atalhos `1`–`6` (abas) e `P` (pausa); CSV arrastado direto para a esteira.
 - **Funciona sem internet:** a fonte (Inter) e tudo mais vão junto no build. Nada vem de CDN.
 - **Build:** vai para `src/painel/publico/` e entra no git, então o PC do BenURA não compila nada (o `git pull` de sempre basta). O CI confere que o build está em dia com o código.
 - **Mudar a interface:** `npm run painel:dev` abre em `http://localhost:5173` com o painel (3010) rodando por trás; `npm run painel:build` gera o build para o commit.

@@ -163,3 +163,16 @@ test('pm2 falha ao recarregar: reverte', async () => {
   assert.equal(r.etapa, 'pm2 startOrReload');
   assert.equal(ctx.estado.head, 'aaa1111');
 });
+
+test('[NOVO] componente desligado à mão (ex.: só o rodízio): não sobe com o deploy e o /health dele não é esperado', async () => {
+  const urls = [];
+  const ctx = montar({});
+  ctx.servico.appsParados = () => ['benura-rodizio'];
+  ctx.servico.cfg = { ...ctx.servico.cfg, healthUrls: ['http://localhost:3001/health', 'http://localhost:3000/health'],
+    saudePorApp: { 'benura-roteador': 'http://localhost:3001/health', 'benura-rodizio': 'http://localhost:3000/health' } };
+  const aguardar = ctx.servico.aguardarSaude;
+  ctx.servico.aguardarSaude = async (u, o) => { urls.push(...u); return aguardar(u, o); };
+  assert.equal((await ctx.servico.verificar()).resultado, Resultado.IMPLANTADO);
+  assert.deepEqual(ctx.comandos.filter((c) => /pm2 startOrReload/.test(c)), ['npx pm2 startOrReload ecosystem.config.js --only benura-roteador,benura-painel']);
+  assert.deepEqual(urls, ['http://localhost:3001/health']);
+});

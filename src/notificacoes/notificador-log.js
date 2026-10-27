@@ -4,10 +4,9 @@
  * JSON Lines (logs/notificacoes.jsonl). Não envia nada para fora.
  *
  * Contrato de qualquer notificador:
- *   notificar({ titulo: string, texto: string, nivel?: 'info'|'aviso'|'erro', dados?: object }): Promise<void>
+ *   notificar({ titulo: string, texto: string, nivel?: 'info'|'aviso'|'erro', dados?: object }): Promise<{ ok, destino, erro? }>
  *
- * Um canal de chat (ex.: o BenHub), quando for definido, entra como
- * outro adaptador com o mesmo método — os serviços não mudam.
+ * [NOVO] Para fora (o BenHub), veja notificador-webhook.js: mesmo método.
  */
 
 class NotificadorLog {
@@ -21,10 +20,15 @@ class NotificadorLog {
     this.log = logger;
   }
 
+  descricao() {
+    return { tipo: 'log', destino: 'log' };
+  }
+
   async notificar({ titulo, texto, nivel = 'info', dados = {} }) {
     const registrar = { info: this.log.info, aviso: this.log.aviso, erro: this.log.erro }[nivel] || this.log.info;
     registrar(`[notificação] ${titulo} — ${texto}`);
     await this.trilha.registrar(`notificacao.${nivel}`, { titulo, texto, dados });
+    return { ok: true, destino: 'log' };
   }
 }
 

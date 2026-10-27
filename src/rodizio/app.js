@@ -90,6 +90,7 @@ function montarRodizio(overrides) {
     travas: new TravasManuais({ arquivo: cfg.automacao.arquivoTravas, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
     estatisticas: new EstatisticasDia({
       repositorio: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoEstatisticas, logger: log.filho('estado') }), fusoHorario: cfg.agenda.fusoHorario,
+      historico: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoHistorico, logger: log.filho('estado') }),
       // [NOVO] O relatório é do expediente: o mesmo horário da agenda da automação (08:00 às 18:00).
       expediente: { inicio: cfg.automacao.agenda.religarAs, fim: cfg.automacao.agenda.desligarAs },
     }),
@@ -224,7 +225,7 @@ async function iniciarRodizio() {
   ativarLogsEmArquivo(cfg, 'rodizio');
 
   exigirConfigValida(cfg, log);
-  await aguardarAutomacaoLigada(cfg.automacao, log, 'rodízio');
+  await aguardarAutomacaoLigada(cfg.automacao, log, 'rodízio', { app: 'benura-rodizio' });
   const vigia = vigiarPosse(cfg.automacao.posse, log, 'rodízio');
   const trava = adquirirTravaOuEncerrar(cfgRodizio.arquivoTrava, log);
   rodizio.inicializar();

@@ -3,8 +3,8 @@
 import { clsx } from 'clsx';
 import { CircleAlert, LoaderCircle, Monitor, Pause, PhoneCall, Power, PowerOff, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useAutomacao, useVisao } from '../dados';
-import type { AlertaDeRisco, EstadoAutomacao } from '../tipos';
+import { EFEITO_DESLIGADO, NOMES_DOS_COMPONENTES, useAutomacao, useVisao } from '../dados';
+import type { AlertaDeRisco, Componente, EstadoAutomacao } from '../tipos';
 import { Botao } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
 import { semAcesso, usePode } from '../sessao';
@@ -33,7 +33,11 @@ function FaixaAutomacao({ a }: { a: EstadoAutomacao }) {
       </div>
       {a.estado === 'desligada' && (
         <Botao variante="secundario" carregando={religar.isPending} semAcesso={admin ? null : semAcesso('administrador')} onClick={async () => {
-          if (await confirmar({ titulo: 'Religar a automação?', texto: 'O roteador, o rodízio e as rotinas voltam a funcionar. Os robôs continuam desligados: quem liga é a supervisão, pela Argus.', confirmar: 'Religar automação' })) religar.mutate(true);
+          const aMao = Object.keys(a.componentes ?? {}) as Componente[];
+          const texto = aMao.length
+            ? `Voltam a funcionar os que não foram desligados à mão (continua desligado: ${aMao.map((c) => NOMES_DOS_COMPONENTES[c]).join(', ')}). Os robôs continuam desligados: quem liga é a supervisão, pela Argus.`
+            : 'O roteador, o rodízio e as rotinas voltam a funcionar. Os robôs continuam desligados: quem liga é a supervisão, pela Argus.';
+          if (await confirmar({ titulo: 'Religar a automação?', texto, confirmar: 'Religar automação' })) religar.mutate(true);
         }}>Religar automação</Botao>
       )}
     </div>
@@ -74,7 +78,9 @@ export function Faixas() {
 
   if (!v) return null;
   const r = v.servicos.rodizio.dados;
-  const fora = Object.entries(v.servicos).filter(([nome, s]) => s && !s.online && nome !== 'atualizador').map(([, s]) => s!.nome);
+  // [NOVO] desligado à mão (o cartão dele, aba Serviços) não é "fora do ar"
+  const aMao = v.automacao?.componentes ?? {};
+  const fora = Object.entries(v.servicos).filter(([nome, s]) => s && !s.online && nome !== 'atualizador' && !aMao[`benura-${nome}` as Componente]).map(([, s]) => s!.nome);
   const faixas: ReactNode[] = [];
   const automacao = v.automacao;
   const reiniciando = automacao?.estado === 'reiniciando';
@@ -82,10 +88,18 @@ export function Faixas() {
   const automacaoParada = Boolean(automacao && automacao.estado !== 'ligada');
   if (automacao && automacaoParada && !reiniciando) faixas.push(<FaixaAutomacao key="automacao" a={automacao} />);
   if (automacao && reiniciando) {
-    faixas.push(<Faixa key="reiniciando" tom="alerta" icone={<LoaderCircle className="size-5 animate-spin" />} titulo="Reiniciando os serviços…"
+    faixas.push(<Faixa key="reiniciando" tom="alerta" icone={<LoaderCircle className="size-5 animate-spin" />} titulo="Mexendo nos serviços…"
       detalhe={`${automacao.etapa ?? ''}${automacao.aviso ? ` · ${automacao.aviso}` : ''}`} />);
   }
 
+  // [NOVO] componente desligado à mão (a automação segue ligada)
+  if (automacao?.estado === 'ligada') {
+    for (const [app, c] of Object.entries(aMao) as [Componente, { desde: string | null; por: string | null }][]) {
+      faixas.push(<Faixa key={`componente-${app}`} tom="alerta" icone={<PowerOff className="size-5" />}
+        titulo={`${NOMES_DOS_COMPONENTES[app][0]!.toUpperCase()}${NOMES_DOS_COMPONENTES[app].slice(1)} desligado pelo painel${c.desde ? ` desde ${horaCurta(c.desde)}` : ''}${c.por ? ` (${c.por})` : ''}`}
+        detalhe={`${EFEITO_DESLIGADO[app]} Para voltar: "Ligar o ${NOMES_DOS_COMPONENTES[app]}", na aba Serviços.`} />);
+    }
+  }
   // [NOVO] dois PCs: este espera (o outro está agindo), o outro parou de responder, ou a trava não responde
   if (v.doisPcs && !v.doisPcs.trava.minha) {
     const s = situacaoDosPcs(v.doisPcs, v);

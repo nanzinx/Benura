@@ -111,8 +111,13 @@ async function subirComUsuarios() {
       fetch: async (url, opcoes) => { chamadas.push({ url, corpo: opcoes.body }); return { status: 200, text: async () => '{"ok":true}' }; },
     }),
     dados: new DadosDoDia({ pasta: pasta(), fuso: 'America/Sao_Paulo' }),
-    automacao: { estado: () => ({}), desligar: (por) => { chamadas.push({ url: 'desligar', por }); return { iniciado: true }; }, religar: () => ({ iniciado: true }), definirSimulacao: () => ({ iniciado: true }) },
+    automacao: {
+      estado: () => ({}), desligar: (por) => { chamadas.push({ url: 'desligar', por }); return { iniciado: true }; }, religar: () => ({ iniciado: true }), definirSimulacao: () => ({ iniciado: true }),
+      desligarComponente: (app, por) => { chamadas.push({ url: 'desligar-componente', app, por }); return { iniciado: true }; },
+      religarComponente: (app, por) => { chamadas.push({ url: 'religar-componente', app, por }); return app === 'benura-rotinas' ? { iniciado: false, motivo: 'O rotinas já está ligado.' } : { iniciado: true }; },
+    },
     cfg: { fuso: 'America/Sao_Paulo' },
+    notificador: { descricao: () => ({ tipo: 'webhook', destino: 'definido' }), notificar: async (a) => { chamadas.push({ url: 'notificar', ...a }); return { ok: true, destino: 'webhook' }; } },
     configuracao: () => ({ lidaEm: '2026-10-27T11:00:00.000Z', opcoes: [{ nome: 'ARGUS_TOKEN', valor: 'definido', padrao: 'vazio', doEnv: true }], avisos: [] }),
     logger: { ...loggerNulo, info: (m) => logs.push(m), aviso: (m) => logs.push(m) },
   });
@@ -227,4 +232,35 @@ test('[NOVO] GET /api/configuracao: só o administrador vê a configuração em 
   assert.equal(r.status, 200);
   assert.deepEqual(r.corpo.opcoes.map((o) => [o.nome, o.valor]), [['ARGUS_TOKEN', 'definido']]);
   assert.equal(r.corpo.lidaEm, '2026-10-27T11:00:00.000Z');
+});
+
+test('[NOVO] POST /api/notificacoes/testar: só o administrador; manda um aviso de teste e diz se chegou', async (t) => {
+  const { servidor, pedir, entrar, chamadas } = await subirComUsuarios();
+  t.after(() => servidor.close());
+  assert.equal((await pedir('POST', '/api/notificacoes/testar', { cookie: await entrar('bia') })).status, 403);
+  const ana = await entrar('ana');
+  const r = await pedir('POST', '/api/notificacoes/testar', { cookie: ana });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.corpo, { ok: true, destino: 'webhook' });
+  const aviso = chamadas.find((c) => c.url === 'notificar');
+  assert.match(aviso.titulo, /teste/i);
+  assert.match(aviso.texto, /Ana/);
+  assert.deepEqual((await pedir('GET', '/api/visao', { cookie: ana })).corpo.notificacoes, { tipo: 'webhook', destino: 'definido' });
+});
+
+test('[NOVO] POST /api/automacao/componente: só o administrador liga e desliga cada componente', async (t) => {
+  const { servidor, pedir, entrar, chamadas } = await subirComUsuarios();
+  t.after(() => servidor.close());
+  const corpo = { app: 'benura-rodizio', ligar: false };
+  assert.equal((await pedir('POST', '/api/automacao/componente', { corpo, cookie: await entrar('bia') })).status, 403, 'supervisor não');
+  const ana = await entrar('ana');
+  assert.equal((await pedir('POST', '/api/automacao/componente', { corpo: { app: 'benura-painel', ligar: false }, cookie: ana })).status, 400, 'o painel não se desliga');
+  assert.equal((await pedir('POST', '/api/automacao/componente', { corpo: { app: 'benura-rodizio' }, cookie: ana })).status, 400, 'sem ligar/desligar');
+  assert.equal((await pedir('POST', '/api/automacao/componente', { corpo, cookie: ana })).status, 202);
+  const c = chamadas.find((x) => x.url === 'desligar-componente');
+  assert.equal(c.app, 'benura-rodizio');
+  assert.match(c.por, /Ana/);
+  assert.equal((await pedir('POST', '/api/automacao/componente', { corpo: { app: 'benura-roteador', ligar: true }, cookie: ana })).status, 202);
+  const recusa = await pedir('POST', '/api/automacao/componente', { corpo: { app: 'benura-rotinas', ligar: true }, cookie: ana });
+  assert.deepEqual([recusa.status, recusa.corpo.erro], [409, 'O rotinas já está ligado.']);
 });

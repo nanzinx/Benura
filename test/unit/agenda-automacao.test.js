@@ -78,3 +78,33 @@ test('agenda: religa pela trava dos dois PCs (com o outro PC agindo, não religa
   await as('2026-10-27', '08:00');
   assert.deepEqual(automacao.chamadas.map(([c]) => c), ['desligar'], 'não religou');
 });
+
+test('[NOVO] agenda: às 18:00 manda o resumo do dia antes de desligar (com o rodízio ainda no ar)', async () => {
+  const ordem = [];
+  const automacao = {
+    estado: () => ({ estado: ordem.includes('desligar') ? 'desligada' : 'ligada', por: null }),
+    desligar: () => { ordem.push('desligar'); return { iniciado: true }; },
+    religar: () => ({ iniciado: true }),
+  };
+  let agora = em('2026-10-26', '18:00');
+  const agenda = new AgendaAutomacao({
+    automacao, cfg: { desligarAs: '18:00', religarAs: '08:00', fuso: FUSO }, logger: loggerNulo, agora: () => agora,
+    aoFimDoDia: async () => { ordem.push('resumo'); },
+  });
+  await agenda.verificar();
+  assert.deepEqual(ordem, ['resumo', 'desligar']);
+  agora = em('2026-10-26', '18:02');
+  await agenda.verificar();
+  assert.deepEqual(ordem, ['resumo', 'desligar'], 'uma vez por dia');
+});
+
+test('[NOVO] agenda: o resumo falhar não impede de desligar', async () => {
+  const chamadas = [];
+  const automacao = { estado: () => ({ estado: 'ligada' }), desligar: () => { chamadas.push('desligar'); return { iniciado: true }; }, religar: () => ({}) };
+  const agenda = new AgendaAutomacao({
+    automacao, cfg: { desligarAs: '18:00', religarAs: '08:00', fuso: FUSO }, logger: loggerNulo, agora: () => em('2026-10-26', '18:00'),
+    aoFimDoDia: async () => { throw new Error('rodízio fora'); },
+  });
+  await agenda.verificar();
+  assert.deepEqual(chamadas, ['desligar']);
+});

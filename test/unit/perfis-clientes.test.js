@@ -15,7 +15,7 @@ const { loggerNulo } = require('../../src/utils/logger');
 const FUSO = 'America/Sao_Paulo';
 const AGORA = new Date('2026-10-20T13:00:00Z').getTime(); // 10:00 em Brasília
 const pasta = () => fs.mkdtempSync(path.join(os.tmpdir(), 'perfis-'));
-const ligacao = (id, resultado, { tel = '11980821594', dia = '2026-10-20', hora = '09:46:13' } = {}) => ({
+const ligacao = (id, resultado, { tel = '11900000001', dia = '2026-10-20', hora = '09:46:13' } = {}) => ({
   idLigacao: id, dddTelefone: tel, dataHoraLigacao: `${dia}T${hora}`, resultadoLigacao: resultado, nomeCliente: 'CLIENTE TESTE', cpfCnpj: '00000000000',
 });
 function criar(dir = pasta(), cfg = {}) {
@@ -29,14 +29,14 @@ function criar(dir = pasta(), cfg = {}) {
 }
 
 test('perfis: telefone normalizado e mascarado; a chave não contém o número', () => {
-  assert.equal(normalizarTelefone('+55 (11) 98082-1594'), '11980821594');
-  assert.equal(normalizarTelefone('011980821594'), '11980821594');
+  assert.equal(normalizarTelefone('+55 (11) 90000-0001'), '11900000001');
+  assert.equal(normalizarTelefone('011900000001'), '11900000001');
   assert.equal(normalizarTelefone('1234'), null);
-  assert.equal(mascarar('11980821594'), '(11) 9****-1594');
+  assert.equal(mascarar('11900000001'), '(11) 9****-0001');
   assert.equal(mascarar('1133334444'), '(11) ****-4444');
-  const chave = chaveDoCliente('11980821594', 'segredo');
-  assert.ok(!chave.includes('980821594'));
-  assert.notEqual(chave, chaveDoCliente('11980821594', 'outro segredo'), 'sem o segredo não dá para refazer a chave');
+  const chave = chaveDoCliente('11900000001', 'segredo');
+  assert.ok(!chave.includes('900000001'));
+  assert.notEqual(chave, chaveDoCliente('11900000001', 'outro segredo'), 'sem o segredo não dá para refazer a chave');
 });
 
 test('perfis: como cada resultado conta', () => {
@@ -57,15 +57,15 @@ test('perfis: soma ao vivo, não repete a mesma ligação, guarda só HMAC e má
   assert.equal(p.registrarLigacao(ligacao(1, 'OPER. VIRTUAL - ABANDONO EM FILA'), AGORA), false, 'mesma ligação');
   assert.equal(p.registrarLigacao(ligacao(2, 'NÃO ATENDE'), AGORA), false);
   p.registrarLigacao(ligacao(3, 'ATENDIMENTO'), AGORA);
-  assert.deepEqual(p.consultar('(11) 98082-1594', AGORA), {
-    mascara: '(11) 9****-1594', atendeu: 2, callbacks: 1, ultimoDia: '2026-10-20', motivos: ['1 callback(s)'],
+  assert.deepEqual(p.consultar('(11) 90000-0001', AGORA), {
+    mascara: '(11) 9****-0001', atendeu: 2, callbacks: 1, ultimoDia: '2026-10-20', motivos: ['1 callback(s)'],
   });
   assert.deepEqual(p.consultar('11 99999-0000', AGORA).motivos, [], 'cliente sem perfil');
   await p.salvar(AGORA);
 
   const gravado = fs.readFileSync(path.join(dir, 'vivo.json'), 'utf8');
-  assert.ok(!/98082|CLIENTE TESTE|00000000000/.test(gravado), 'nada do cliente no arquivo além da máscara');
-  assert.equal(criar(dir).consultar('11980821594', AGORA).atendeu, 2, 'retoma depois de reiniciar');
+  assert.ok(!/900000001|CLIENTE TESTE|00000000000/.test(gravado), 'nada do cliente no arquivo além da máscara');
+  assert.equal(criar(dir).consultar('11900000001', AGORA).atendeu, 2, 'retoma depois de reiniciar');
 });
 
 test('perfis: histórico (perfis:montar) soma com o ao vivo sem contar o mesmo dia duas vezes; janela de 30 dias', () => {
@@ -84,7 +84,7 @@ test('perfis: histórico (perfis:montar) soma com o ao vivo sem contar o mesmo d
   const p = criar(dir, { segredo });
   p.registrarLigacao(ligacao(14, 'ATENDIMENTO', { dia: '2026-10-19' }), AGORA); // já no histórico: não conta
   p.registrarLigacao(ligacao(15, 'ATENDIMENTO'), AGORA);
-  const c = p.consultar('11980821594', AGORA);
+  const c = p.consultar('11900000001', AGORA);
   assert.equal(c.atendeu, 3, '2 do histórico (01/09 fora da janela) + 1 de hoje');
   assert.deepEqual(c.motivos, ['atendeu 3 vez(es)']);
   assert.equal(p.maisArriscados(5, AGORA).length, 1);
@@ -113,11 +113,11 @@ test('vigia de risco: "LIGAÇÃO EM CURSO" de cliente de risco vira alerta uma v
   await vigia.verificar(AGORA);
   const [alerta] = vigia.listar();
   assert.equal(vigia.listar().length, 1, 'só o cliente de risco');
-  assert.equal(alerta.mascara, '(11) 9****-1594');
+  assert.equal(alerta.mascara, '(11) 9****-0001');
   assert.equal(alerta.robo, 'Oper Virtual 7');
-  assert.match(avisos[0], /^CLIENTE DE RISCO em ligação: Oper Virtual 7 com \(11\) 9\*\*\*\*-1594 \(1 callback/);
+  assert.match(avisos[0], /^CLIENTE DE RISCO em ligação: Oper Virtual 7 com \(11\) 9\*\*\*\*-0001 \(1 callback/);
   assert.equal(desligamentos.length, 0, 'interruptor desligado: só avisa');
-  assert.ok(!JSON.stringify(vigia.listar()).includes('98082'));
+  assert.ok(!JSON.stringify(vigia.listar()).includes('900000001'));
 
   await vigia.verificar(AGORA + 10_000);
   assert.equal(avisos.length, 1, 'a mesma ligação não alerta de novo');
@@ -126,14 +126,14 @@ test('vigia de risco: "LIGAÇÃO EM CURSO" de cliente de risco vira alerta uma v
   vigia.alertas.clear();
   await vigia.verificar(AGORA + 20_000);
   assert.equal(desligamentos.length, 1);
-  assert.match(desligamentos[0], /cliente de risco em ligação: \(11\) 9\*\*\*\*-1594/);
+  assert.match(desligamentos[0], /cliente de risco em ligação: \(11\) 9\*\*\*\*-0001/);
   assert.equal(vigia.listar().length, 1);
 });
 
 test('perfis:montar de novo não perde os dias antigos; o ao vivo de antes do período relido continua', () => {
   const { juntarHistorico } = require('../../src/domain/perfis-clientes');
-  const anterior = { k: { mascara: '(11) 9****-1594', dias: { '2026-10-10': [2, 1], '2026-10-14': [1, 0] } } };
-  const novos = { k: { mascara: '(11) 9****-1594', dias: { '2026-10-14': [3, 0], '2026-10-19': [1, 0] } } };
+  const anterior = { k: { mascara: '(11) 9****-0001', dias: { '2026-10-10': [2, 1], '2026-10-14': [1, 0] } } };
+  const novos = { k: { mascara: '(11) 9****-0001', dias: { '2026-10-14': [3, 0], '2026-10-19': [1, 0] } } };
   assert.deepEqual(juntarHistorico(anterior, novos, { desde: '2026-10-14', ate: '2026-10-20' }).k.dias,
     { '2026-10-10': [2, 1], '2026-10-14': [3, 0], '2026-10-19': [1, 0] }, 'o período relido substitui; o mais antigo fica');
 
@@ -143,6 +143,6 @@ test('perfis:montar de novo não perde os dias antigos; o ao vivo de antes do pe
   p.registrarLigacao(ligacao(2, 'ATENDIMENTO', { dia: '2026-10-15' }), AGORA); // ao vivo, dentro: o histórico substitui
   fs.writeFileSync(path.join(dir, 'historico.json'), JSON.stringify({ desde: '2026-10-14', ate: '2026-10-20', perfis: {} }));
   p.manter(AGORA);
-  assert.equal(p.consultar('11980821594', AGORA).atendeu, 1, 'fica só o dia 12');
+  assert.equal(p.consultar('11900000001', AGORA).atendeu, 1, 'fica só o dia 12');
   assert.equal(p.registrarLigacao(ligacao(3, 'ATENDIMENTO', { dia: '2026-10-16' }), AGORA), false, 'dia já coberto pelo histórico');
 });

@@ -49,9 +49,10 @@ class AtualizadorService {
    * @param {object} deps.logger
    * @param {() => boolean} [deps.automacaoDesligada] - botão "Desligar automação" do painel (ou a agenda, à noite)
    * @param {string[]} [deps.appsDaAutomacao] - apps que o botão para; com ela desligada, ficam parados
+   * @param {() => string[]} [deps.appsParados] - [NOVO] componentes desligados à mão no painel (ficam parados)
    */
-  constructor({ executar, aguardarSaude, relogio, cfg, auditoria, logger, automacaoDesligada = () => false, appsDaAutomacao = [] }) {
-    Object.assign(this, { executar, aguardarSaude, relogio, cfg, auditoria, log: logger, automacaoDesligada, appsDaAutomacao });
+  constructor({ executar, aguardarSaude, relogio, cfg, auditoria, logger, automacaoDesligada = () => false, appsDaAutomacao = [], appsParados = () => [] }) {
+    Object.assign(this, { executar, aguardarSaude, relogio, cfg, auditoria, log: logger, automacaoDesligada, appsDaAutomacao, appsParados });
     this.ultimo = null;
   }
 
@@ -118,8 +119,11 @@ class AtualizadorService {
    * "Religar", e o /health deles não responde, então não há saúde a esperar.
    */
   alvos() {
-    if (!this.automacaoDesligada()) return { apps: this.cfg.apps, healthUrls: this.cfg.healthUrls };
-    return { apps: this.cfg.apps.filter((a) => !this.appsDaAutomacao.includes(a)), healthUrls: [], desligada: true };
+    if (this.automacaoDesligada()) return { apps: this.cfg.apps.filter((a) => !this.appsDaAutomacao.includes(a)), healthUrls: [], desligada: true };
+    // [NOVO] Componente desligado à mão: fica parado (sobe com o código novo quando ligarem) e sem /health.
+    const parados = this.appsParados();
+    const urlsParadas = parados.map((a) => this.cfg.saudePorApp?.[a]).filter(Boolean);
+    return { apps: this.cfg.apps.filter((a) => !parados.includes(a)), healthUrls: this.cfg.healthUrls.filter((u) => !urlsParadas.includes(u)) };
   }
 
   /** Recarrega os serviços e espera a saúde. @returns {Promise<object|null>} falha, ou null se ok */

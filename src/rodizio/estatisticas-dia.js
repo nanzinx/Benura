@@ -9,6 +9,8 @@
  * maior espera livre e quando foi visto na URA. Conta só o tempo no grupo da URA
  * (o rodízio só lê o status de quem está nela). Gravado em arquivo: um reinício no
  * mesmo dia continua; na virada do dia começa do zero.
+ * [NOVO] Na virada (ou ao subir no dia seguinte), os totais do dia vão para o histórico:
+ * o painel compara hoje com o dia anterior e com a média dos últimos 7 dias.
  */
 
 const { dataLocal, horaLocal } = require('../utils/datas');
@@ -57,6 +59,9 @@ const atendente = () => ({
 });
 
 const minutos = (ms) => Math.round(ms / 6_000) / 10;
+const DIAS_NO_HISTORICO = 60;
+const DIAS_NA_SEMANA = 7;
+const DIA_MS = 86_400_000;
 const minutosDoDia = (hhmm) => {
   const [h, m] = String(hhmm).split(':').map(Number);
   return h * 60 + m;
@@ -78,10 +83,11 @@ class EstatisticasDia {
    * @param {number} [deps.gravarACadaMs]
    * @param {{ inicio: string, fim: string }|null} [deps.expediente] - [NOVO] HH:MM: fora dele, o tempo não
    *        conta e o relatório não mostra a hora (sem ele, o dia todo)
+   * @param {import('../utils/persistencia-json').ArquivoDeEstado} [deps.historico] - [NOVO] totais dos dias que passaram
    */
-  constructor({ repositorio = null, fusoHorario, gravarACadaMs = 60_000, expediente = null }) {
+  constructor({ repositorio = null, fusoHorario, gravarACadaMs = 60_000, expediente = null, historico = null }) {
     const valido = expediente?.inicio && expediente?.fim ? expediente : null;
-    Object.assign(this, { repositorio, fusoHorario, gravarACadaMs, expediente: valido });
+    Object.assign(this, { repositorio, fusoHorario, gravarACadaMs, expediente: valido, historico });
     this.estado = diaNovo(dataLocal(fusoHorario));
     this.ultimaAmostraEm = null;
     this.gravadoEm = 0;
@@ -92,6 +98,7 @@ class EstatisticasDia {
   carregar(agora = Date.now()) {
     const salvo = this.repositorio?.carregar();
     if (salvo?.dia === dataLocal(this.fusoHorario, new Date(agora))) this.estado = { ...diaNovo(salvo.dia), ...salvo };
+    else if (salvo?.dia) this.arquivar({ ...diaNovo(salvo.dia), ...salvo }); // parado à noite: o dia de ontem vai para o histórico
     this.contadas = new Set(Array.isArray(this.estado.contadas) ? this.estado.contadas : []);
     // O que já tinha sido contado hoje como "sem agente" sai do total (as barras por hora ficam como estavam).
     const e = this.estado;
@@ -111,6 +118,7 @@ class EstatisticasDia {
   virarDia(agora) {
     const dia = dataLocal(this.fusoHorario, new Date(agora));
     if (dia === this.estado.dia) return;
+    this.arquivar(this.estado);
     this.estado = diaNovo(dia);
     this.ultimaAmostraEm = null;
     this.contadas = new Set();
@@ -275,6 +283,79 @@ class EstatisticasDia {
     return this.repositorio?.salvar(this.estado);
   }
 
+  /** [NOVO] Os totais de um dia, como o painel mostra (só as horas do expediente). */
+  totaisDe(e) {
+    const horas = Object.entries(e.horas ?? {}).filter(([h]) => this.horaNoExpediente(h)).map(([, v]) => v);
+    const soma = (campo) => horas.reduce((t, v) => t + (v[campo] ?? 0), 0);
+    const livresMs = soma('livresMs');
+    const derivacoes = soma('derivacoes');
+    const esperaSomaSeg = Math.round(soma('esperaSomaMs') / 1000);
+    const esperaQtd = soma('esperaQtd');
+    return {
+      dia: e.dia,
+      transbordos: e.transbordos ?? 0,
+      leadsDerivados: e.leadsDerivados ?? 0,
+      derivacoes,
+      esperaSomaSeg,
+      esperaQtd,
+      livresMin: minutos(livresMs),
+      torMin: minutos(soma('ociosoSemRobosMs')),
+      tpaMin: minutos(soma('panicoMs')),
+      calmaMin: minutos(soma('calmaMs')),
+      tmeSeg: esperaQtd ? Math.round(esperaSomaSeg / esperaQtd) : null,
+      oplSeg: derivacoes ? Math.round(livresMs / derivacoes / 1000) : null,
+    };
+  }
+
+  /** [NOVO] Guarda os totais do dia no histórico (um por dia, os últimos DIAS_NO_HISTORICO). */
+  arquivar(e) {
+    if (!this.historico || !e?.dia) return;
+    const t = this.totaisDe(e);
+    if (!t.transbordos && !t.leadsDerivados && !t.derivacoes && !t.livresMin && !t.tpaMin) return; // dia sem nada
+    const dias = this.diasDoHistorico().filter((d) => d.dia !== t.dia);
+    dias.push(t);
+    dias.sort((a, b) => a.dia.localeCompare(b.dia));
+    this.dias = dias.slice(-DIAS_NO_HISTORICO);
+    this.historico.salvar({ dias: this.dias });
+  }
+
+  /** Lido uma vez do arquivo; depois, da memória (o resumo sai a cada /health). */
+  diasDoHistorico() {
+    if (!this.historico) return [];
+    if (!this.dias) {
+      const salvo = this.historico.carregar()?.dias;
+      this.dias = Array.isArray(salvo) ? salvo : [];
+    }
+    return this.dias;
+  }
+
+  /** [NOVO] O dia anterior com dados e a média dos últimos 7 dias (só os que tiveram dados). */
+  comparacao() {
+    const hoje = this.estado.dia;
+    const antes = this.diasDoHistorico().filter((d) => d.dia < hoje);
+    const anterior = antes.at(-1) ?? null;
+    const desde = Date.parse(hoje) - DIAS_NA_SEMANA * DIA_MS;
+    const semana = antes.filter((d) => Date.parse(d.dia) >= desde);
+    if (!semana.length) return { anterior, semana: null };
+    const total = (campo) => semana.reduce((t, d) => t + (d[campo] ?? 0), 0);
+    const media = (campo, casas = 0) => Math.round((total(campo) / semana.length) * 10 ** casas) / 10 ** casas;
+    const esperaQtd = total('esperaQtd');
+    const derivacoes = total('derivacoes');
+    return {
+      anterior,
+      semana: {
+        dias: semana.length,
+        transbordos: media('transbordos'),
+        leadsDerivados: media('leadsDerivados'),
+        torMin: media('torMin', 1),
+        tpaMin: media('tpaMin', 1),
+        calmaMin: media('calmaMin', 1),
+        tmeSeg: esperaQtd ? Math.round(total('esperaSomaSeg') / esperaQtd) : null,
+        oplSeg: derivacoes ? Math.round((total('livresMin') * 60) / derivacoes) : null,
+      },
+    };
+  }
+
   /** Para o /health e o painel. Minutos com uma casa decimal. */
   resumo() {
     const e = this.estado;
@@ -299,6 +380,7 @@ class EstatisticasDia {
       filaMediaSeg: e.filaQtd ? Math.round(e.filaSegSoma / e.filaQtd) : null,
       pausasMin: mapa(e.pausasMs),
       porAtendente: this.porAtendente(),
+      comparacao: this.comparacao(),
       horas: Object.entries(e.horas).filter(([h]) => this.horaNoExpediente(h)).sort(([a], [b]) => a.localeCompare(b)).map(([h, v]) => ({
         hora: h,
         livresMin: minutos(v.livresMs),

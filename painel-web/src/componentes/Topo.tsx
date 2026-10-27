@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { Activity, ChevronDown, Headset, KeyRound, LayoutDashboard, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
+import { Activity, ChevronDown, Headset, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ComponentType } from 'react';
 import { useVisao } from '../dados';
 import { NOMES_PAPEIS, usePode, useSessao } from '../sessao';
@@ -8,14 +8,15 @@ import { Marca } from './Marca';
 import { BotaoDesligarAutomacao } from './DesligarAutomacao';
 import { TrocarSenha } from './Usuarios';
 
-export type Aba = 'visao' | 'receptivo' | 'ura' | 'esteira' | 'servicos';
-/** `curto`: o rótulo nas telas até 1536 px (com 5 abas, o completo quebraria o topo em duas linhas). */
+export type Aba = 'visao' | 'receptivo' | 'ura' | 'esteira' | 'servicos' | 'ajuda';
+/** `curto`: o rótulo nas telas até 1536 px (com 6 abas, o completo quebraria o topo em duas linhas). */
 export const ABAS: { id: Aba; texto: string; curto: string; Icone: ComponentType<{ className?: string }> }[] = [
   { id: 'visao', texto: 'Visão geral', curto: 'Visão geral', Icone: LayoutDashboard },
   { id: 'receptivo', texto: 'Receptivo URA', curto: 'Receptivo', Icone: Headset },
   { id: 'ura', texto: 'URA e robôs', curto: 'Robôs', Icone: Activity },
   { id: 'esteira', texto: 'Esteira manual', curto: 'Esteira', Icone: Upload },
   { id: 'servicos', texto: 'Serviços', curto: 'Serviços', Icone: Server },
+  { id: 'ajuda', texto: 'Ajuda', curto: 'Ajuda', Icone: LifeBuoy },
 ];
 
 const TEMAS: { id: Tema; texto: string; Icone: ComponentType<{ className?: string }> }[] = [

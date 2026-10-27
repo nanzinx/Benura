@@ -84,7 +84,7 @@ function montarServidor({ cfg, log }, laco) {
 
 async function executarContinuamente(app) {
   const { cfg, log, fimExpediente } = app;
-  await aguardarAutomacaoLigada(cfg.automacao, log, 'serviço de rotinas');
+  await aguardarAutomacaoLigada(cfg.automacao, log, 'serviço de rotinas', { app: 'benura-rotinas' });
   const vigia = vigiarPosse(cfg.automacao.posse, log, 'serviço de rotinas');
   const trava = adquirirTravaOuEncerrar(cfg.rotinas.arquivoTrava, log);
   const laco = executarPeriodicamente({

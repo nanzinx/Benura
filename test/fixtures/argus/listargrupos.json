@@ -1,0 +1,10 @@
+{
+  "origem": "exemplo",
+  "nota": "Formato do listargrupos (campos que o BenURA lê). Troque por uma captura real: npm run capturar:argus.",
+  "comando": "listargrupos",
+  "resposta": [
+    { "idGrupoUsuario": 2, "descricao": "URA RECEPTIVO", "idTipoGrupo": 2, "ramaisOperadores": ["900001", "900002", "900003"] },
+    { "idGrupoUsuario": 1, "descricao": "ATIVO 1", "idTipoGrupo": 1, "ramaisOperadores": ["900004"] },
+    { "idGrupoUsuario": 9, "descricao": "ROBOS", "idTipoGrupo": 3, "ramaisOperadores": ["900005"] }
+  ]
+}

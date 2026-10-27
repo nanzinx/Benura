@@ -167,7 +167,25 @@ export interface RelatorioDoDia {
   pausasMin?: Record<string, number>;
   /** [NOVO] por atendente, hoje */
   porAtendente?: AtendenteDoDia[];
+  /** [NOVO] o dia anterior com dados e a média dos últimos 7 dias */
+  comparacao?: { anterior: TotaisDoDia | null; semana: (Omit<TotaisDoDia, 'dia' | 'derivacoes' | 'esperaSomaSeg' | 'esperaQtd' | 'livresMin'> & { dias: number }) | null };
   horas: HoraDoRelatorio[];
+}
+
+/** [NOVO] Os totais de um dia passado (histórico do relatório). */
+export interface TotaisDoDia {
+  dia: string;
+  transbordos: number;
+  leadsDerivados: number;
+  derivacoes: number;
+  esperaSomaSeg: number;
+  esperaQtd: number;
+  livresMin: number;
+  torMin: number;
+  tpaMin: number;
+  calmaMin: number;
+  tmeSeg: number | null;
+  oplSeg: number | null;
 }
 
 /** [NOVO] GET /api/metricas/hoje (00:00 até agora). */
@@ -238,7 +256,12 @@ export interface EstadoAutomacao {
   aviso: string | null;
   /** Botão "Modo simulação" (DRY_RUN): a escolha do painel; fixaPeloEnv = DRY_RUN=1 no .env. */
   simulacao?: { escolhida: boolean; fixaPeloEnv: boolean; desde: string | null; por: string | null };
+  /** [NOVO] componentes desligados à mão (só os desligados aparecem) */
+  componentes?: Partial<Record<Componente, { desligado: true; desde: string | null; por: string | null }>>;
 }
+
+/** [NOVO] Os componentes que o painel liga e desliga sozinhos (o app do PM2). */
+export type Componente = 'benura-roteador' | 'benura-rodizio' | 'benura-rotinas';
 
 export interface Visao {
   agora: string;
@@ -253,7 +276,12 @@ export interface Visao {
   automacao?: EstadoAutomacao;
   /** [NOVO] dois PCs (servidor e reserva); null sem a trava configurada */
   doisPcs?: DoisPcs | null;
+  /** [NOVO] para onde vão os avisos (log ou webhook do BenHub); sem o endereço */
+  notificacoes?: { tipo: 'log' | 'webhook'; destino: 'log' | 'definido' } | null;
 }
+
+/** [NOVO] POST /api/notificacoes/testar */
+export interface ResultadoTesteAviso { ok: boolean; destino: 'log' | 'webhook'; erro?: string }
 
 /** [NOVO] A trava dos dois PCs (só um age de verdade na Argus) e o outro PC, pela rede. */
 export interface DoisPcs {

@@ -1,9 +1,11 @@
 import { clsx } from 'clsx';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Download } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { duracao, minutos } from '../formatos';
+import { baixarXlsx } from '../planilha';
+import { abasDoRelatorio, diaCurto, totaisDoRelatorio } from '../relatorio';
 import type { EstadoTermometro, RelatorioDoDia } from '../tipos';
-import { Cartao, Vazio } from '../ui/base';
+import { Botao, Cartao, Vazio } from '../ui/base';
 import { CORES_DA_URA, NOMES_DA_URA } from './StatusUra';
 
 const CORES_TERMOMETRO: Record<EstadoTermometro, string> = {
@@ -24,14 +26,27 @@ const DICAS = {
   status: 'Status da URA ao longo do dia: clique para ver quanto tempo ela passou em cada um.',
 };
 
-function Numero({ rotulo, valor, nota, destaque, dica }: { rotulo: string; valor: ReactNode; nota?: ReactNode; destaque?: 'perigo' | 'alerta'; dica?: string }) {
+function Numero({ rotulo, valor, nota, destaque, dica, comparar }: { rotulo: string; valor: ReactNode; nota?: ReactNode; destaque?: 'perigo' | 'alerta'; dica?: string; comparar?: ReactNode }) {
   return (
     <div title={dica} className={clsx(dica && 'cursor-help', 'grid content-start rounded-lg px-3 py-2.5', destaque === 'perigo' ? 'bg-red-50 dark:bg-red-950/50' : destaque === 'alerta' ? 'bg-amarelo-100 dark:bg-amber-950/50' : 'bg-azul-50 dark:bg-noite-800')}>
       <span className="rotulo">{rotulo}</span>
       <b className={clsx('text-xl tabular-nums', destaque === 'perigo' && 'text-red-700 dark:text-red-300', destaque === 'alerta' && 'text-amber-900 dark:text-amber-100')}>{valor}</b>
       {nota && <span className="text-xs text-slate-500 dark:text-slate-400">{nota}</span>}
+      {comparar && <span className="mt-1 border-t border-slate-200/80 pt-1 text-[11px] text-slate-500 dark:border-noite-700 dark:text-slate-400">{comparar}</span>}
     </div>
   );
+}
+
+type Comparacao = NonNullable<RelatorioDoDia['comparacao']>;
+type Campo = 'transbordos' | 'torMin' | 'tmeSeg' | 'oplSeg' | 'tpaMin';
+
+/** [NOVO] "sex 23/10: 5" e "7 dias: 4", uma linha cada (o dia de hoje ainda não acabou: compare com calma). */
+function comparativo(c: Comparacao | undefined, campo: Campo, formatar: (v: number | null) => string): ReactNode {
+  const partes = [
+    c?.anterior && `${diaCurto(c.anterior.dia)}: ${formatar(c.anterior[campo] ?? null)}`,
+    c?.semana && `7 dias: ${formatar(c.semana[campo] ?? null)}`,
+  ].filter(Boolean);
+  return partes.length ? partes.map((p) => <span key={String(p)} className="block whitespace-nowrap">{p}</span>) : undefined;
 }
 
 const ORDEM_STATUS: EstadoTermometro[] = ['calma', 'normal', 'agressiva'];
@@ -105,15 +120,10 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
   const horas = r.horas;
   const piorOcioso = Math.max(0, ...horas.map((h) => h.ociosoSemRobosMin));
   // [NOVO] Os quadros e o total somam as horas mostradas (só o expediente, 08h às 17h).
-  const soma = (f: (h: (typeof horas)[number]) => number) => Math.round(horas.reduce((s, h) => s + f(h), 0) * 10) / 10;
-  const panicoTotal = soma((h) => h.panicoMin);
-  const ociosoTotal = soma((h) => h.ociosoSemRobosMin);
-  const livresTotal = soma((h) => h.livresMin);
-  const derivacoesTotal = soma((h) => h.derivacoes);
-  const oplTotal = derivacoesTotal ? Math.round((livresTotal * 60) / derivacoesTotal) : null;
-  const esperaQtdTotal = soma((h) => h.esperaQtd ?? 0);
-  const tmeTotal = esperaQtdTotal ? Math.round(soma((h) => h.esperaSomaSeg ?? 0) / esperaQtdTotal) : null;
-  const calmaTotal = soma((h) => h.calmaMin);
+  const t = totaisDoRelatorio(r);
+  const [panicoTotal, ociosoTotal, livresTotal, oplTotal, esperaQtdTotal, tmeTotal, calmaTotal] = [t.tpa, t.tor, t.livres, t.opl, t.esperaQtd, t.tme, t.calma];
+  const c = r.comparacao;
+  const numero = (v: number | null) => (v == null ? '–' : String(v));
   const vezes = r.panicoVezes.zero + r.panicoVezes.saindo + r.panicoVezes.fixo;
   const transbordos = r.transbordos ?? 0;
   const pior = [...horas].sort((a, b) => (b.transbordos ?? 0) - (a.transbordos ?? 0))[0];
@@ -123,14 +133,24 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
       : motivo ? `mais ${motivo[0]}` : undefined;
 
   return (
-    <Cartao titulo="Relatório do dia" extra={<span>hoje, no expediente, hora a hora</span>} className="mb-5">
+    <Cartao titulo="Relatório do dia" className="mb-5" extra={(
+      <>
+        <span>hoje, no expediente, hora a hora</span>
+        <Botao variante="secundario" className="min-h-8 px-3 py-1" icone={<Download className="size-4" aria-hidden />}
+          title="Baixa o relatório de hoje (hora a hora, comparação e por atendente) para abrir no Excel"
+          onClick={() => baixarXlsx(`relatorio-benura-${r.dia}.xlsx`, abasDoRelatorio(r))}>
+          Planilha
+        </Botao>
+      </>
+    )}>
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={r.transbordos ?? '–'} destaque={transbordos ? 'perigo' : undefined} nota={notaTransbordos} />
+        <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={r.transbordos ?? '–'} destaque={transbordos ? 'perigo' : undefined} nota={notaTransbordos}
+          comparar={comparativo(c, 'transbordos', numero)} />
         <Numero rotulo="TOR" dica={DICAS.tor} valor={minutos(ociosoTotal)} destaque={ociosoTotal >= 15 ? 'alerta' : undefined}
-          nota="ocioso sem robô" />
-        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(tmeTotal)} nota={`${esperaQtdTotal} ligação(ões) medida(s)`} />
-        <Numero rotulo="OPL" dica={DICAS.opl} valor={duracao(oplTotal)} nota={`${minutos(livresTotal)} livres`} />
-        <Numero rotulo="TPA" dica={DICAS.tpa} valor={minutos(panicoTotal)} nota={`pânico ativo · ${vezes} vez(es)`} />
+          nota="ocioso sem robô" comparar={comparativo(c, 'torMin', minutos)} />
+        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(tmeTotal)} nota={`${esperaQtdTotal} ligação(ões) medida(s)`} comparar={comparativo(c, 'tmeSeg', duracao)} />
+        <Numero rotulo="OPL" dica={DICAS.opl} valor={duracao(oplTotal)} nota={`${minutos(livresTotal)} livres`} comparar={comparativo(c, 'oplSeg', duracao)} />
+        <Numero rotulo="TPA" dica={DICAS.tpa} valor={minutos(panicoTotal)} nota={`pânico ativo · ${vezes} vez(es)`} comparar={comparativo(c, 'tpaMin', minutos)} />
         <div className="col-span-2 md:col-span-1"><StatusDoDia r={r} atual={statusAtual} /></div>
       </div>
       <BarraTermometro r={r} />

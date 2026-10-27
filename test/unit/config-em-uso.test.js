@@ -32,6 +32,7 @@ test('config em uso: segredo nunca aparece, só se está definido', () => {
   assert.equal(achar(opcoes, 'WEBHOOK_TOKEN').valor, 'vazio');
   const json = JSON.stringify(opcoes);
   for (const s of ['abc123segredo', 'senha-forte-123', 'xyz-segredo-2']) assert.ok(!json.includes(s), s);
+  assert.equal(achar(emUso({ NOTIFICACOES_WEBHOOK_URL: 'https://hooks.exemplo.com/T0/B0/segredo-no-caminho' }), 'NOTIFICACOES_WEBHOOK_URL').valor, 'definido', 'URL de webhook leva o segredo no caminho');
   assert.equal(achar(emUso({ ARGUS_BASE: 'https://ana:minha-senha@argus.exemplo.com/api' }), 'ARGUS_BASE').valor, 'https://***@argus.exemplo.com/api', 'senha dentro do endereço também não sai');
 });
 
