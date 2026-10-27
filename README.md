@@ -490,6 +490,12 @@ As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico
 
 Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o caminho de emergência continua sendo `npx pm2 stop all` no PC do BenURA.
 
+**[NOVO] Agenda da automação:** de segunda a sexta, o painel desliga a automação sozinho às `AGENDA_DESLIGAR` (**18:00**) e religa às `AGENDA_RELIGAR` (**08:00**), como se alguém apertasse os botões. A noite e o fim de semana não entram no relatório do dia.
+- **Só na hora marcada** (até 5 min depois): quem religar à mão de noite, para hora extra, continua ligado.
+- **Às 08:00 só religa o que a agenda desligou:** desligada à mão (ou o PC reserva, que fica desligado) continua desligada.
+- **Fim de semana:** desliga na sexta às 18:00 e religa na segunda às 08:00.
+- No log: `Agenda: desligando a automação (18:00)` e `Agenda: religando a automação (08:00)`. Para não ter agenda, deixe as duas variáveis vazias no `.env`.
+
 **Modo simulação (aba Serviços):** liga ou desliga o DRY_RUN sem editar o `.env`. Simulação ligada: o BenURA continua lendo a Argus e mostrando o que faria, mas não move ninguém nem mexe nos robôs.
 - **Como vale:** a escolha fica em `SIMULACAO_FILE` (`state-simulacao.json`) e os três serviços reiniciam em seguida (`npx pm2 startOrRestart`), porque o DRY_RUN é lido quando cada um sobe.
 - **Selo "Simulação":** fica no topo enquanto ela estiver ligada; clicar nele leva ao cartão.
