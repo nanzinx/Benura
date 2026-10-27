@@ -293,6 +293,7 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
        - **Transbordos**;
        - **TOR** (Tempo Ocioso sem Robô): gente livre e nenhum robô ligado;
        - **TME** (Tempo Médio de Espera do operador livre);
+       - [NOVO] **Só o expediente** (`AGENDA_RELIGAR` às `AGENDA_DESLIGAR`, 08:00 às 18:00): fora dele o tempo não conta (TOR, TPA, livres, termômetro, pausas) e a hora não aparece. Os quadros e o total somam as horas mostradas;
        - **Leads derivados** (a mesma conta do cartão "Leads derivados hoje", o "Derivou" da Argus, na hora da ligação), com uma linha de **Total** no fim;
        - **TPA** (Tempo de Pânico Ativo);
        - o **status da URA**: o quadrado mostra o de agora e, aberto, o tempo em cada um hoje;

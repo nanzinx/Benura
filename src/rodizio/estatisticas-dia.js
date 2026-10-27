@@ -54,6 +54,10 @@ const atendente = () => ({
 });
 
 const minutos = (ms) => Math.round(ms / 6_000) / 10;
+const minutosDoDia = (hhmm) => {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  return h * 60 + m;
+};
 const semAcento = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
 /** Limite da pausa em minutos (o nome começa com a chave de config/pausas.js), ou null. */
@@ -69,9 +73,12 @@ class EstatisticasDia {
    * @param {import('../utils/persistencia-json').ArquivoDeEstado} [deps.repositorio]
    * @param {string} deps.fusoHorario
    * @param {number} [deps.gravarACadaMs]
+   * @param {{ inicio: string, fim: string }|null} [deps.expediente] - [NOVO] HH:MM: fora dele, o tempo não
+   *        conta e o relatório não mostra a hora (sem ele, o dia todo)
    */
-  constructor({ repositorio = null, fusoHorario, gravarACadaMs = 60_000 }) {
-    Object.assign(this, { repositorio, fusoHorario, gravarACadaMs });
+  constructor({ repositorio = null, fusoHorario, gravarACadaMs = 60_000, expediente = null }) {
+    const valido = expediente?.inicio && expediente?.fim ? expediente : null;
+    Object.assign(this, { repositorio, fusoHorario, gravarACadaMs, expediente: valido });
     this.estado = diaNovo(dataLocal(fusoHorario));
     this.ultimaAmostraEm = null;
     this.gravadoEm = 0;
@@ -121,9 +128,28 @@ class EstatisticasDia {
    *        pausas: o tipo da pausa de cada humano da URA em pausa agora;
    *        operadores: [NOVO] cada humano da URA agora (para o relatório por atendente)
    */
+  /**
+   * [NOVO] Quanto do intervalo até `agora` cai no expediente: fora dele, 0; logo depois do início,
+   * só desde o início (a noite não entra na primeira amostra). Sem expediente, Infinity.
+   */
+  noExpediente(agora) {
+    if (!this.expediente) return Infinity;
+    const min = minutosDoDia(horaLocal(this.fusoHorario, new Date(agora)));
+    const inicio = minutosDoDia(this.expediente.inicio);
+    if (min < inicio || min >= minutosDoDia(this.expediente.fim)) return 0;
+    return (min - inicio) * 60_000 + (agora % 60_000);
+  }
+
+  /** [NOVO] A hora ("08") está no expediente? (o relatório só mostra essas) */
+  horaNoExpediente(hora) {
+    if (!this.expediente) return true;
+    const min = Number(hora) * 60;
+    return min + 59 >= minutosDoDia(this.expediente.inicio) && min < minutosDoDia(this.expediente.fim);
+  }
+
   amostrar(agora, { livres, robosLigados, panico, termometro, pausas = [], operadores = [] }) {
     const h = this.doDia(agora); // virou o dia: zera, e o intervalo até a última amostra não conta
-    const dt = this.ultimaAmostraEm == null ? 0 : Math.min(Math.max(agora - this.ultimaAmostraEm, 0), MAX_INTERVALO_MS);
+    const dt = this.ultimaAmostraEm == null ? 0 : Math.min(Math.max(agora - this.ultimaAmostraEm, 0), MAX_INTERVALO_MS, this.noExpediente(agora));
     this.ultimaAmostraEm = agora;
     if (dt > 0) {
       const e = this.estado;
@@ -257,7 +283,7 @@ class EstatisticasDia {
       filaMediaSeg: e.filaQtd ? Math.round(e.filaSegSoma / e.filaQtd) : null,
       pausasMin: mapa(e.pausasMs),
       porAtendente: this.porAtendente(),
-      horas: Object.entries(e.horas).sort(([a], [b]) => a.localeCompare(b)).map(([h, v]) => ({
+      horas: Object.entries(e.horas).filter(([h]) => this.horaNoExpediente(h)).sort(([a], [b]) => a.localeCompare(b)).map(([h, v]) => ({
         hora: h,
         livresMin: minutos(v.livresMs),
         derivacoes: v.derivacoes,
