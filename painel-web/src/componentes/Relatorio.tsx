@@ -103,7 +103,14 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
   }
   const horas = r.horas;
   const piorOcioso = Math.max(0, ...horas.map((h) => h.ociosoSemRobosMin));
-  const panicoTotal = r.panicoMin.zero + r.panicoMin.saindo + r.panicoMin.fixo;
+  // [NOVO] Os quadros e o total somam as horas mostradas (só o expediente, 08h às 17h).
+  const soma = (f: (h: (typeof horas)[number]) => number) => Math.round(horas.reduce((s, h) => s + f(h), 0) * 10) / 10;
+  const panicoTotal = soma((h) => h.panicoMin);
+  const ociosoTotal = soma((h) => h.ociosoSemRobosMin);
+  const livresTotal = soma((h) => h.livresMin);
+  const derivacoesTotal = soma((h) => h.derivacoes);
+  const tmeTotal = derivacoesTotal ? Math.round((livresTotal * 60) / derivacoesTotal) : null;
+  const calmaTotal = soma((h) => h.calmaMin);
   const vezes = r.panicoVezes.zero + r.panicoVezes.saindo + r.panicoVezes.fixo;
   const transbordos = r.transbordos ?? 0;
   const pior = [...horas].sort((a, b) => (b.transbordos ?? 0) - (a.transbordos ?? 0))[0];
@@ -113,12 +120,12 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
       : motivo ? `mais ${motivo[0]}` : undefined;
 
   return (
-    <Cartao titulo="Relatório do dia" extra={<span>hoje, hora a hora</span>} className="mb-5">
+    <Cartao titulo="Relatório do dia" extra={<span>hoje, no expediente, hora a hora</span>} className="mb-5">
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={r.transbordos ?? '–'} destaque={transbordos ? 'perigo' : undefined} nota={notaTransbordos} />
-        <Numero rotulo="TOR" dica={DICAS.tor} valor={minutos(r.ociosoSemRobosMin)} destaque={r.ociosoSemRobosMin >= 15 ? 'alerta' : undefined}
+        <Numero rotulo="TOR" dica={DICAS.tor} valor={minutos(ociosoTotal)} destaque={ociosoTotal >= 15 ? 'alerta' : undefined}
           nota="ocioso sem robô" />
-        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(r.esperaPorDerivacaoSeg)} nota={`${minutos(r.livresMin)} livres`} />
+        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(tmeTotal)} nota={`${minutos(livresTotal)} livres`} />
         <Numero rotulo="TPA" dica={DICAS.tpa} valor={minutos(panicoTotal)} nota={`pânico ativo · ${vezes} vez(es)`} />
         <div className="col-span-2 md:col-span-1"><StatusDoDia r={r} atual={statusAtual} /></div>
       </div>
@@ -154,10 +161,10 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
             <tfoot><tr className="border-t-2 border-slate-300 font-bold dark:border-noite-600">
               <td className="numero whitespace-nowrap">Total</td>
               <td className="numero text-right">{r.leadsDerivados ?? 0}</td>
-              <td className="numero text-right">{duracao(r.esperaPorDerivacaoSeg)}</td>
-              <td className="numero text-right">{minutos(r.ociosoSemRobosMin)}</td>
+              <td className="numero text-right">{duracao(tmeTotal)}</td>
+              <td className="numero text-right">{minutos(ociosoTotal)}</td>
               <td className="numero text-right">{minutos(panicoTotal)}</td>
-              <td className="numero text-right">{minutos(r.termometroMin.calma)}</td>
+              <td className="numero text-right">{minutos(calmaTotal)}</td>
               <td className={clsx('numero text-right', transbordos && 'text-red-700 dark:text-red-400')}>{transbordos}</td>
             </tr></tfoot>
           </table>
