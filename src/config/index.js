@@ -146,6 +146,8 @@ function carregarConfig(overrides = {}) {
       arquivoStatusUra: env('RODIZIO_STATUS_URA_FILE', path.join(DADOS, 'state-status-ura.json')),
       // Relatório do dia (painel): gravado para um reinício no mesmo dia continuar.
       arquivoEstatisticas: env('RODIZIO_ESTATISTICAS_FILE', path.join(DADOS, 'state-estatisticas-dia.json')),
+      // [NOVO] Totais de cada dia (últimos 60), para comparar hoje com o dia anterior e a semana
+      arquivoHistorico: env('RODIZIO_HISTORICO_FILE', path.join(DADOS, 'state-relatorio-historico.json')),
       // Robôs ligados por humano livre na URA (1 livre = 7 robôs, 2 = 14...). 0 livres = todos desligados.
       robosPorLivre: envNum('ROBOS_POR_LIVRE', 7),
       robosMaximo: envNum('ROBOS_MAXIMO', 0), // 0 = sem teto além do total de robôs

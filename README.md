@@ -298,7 +298,9 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
        - **Leads derivados** (a mesma conta do cartão "Leads derivados hoje", o "Derivou" da Argus, na hora da ligação), com uma linha de **Total** no fim;
        - **TPA** (Tempo de Pânico Ativo);
        - o **status da URA**: o quadrado mostra o de agora e, aberto, o tempo em cada um hoje;
-       - **pausas por tipo**.
+       - **pausas por tipo**;
+       - [NOVO] **comparação** embaixo de cada quadro (Transbordos, TOR, TME, OPL, TPA): o **dia anterior** com dados (segunda compara com sexta) e a **média dos últimos 7 dias**. TME e OPL da semana saem das somas, não da média das médias. Hoje ainda não acabou: compare com calma. Os totais de cada dia ficam em `RODIZIO_HISTORICO_FILE` (últimos 60). O dia vai para lá na virada, ou quando o rodízio sobe no dia seguinte (à noite ele fica parado pela agenda);
+       - [NOVO] botão **Planilha**: baixa o relatório de hoje em Excel (`.xlsx`), com as abas **hora a hora** (com o total), **Comparação** e **Por atendente**. Tempos em minutos ou segundos, como números, para fazer contas no Excel.
      - **Leads derivados e transbordos** (`GET /metricas/hoje`): "derivou" é lead derivado; transbordo é o **"Gerou Callback" da Argus** (abandonou a fila ou time-out na fila). O "sem agente" vem do discador e não conta. Vêm de duas fontes, e cada ligação conta uma vez só (pelo `idLigacao`):
        - os webhooks da Argus **tipo 4** (robô com o cliente pedindo humano) e **tipo 5** (encerramento da URA receptiva), na hora;
        - **[NOVO] o relatório de ligações** que o vigia de callbacks já lê a cada minuto (`ATENDIMENTO` = lead; `ABANDONO EM FILA` = transbordo). Funciona sem webhook configurado, com até 1 min de atraso. Ao subir (e na virada do dia), o BenURA lê o dia desde 00:00.

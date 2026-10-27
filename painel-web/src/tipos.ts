@@ -167,7 +167,25 @@ export interface RelatorioDoDia {
   pausasMin?: Record<string, number>;
   /** [NOVO] por atendente, hoje */
   porAtendente?: AtendenteDoDia[];
+  /** [NOVO] o dia anterior com dados e a média dos últimos 7 dias */
+  comparacao?: { anterior: TotaisDoDia | null; semana: (Omit<TotaisDoDia, 'dia' | 'derivacoes' | 'esperaSomaSeg' | 'esperaQtd' | 'livresMin'> & { dias: number }) | null };
   horas: HoraDoRelatorio[];
+}
+
+/** [NOVO] Os totais de um dia passado (histórico do relatório). */
+export interface TotaisDoDia {
+  dia: string;
+  transbordos: number;
+  leadsDerivados: number;
+  derivacoes: number;
+  esperaSomaSeg: number;
+  esperaQtd: number;
+  livresMin: number;
+  torMin: number;
+  tpaMin: number;
+  calmaMin: number;
+  tmeSeg: number | null;
+  oplSeg: number | null;
 }
 
 /** [NOVO] GET /api/metricas/hoje (00:00 até agora). */
