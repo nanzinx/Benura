@@ -498,6 +498,8 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 - **Fim de semana:** desliga na sexta às 18:00 e religa na segunda às 08:00.
 - No log: `Agenda: desligando a automação (18:00)` e `Agenda: religando a automação (08:00)`. Para não ter agenda, deixe as duas variáveis vazias no `.env`.
 
+**[NOVO] Configuração em uso (aba Serviços, só administrador):** cada opção que o BenURA leu do `.env`, o valor em uso e o padrão. "Só as que mudei" mostra o que difere do padrão. Os avisos da configuração aparecem no topo. Senhas e tokens aparecem só como "definido" ou "vazio". A leitura é de quando o painel subiu: mudou o `.env`, rode `npx pm2 restart all`.
+
 **Modo simulação (aba Serviços):** liga ou desliga o DRY_RUN sem editar o `.env`. Simulação ligada: o BenURA continua lendo a Argus e mostrando o que faria, mas não move ninguém nem mexe nos robôs.
 - **Como vale:** a escolha fica em `SIMULACAO_FILE` (`state-simulacao.json`) e os três serviços reiniciam em seguida (`npx pm2 startOrRestart`), porque o DRY_RUN é lido quando cada um sobe.
 - **Selo "Simulação":** fica no topo enquanto ela estiver ligada; clicar nele leva ao cartão.
@@ -508,7 +510,7 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 
 | Papel | Pode |
 |---|---|
-| **Administrador** | Tudo, inclusive **Desligar/Religar automação**, **Modo simulação** e os **usuários** (Serviços → Usuários). |
+| **Administrador** | Tudo, inclusive **Desligar/Religar automação**, **Modo simulação**, a **Configuração em uso** e os **usuários** (Serviços → Usuários). |
 | **Supervisor** | Opera o dia: pausar, mover e deslogar atendentes, Alocar/Retomar, status da URA, pânico, URA cheia, clientes de risco, modo dos robôs (inclusive "Desligados") e a esteira. |
 | **Visualização** | Só vê as telas: os botões de comando ficam com cadeado. |
 

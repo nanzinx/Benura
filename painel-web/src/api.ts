@@ -1,7 +1,7 @@
 /** Cliente da API do benura-painel. Escrita leva o cabeçalho X-Painel (o servidor exige). */
 
 import type {
-  ClienteDeRisco, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada,
+  ClienteDeRisco, ConfiguracaoEmUso, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada,
   ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao,
 } from './tipos';
 import type { Papel, UsuarioDaSessao } from './sessao';
@@ -44,6 +44,7 @@ export const api = {
   minhaSenha: (atual: string, nova: string) => pedir<{ ok: true }>('POST', '/api/minha-senha', { atual, nova }),
   // [NOVO] usuários (só administrador)
   usuarios: () => pedir<{ usuarios: Usuario[] }>('GET', '/api/usuarios'),
+  configuracao: () => pedir<ConfiguracaoEmUso>('GET', '/api/configuracao'),
   criarUsuario: (u: { email: string; nome: string; papel: Papel; senha?: string }) => pedir<{ usuario: Usuario; senhaProvisoria: string | null }>('POST', '/api/usuarios', u),
   atualizarUsuario: (u: { id: string; nome?: string; papel?: Papel; ativo?: boolean }) => pedir<{ usuario: Usuario }>('PUT', '/api/usuarios', u),
   redefinirSenha: (id: string) => pedir<{ senhaProvisoria: string }>('POST', '/api/usuarios/senha', { id }),

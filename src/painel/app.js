@@ -9,7 +9,7 @@
  * serviços do BenURA (localhost) e com os logs do dia.
  */
 
-const { carregarConfig, validarConfig } = require('../config');
+const { carregarConfig, validarConfig, opcoesEmUso } = require('../config');
 const { criarLogger } = require('../utils/logger');
 const { ativarLogsEmArquivo } = require('../utils/logs-em-arquivo');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
@@ -62,10 +62,34 @@ function montarPainel(overrides) {
     parceiro,
     dados: new DadosDoDia({ pasta: cfg.logs.pasta, fuso: cfg.agenda.fusoHorario }),
     cfg: { fuso: cfg.agenda.fusoHorario, origensPermitidas: p.origensPermitidas, proxySegredo: p.proxySegredo },
+    configuracao: retratoDaConfiguracao(cfg),
     logger: log,
   });
   const agenda = new AgendaAutomacao({ automacao, cfg: { ...cfg.automacao.agenda, fuso: cfg.agenda.fusoHorario }, logger: log });
   return { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda };
+}
+
+const ESCOPOS = ['roteador', 'rodizio', 'rotinas', 'atualizador', 'painel'];
+
+/**
+ * [NOVO] "Configuração em uso" (aba Serviços): o que foi lido do .env quando o painel subiu.
+ * Os outros serviços leem o mesmo .env; mudou, só vale depois de "npx pm2 restart all".
+ */
+function retratoDaConfiguracao(cfg) {
+  const lidaEm = new Date().toISOString();
+  const opcoes = opcoesEmUso();
+  const avisos = [];
+  for (const escopo of ESCOPOS) {
+    const { fatais, avisos: soAvisos } = validarConfig(cfg, { escopo });
+    for (const [nivel, textos] of [['fatal', fatais], ['aviso', soAvisos]]) {
+      for (const texto of textos) {
+        const ja = avisos.find((a) => a.texto === texto);
+        if (ja) ja.servicos.push(escopo);
+        else avisos.push({ nivel, texto, servicos: [escopo] });
+      }
+    }
+  }
+  return () => ({ lidaEm, opcoes, avisos });
 }
 
 async function iniciarPainel() {

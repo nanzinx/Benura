@@ -27,9 +27,13 @@ function carregarDotenv() {
 }
 carregarDotenv();
 
+// [NOVO] O que foi lido do ambiente na última carregarConfig (aba Serviços → "Configuração em uso").
+const lidas = new Map();
 const env = (nome, padrao = '') => {
   const v = process.env[nome];
-  return v === undefined || v === '' ? padrao : v;
+  const doEnv = v !== undefined && v !== '';
+  lidas.set(nome, { nome, valor: String(doEnv ? v : padrao), padrao: String(padrao), doEnv });
+  return doEnv ? v : padrao;
 };
 const envNum = (nome, padrao) => {
   const n = Number(env(nome, padrao));
@@ -55,6 +59,7 @@ const RAIZ = path.resolve(__dirname, '..', '..');
  * @returns {Readonly<object>}
  */
 function carregarConfig(overrides = {}) {
+  lidas.clear();
   // [NOVO] DADOS_DIR: pasta dos arquivos de estado, travas, chaves e logs (no Docker, o volume /dados).
   // Sem ela, tudo fica onde sempre ficou: a raiz do projeto (e a pasta atual, para os da esteira).
   const DADOS = path.resolve(env('DADOS_DIR', RAIZ));
@@ -266,7 +271,6 @@ function carregarConfig(overrides = {}) {
       horarioCarga: env('HORARIO_CARGA', '08:00'),
       horarioFim: env('HORARIO_FIM', '18:00'),
       fusoHorario: env('FUSO_HORARIO', 'America/Sao_Paulo'),
-      verificarNovoDiaMs: envNum('VERIFICAR_NOVO_DIA_MS', 5 * 60_000),
     },
 
     // --- Servidor HTTP ---
@@ -559,4 +563,22 @@ function validarAtualizador(cfg, fataisGerais) {
   return { fatais, avisos: [] };
 }
 
-module.exports = { carregarConfig, validarConfig };
+const ehSegredo = (nome) => /TOKEN|SEGREDO|SENHA|SECRET|CLIENT_ID/.test(nome) && !/_FILE$/.test(nome);
+const oculto = (v) => (v ? 'definido' : 'vazio');
+// Endereço com usuário e senha (https://usuario:senha@host): a senha não sai.
+const semCredencial = (v) => v.replace(/^([a-z][\w+.-]*:\/\/)[^@/\s]+@/i, '$1***@');
+
+/**
+ * [NOVO] As opções lidas na última carregarConfig, por nome, com o padrão de cada uma.
+ * Segredos (token, senha, segredo) saem só como "definido" ou "vazio".
+ * @returns {{ nome: string, valor: string, padrao: string, doEnv: boolean }[]}
+ */
+function opcoesEmUso() {
+  return [...lidas.values()]
+    .map((o) => (ehSegredo(o.nome)
+      ? { ...o, valor: oculto(o.valor), padrao: oculto(o.padrao) }
+      : { ...o, valor: semCredencial(o.valor), padrao: semCredencial(o.padrao) }))
+    .sort((a, b) => (a.nome < b.nome ? -1 : 1));
+}
+
+module.exports = { carregarConfig, validarConfig, opcoesEmUso };
