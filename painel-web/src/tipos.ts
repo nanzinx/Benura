@@ -329,3 +329,8 @@ export interface ResultadoEsteira {
 }
 
 export interface RespostaInterruptor extends Interruptor { mudou?: boolean }
+
+/** [NOVO] GET /api/configuracao (só administrador): o que o BenURA leu do .env. Segredos vêm como "definido"/"vazio". */
+export interface OpcaoEmUso { nome: string; valor: string; padrao: string; doEnv: boolean }
+export interface AvisoDeConfiguracao { nivel: 'fatal' | 'aviso'; texto: string; servicos: string[] }
+export interface ConfiguracaoEmUso { lidaEm: string; opcoes: OpcaoEmUso[]; avisos: AvisoDeConfiguracao[] }

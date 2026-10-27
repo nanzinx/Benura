@@ -113,6 +113,7 @@ async function subirComUsuarios() {
     dados: new DadosDoDia({ pasta: pasta(), fuso: 'America/Sao_Paulo' }),
     automacao: { estado: () => ({}), desligar: (por) => { chamadas.push({ url: 'desligar', por }); return { iniciado: true }; }, religar: () => ({ iniciado: true }), definirSimulacao: () => ({ iniciado: true }) },
     cfg: { fuso: 'America/Sao_Paulo' },
+    configuracao: () => ({ lidaEm: '2026-10-27T11:00:00.000Z', opcoes: [{ nome: 'ARGUS_TOKEN', valor: 'definido', padrao: 'vazio', doEnv: true }], avisos: [] }),
     logger: { ...loggerNulo, info: (m) => logs.push(m), aviso: (m) => logs.push(m) },
   });
   await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
@@ -214,4 +215,16 @@ test('npm run usuarios: cria (senha sem eco), lista, muda papel e desativa', asy
   await assert.rejects(executar(['desativar', 'ana@e.com'], { usuarios, leitor }), /único administrador/);
   await assert.rejects(executar(['voar'], { usuarios, leitor }), /use: criar/);
   leitor.fechar();
+});
+
+test('[NOVO] GET /api/configuracao: só o administrador vê a configuração em uso', async (t) => {
+  const { servidor, pedir, entrar } = await subirComUsuarios();
+  t.after(() => servidor.close());
+  assert.equal((await pedir('GET', '/api/configuracao')).status, 401);
+  assert.equal((await pedir('GET', '/api/configuracao', { cookie: await entrar('caio') })).status, 403, 'visualização não vê');
+  assert.equal((await pedir('GET', '/api/configuracao', { cookie: await entrar('bia') })).status, 403, 'supervisor não vê');
+  const r = await pedir('GET', '/api/configuracao', { cookie: await entrar('ana') });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.corpo.opcoes.map((o) => [o.nome, o.valor]), [['ARGUS_TOKEN', 'definido']]);
+  assert.equal(r.corpo.lidaEm, '2026-10-27T11:00:00.000Z');
 });

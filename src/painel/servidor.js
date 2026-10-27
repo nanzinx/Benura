@@ -14,6 +14,7 @@
  *   GET  /api/interno/estado [NOVO] para o outro PC, pela rede (TRAVA_SEGREDO_LOCAL): usuários e estado do dia
  *   GET  /api/visao         saúde dos serviços + rodízio + alertas (a cada 5 s)
  *   GET  /api/dia           linha do tempo, callbacks e avisos do dia (logs)
+ *   GET  /api/configuracao  [NOVO] só administrador: opções lidas do .env e o padrão de cada (sem segredos)
  *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
  *   POST /api/simulacao     { ligada } — botão "Modo simulação" (DRY_RUN)
  *   *    /api/rodizio/...   comandos da lista ACOES (servicos.js), levados com o token
@@ -183,7 +184,7 @@ function conferirOrigemDoPedido(req, origensPermitidas = []) {
  * @param {object} deps.logger
  * @returns {http.Server}
  */
-function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger, trava = null, parceiro = null }) {
+function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger, trava = null, parceiro = null, configuracao = null }) {
   const estaticos = Object.fromEntries(fs.readdirSync(PUBLICO).filter((nome) => TIPOS[path.extname(nome)]).map((nome) => [
     nome === 'index.html' ? '/' : `/${nome}`, { tipo: TIPOS[path.extname(nome)], conteudo: fs.readFileSync(path.join(PUBLICO, nome)) },
   ]));
@@ -335,6 +336,11 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     if (pathname === '/api/usuarios' || pathname === '/api/usuarios/senha') return rotaDeUsuarios(req, pathname, sessao);
     if (req.method === 'GET' && pathname === '/api/visao') return visao();
     if (req.method === 'GET' && pathname === '/api/dia') return { status: 200, corpo: dados.resumo() };
+    if (req.method === 'GET' && pathname === '/api/configuracao') {
+      exigir(sessao, 'administrador');
+      if (!configuracao) throw new ErroPainel(404, 'Configuração em uso indisponível.');
+      return { status: 200, corpo: configuracao() };
+    }
     if (req.method === 'POST' && pathname === '/api/simulacao') {
       exigir(sessao, 'administrador');
       conferirOrigem(req);
