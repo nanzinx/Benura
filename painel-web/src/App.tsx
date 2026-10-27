@@ -10,6 +10,7 @@ import { Ura } from './abas/Ura';
 import { Receptivo } from './abas/Receptivo';
 import { Esteira } from './abas/Esteira';
 import { Servicos } from './abas/Servicos';
+import { Ajuda } from './abas/Ajuda';
 import { useTema } from './tema';
 import { conferirSessao, definirSessao, useSessao } from './sessao';
 
@@ -35,7 +36,7 @@ export function App() {
     return () => window.removeEventListener('hashchange', ouvir);
   }, []);
 
-  // Atalhos: 1–5 trocam de aba; P pausa ou retoma as atualizações.
+  // Atalhos: 1–6 trocam de aba; P pausa ou retoma as atualizações.
   useEffect(() => {
     const ouvir = (e: KeyboardEvent) => {
       const alvo = e.target as HTMLElement;
@@ -68,9 +69,10 @@ export function App() {
           {aba === 'ura' && <Ura />}
           {aba === 'esteira' && <Esteira />}
           {aba === 'servicos' && <Servicos />}
+          {aba === 'ajuda' && <Ajuda />}
         </main>
         <footer className="pb-8 text-center text-xs text-slate-500 dark:text-slate-400">
-          BenURA · Benconsig · atalhos: <kbd className="font-sans">1</kbd>–<kbd className="font-sans">5</kbd> trocam de aba, <kbd className="font-sans">P</kbd> pausa
+          BenURA · Benconsig · atalhos: <kbd className="font-sans">1</kbd>–<kbd className="font-sans">{ABAS.length}</kbd> trocam de aba, <kbd className="font-sans">P</kbd> pausa
         </footer>
       </div>
     </AoVivo.Provider>
