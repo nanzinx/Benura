@@ -738,6 +738,9 @@ class RodizioService {
     const [ramal] = livresUteis([...this.ramaisUra], this.statusUra);
     if (!ramal) return null;
     if (this.permanentes.has(String(ramal))) return this.motivoDoFixo(ramal, agora);
+    // [NOVO] URA calma: com 1 livre comum, os robôs seguem até ele bater o tempo e ir para o Ativo
+    // (aí sobra 0 livre e a linha de cima desliga todos).
+    if (this.uraPassivaAgora()) return null;
     const antesMs = this.cfg.panicoAntesDeSairMs ?? 0;
     if (!this.deveDevolver(ramal, agora + antesMs)) return null;
     return { tipo: 'saindo', texto: `PÂNICO: 1 livre na URA (${ramal}) e ele sai por ociosidade em até ${Math.round(antesMs / 1000)} s` };

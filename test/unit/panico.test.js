@@ -236,3 +236,21 @@ test('interruptor por dia (URA passiva hoje): ligado ontem volta ao padrão hoje
   assert.equal(i.definir(true, hoje), true, 'liga de novo hoje');
   assert.equal(i.ligado(hoje), true);
 });
+
+test('[NOVO] pânico: URA CALMA com 1 livre comum, os robôs seguem até ele sair; saiu (0 livre), desliga todos', async () => {
+  const { svc, robos } = montar({ livres: 1, livreHaMs: TEMPO_MIN - 20_000, passiva: true }); // sai em 20 s
+  await svc.avaliarRobos();
+  assert.deepEqual(robos.chamadas, [], 'na calma, o "sai em até 60 s" não desliga nenhum robô');
+  assert.equal(svc.resumo().panico.ativoAgora, null);
+
+  // Bateu o tempo e foi para o Ativo: sobra 0 livre e aí sim o pânico desliga todos.
+  svc.statusUra.set('201', { classe: Classe.ATENDIMENTO, ts: Date.now() });
+  await svc.avaliarRobos();
+  assert.ok(robos.chamadas.some((c) => /^desligar .*PÂNICO: 0 livre na URA/.test(c)), robos.chamadas.join(' | '));
+});
+
+test('[NOVO] pânico: fora da calma (normal), 1 livre comum a 60 s de sair continua parando os robôs', async () => {
+  const { svc, robos } = montar({ livres: 1, livreHaMs: TEMPO_MIN - 20_000 });
+  await svc.avaliarRobos();
+  assert.ok(robos.chamadas.some((c) => /^encerrarSemDerrubar \(PÂNICO: 1 livre/.test(c)));
+});

@@ -24,9 +24,9 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       'Quem liga os robôs é a supervisão, pelo painel da Argus. O BenURA nunca liga robô: no modo "Só pânico" ele só desliga quando precisa.',
       'Pânico com 0 livre na URA: desliga todos os robôs, inclusive os em ligação.',
-      'Pânico com 1 livre comum que sai por ociosidade em até 60 s: desliga os robôs parados; os em ligação terminam a chamada enquanto ele ainda está na URA.',
+      'Pânico com 1 livre comum que sai por ociosidade em até 60 s (URA não calma): desliga os robôs parados; os em ligação terminam a chamada enquanto ele ainda está na URA.',
       'Pânico com 1 fixo livre há menos de 3 min (URA não calma): desliga a metade dos robôs ligados, de novo a cada 60 s (8 → 4 → 2 → 1).',
-      'Com 2 ou mais livres, ou com a URA calma, o pânico não faz nada.',
+      'Com 2 ou mais livres não faz nada. Com a URA calma e 1 livre (fixo ou não), também não: os robôs seguem até ele atender ou ir para o Ativo, e aí sobra 0 livre.',
       'Cliente de risco em ligação (interruptor ligado): desliga os robôs parados e mostra uma faixa vermelha no topo.',
     ],
   },
@@ -48,7 +48,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       'Automático: o termômetro decide pela espera de quem está livre nos últimos 5 min. Até 60 s é agressiva, de 60 a 120 s é normal, e 120 s ou mais é calma. Um callback nos últimos 5 min deixa agressiva.',
       'Manual: a supervisão escolhe calma, normal ou agressiva, e vale até alguém escolher "Automático" de novo.',
-      'Calma: com 1 fixo livre, os robôs seguem (o pânico não reduz).',
+      'Calma: com 1 livre, fixo ou não, os robôs seguem até ele atender ou ir para o Ativo (o pânico não desliga nem reduz).',
     ],
   },
   {
