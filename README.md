@@ -278,7 +278,8 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
      | --- | --- | --- |
      | 0 | qualquer | Desliga todos os robôs, inclusive os em ligação |
      | 1, comum | falta mais de `PANICO_ANTES_DE_SAIR_MS` (**60 s**) para ele sair por ociosidade | Nada: os robôs seguem |
-     | 1, comum | ele sai em até 60 s | Desliga os parados; os em ligação terminam a chamada enquanto ele ainda está na URA |
+     | 1, comum | ele sai em até 60 s (URA não está calma) | Desliga os parados; os em ligação terminam a chamada enquanto ele ainda está na URA |
+     | 1, comum | [NOVO] status da URA **calma** | Nada: os robôs seguem até ele bater o tempo e ir para o Ativo; aí sobra 0 livre e vale a 1ª linha |
      | 1, fixo | livre há menos de `PANICO_FIXO_OCIOSO_MIN` (**3 min**), URA não está calma | Desliga a **metade** dos robôs ligados e de novo a cada `PANICO_FIXO_REDUZIR_A_CADA_S` (**60 s**): 8 → 4 → 2 → 1. Poupa quem está em ligação e deixa pelo menos 1 |
      | 1, fixo | livre há 3 min ou mais | Nada: a URA está calma; os robôs seguem até ele atender; aí sobra 0 livre e vale a 1ª linha |
      | 1, fixo | status da URA **calma** (automático pelo termômetro, ou manual no painel) | Nada: os robôs seguem até ele atender |
@@ -287,7 +288,7 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
      - **Status da URA** (componente "URA CALMA / NORMAL / AGRESSIVA" no painel, `PUT /ura/status` com token): o mesmo para todos, gravado em `RODIZIO_STATUS_URA_FILE`.
        - **Automático:** o termômetro decide pela **espera dos humanos livres** (quanto tempo esperam por uma ligação), na média dos últimos 5 min. Entram os atendimentos da janela e quem está livre agora. As faixas ficam em `src/config/uraThresholds.js`: **0–60 s agressiva**, **60–120 s normal**, **≥ 120 s calma**. Um callback nos últimos 5 min deixa agressiva.
        - **Manual:** a supervisão escolhe calma, normal ou agressiva. Isso vale por cima do termômetro até alguém escolher "Automático" (cadeado no painel).
-       - **Calma:** com 1 fixo livre, os robôs seguem (é a antiga "URA passiva"). `POST`/`DELETE /ura/passiva` da página `/ura` continuam, como manual CALMA / automático.
+       - **Calma:** com 1 livre, fixo ou não, os robôs seguem até ele atender ou sair por ociosidade (é a antiga "URA passiva"). `POST`/`DELETE /ura/passiva` da página `/ura` continuam, como manual CALMA / automático.
        - Cada troca vai para o log: `Termômetro da URA: normal → calma (livres esperando 135 s em média nos últimos 5 min: …)`.
      - **Relatório do dia** (visão geral do painel, `relatorio` no `/health`), também por hora:
        - **Transbordos**;
