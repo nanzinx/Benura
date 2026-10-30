@@ -15,6 +15,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'O roteador decide quem pode ir para a URA hoje: quem bateu a meta ontem, quem vende hoje e os fixos.',
       'O rodízio leva para a URA quem atendeu uma ligação no Ativo e ficou livre, e devolve ao Ativo quem ficou livre na URA por 2 minutos seguidos. O tempo livre é o "Tempo" da Argus.',
       'O BenURA não loga nem desloga humano: só troca de grupo. A telefonia troca quando a pessoa fica livre, com um pequeno atraso da discadora.',
+      'Conta de supervisor (ramal com o nome de um supervisor, como a da Ariel) não fica na URA: não sobe nem com venda ou fixo, e volta ao Ativo assim que não estiver em ligação. Só "Trazer para a URA" no painel a põe lá.',
     ],
   },
   {
@@ -37,7 +38,8 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       'O BenURA mede quantas derivações cada robô ligado gera por minuto nos últimos 30 min e liga robôs para cada livre receber uma ligação dentro da espera alvo do status da URA.',
       'Espera alvo: calma 45 s, normal 90 s, agressiva 120 s. Quanto menor a espera alvo, mais robôs por livre. A agressiva liga menos para não gerar callback.',
-      'Cada status tem um piso e um teto de robôs por livre: calma de 6 a 15, normal de 4 a 10, agressiva de 2 a 6. Com 1 livre só, vale o teto do status.',
+      'Cada status tem um piso e um teto de robôs por livre: calma 20, normal de 4 a 10, agressiva de 2 a 6. Com 1 livre só, vale o teto do status.',
+      'URA calma com 2 livres ou mais: todos os robôs ligados (potência máxima), subindo em degraus.',
       'No começo do dia, com poucas derivações, aparece "medindo a taxa": até lá vale o ajuste do dia.',
       'O cartão "Rodízio dos robôs" mostra a conta. "Robôs por livre" escolhido à mão vale até virar o dia.',
     ],
@@ -94,7 +96,9 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'OPL (Ociosidade Por Lead): o tempo livre de todos somado, dividido pelas ligações. Alto quer dizer gente demais livre para as ligações que chegam.',
       'TOR (Tempo Ocioso sem Robô): tempo com alguém livre na URA e todos os robôs desligados, o que o pânico custa.',
       'TPA (Tempo de Pânico Ativo): tempo em que o BenURA estava desligando ou reduzindo os robôs.',
-      'Embaixo de cada quadro: o dia anterior e a média dos últimos 7 dias. O dia de hoje ainda não acabou, então compare com calma.',
+      'Embaixo de cada quadro: o dia anterior e a média dos últimos 7 dias. Verde com ▼ quando hoje está melhor (menor), vermelho com ▲ quando está pior. O dia de hoje ainda não acabou, então compare com calma.',
+      'Cor de cada quadro: verde está bom, amarelo pede atenção, vermelho está ruim. Transbordos: 0 verde, até 5 amarelo. TOR: até 5 min verde, até 15 amarelo. TME: até 2 min verde, até 4 amarelo. OPL: até 3 min verde, até 5 amarelo. TPA: até 10 min verde, até 30 amarelo.',
+      'A barra embaixo dos quadros mostra o status da URA hora a hora (agressiva, normal, calma, medindo). Clicar no status da URA do relatório troca o status, como o seletor da aba URA e robôs.',
       'Só conta o expediente (08:00 às 18:00). O botão "Planilha" baixa o relatório em Excel: hora a hora, comparação e por atendente.',
     ],
   },
@@ -127,7 +131,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'O painel avisa quando o roteador, o rodízio ou as rotinas ficam mais de 5 min fora do ar, e quando voltam.',
       'Às 18:00, antes de desligar, manda o resumo do dia: transbordos, leads derivados, TME, OPL, TOR e TPA, com o dia anterior e a semana.',
       'Os avisos ficam sempre no log de hoje. Com o BenHub configurado, também chegam lá. "Testar envio" confere.',
-      'Webhook de transferências: sistemas que se cadastram por API recebem um aviso (código da Argus, nome e "Transferido da URA para o Ativo" ou o contrário) a cada operador transferido. O cartão "Clientes do webhook de transferências" mostra quem está cadastrado e permite testar e remover.',
+      'Webhook de transferências: sistemas cadastrados recebem um aviso (código da Argus, nome e "Transferido da URA para o Ativo" ou o contrário) a cada operador transferido. No cartão "Clientes do webhook de transferências" o administrador cadastra (nome e endereço; o segredo aparece uma vez só, para passar ao cliente), testa e remove. O cliente também pode se cadastrar por API.',
     ],
   },
   {

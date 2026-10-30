@@ -24,7 +24,7 @@ const ESTADOS_TERMOMETRO = ['medindo', 'calma', 'normal', 'agressiva'];
 const FORA_DOS_TRANSBORDOS = ['sem agente'];
 
 const zerados = (chaves) => Object.fromEntries(chaves.map((k) => [k, 0]));
-const hora = () => ({ livresMs: 0, derivacoes: 0, esperaSomaMs: 0, esperaQtd: 0, ociosoSemRobosMs: 0, panicoMs: 0, calmaMs: 0, agressivaMs: 0, leadsDerivados: 0, transbordos: 0 });
+const hora = () => ({ livresMs: 0, derivacoes: 0, esperaSomaMs: 0, esperaQtd: 0, ociosoSemRobosMs: 0, panicoMs: 0, calmaMs: 0, agressivaMs: 0, normalMs: 0, medindoMs: 0, leadsDerivados: 0, transbordos: 0 });
 const diaNovo = (dia) => ({
   dia,
   livresMs: 0,
@@ -178,6 +178,9 @@ class EstatisticasDia {
       if (termometro && termometro in e.termometroMs) e.termometroMs[termometro] += dt;
       if (termometro === 'calma') h.calmaMs += dt;
       if (termometro === 'agressiva') h.agressivaMs += dt;
+      // [NOVO] para a barra do status hora a hora (estado gravado por versão antiga não tem os campos)
+      if (termometro === 'normal') h.normalMs = (h.normalMs ?? 0) + dt;
+      if (termometro === 'medindo') h.medindoMs = (h.medindoMs ?? 0) + dt;
       for (const tipo of pausas) e.pausasMs[tipo] = (e.pausasMs[tipo] ?? 0) + dt;
     }
     for (const op of operadores) this.amostrarAtendente(agora, dt, op);
@@ -393,6 +396,8 @@ class EstatisticasDia {
         panicoMin: minutos(v.panicoMs),
         calmaMin: minutos(v.calmaMs),
         agressivaMin: minutos(v.agressivaMs),
+        normalMin: minutos(v.normalMs ?? 0),
+        medindoMin: minutos(v.medindoMs ?? 0),
         leadsDerivados: v.leadsDerivados ?? 0,
         transbordos: v.transbordos ?? 0,
       })),

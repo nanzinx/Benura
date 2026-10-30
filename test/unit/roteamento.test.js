@@ -9,7 +9,7 @@ const { loggerNulo } = require('../../src/utils/logger');
 
 const relogio = { hoje: () => '2026-10-08' };
 
-function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {}, retencao = { ativa: false }, travas = {} } = {}) {
+function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {}, retencao = { ativa: false }, travas = {}, supervisores = [] } = {}) {
   const movimentos = [];
   const salvos = [];
   const vendas = { ontem, hoje };
@@ -47,6 +47,7 @@ function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fi
     carrossel, discadora, repositorio, diretorio, relogio, regras: { metaDiaria: 50_000, fixosUra, equipesFixasUra }, logger: loggerNulo,
     retencao: () => retencao,
     travas: () => (ramal) => travas[ramal] ?? null,
+    contasSupervisores: { eh: (ramal) => supervisores.includes(String(ramal)) },
   }).inicializar();
   return { svc, movimentos, salvos, vendas, retencao };
 }
@@ -217,6 +218,18 @@ test('[NOVO] rodízio pausado (todos no Ativo): venda e carga registram a URA, m
   retencao.ativa = false; // retomaram
   await ctx.svc.monitorarVendas();
   assert.deepEqual(ctx.movimentos.map(([r]) => r).sort(), ['1', '2'], 'os pendentes sobem no próximo ciclo');
+});
+
+test('[NOVO] conta de supervisor não sobe para a URA, nem com venda, meta ou fixa; travada à mão na URA, sobe', async () => {
+  const ctx = montar({ ontem: [v('5', 72_500), v('9', 0)], hoje: [], fixosUra: ['9'], supervisores: ['5', '9'] });
+  await ctx.svc.executarCargaInicial();
+  assert.deepEqual(ctx.movimentos.filter(([, fila]) => fila === 'URA'), []);
+  assert.equal(ctx.svc.estado.vendedores['5'].ultimoResultado, 'RETIDO_NO_ATIVO');
+  assert.equal(ctx.svc.estado.vendedores['9'].ultimoResultado, 'RETIDO_NO_ATIVO');
+
+  const travada = montar({ ontem: [v('5', 72_500)], hoje: [], supervisores: ['5'], travas: { 5: 'ura' } });
+  await travada.svc.executarCargaInicial();
+  assert.deepEqual(travada.movimentos, [['5', 'URA']]);
 });
 
 test('[NOVO] trava manual do painel: venda de quem está travado no Ativo fica retida (até fixo); liberou, sobe', async () => {

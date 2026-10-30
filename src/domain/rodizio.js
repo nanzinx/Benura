@@ -164,6 +164,10 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
   if (!livresTodos.length) return nenhum('nenhum humano livre na URA');
   if (!livres) return nenhum('livre(s) na URA ainda na carência da troca de grupo');
 
+  // [NOVO] URA calma com cfg.todosComLivres livres ou mais: potência máxima (até o ROBOS_MAXIMO).
+  if (cfg.todosComLivres > 0 && livres >= cfg.todosComLivres) {
+    return { alvo: Math.min(total, cfg.maximo || Infinity), livres, motivo: `URA calma com ${livres} livres: todos os robôs` };
+  }
   const alvo = Math.min(total, livres * cfg.porLivre, cfg.maximo || Infinity);
   // Com 1 livre só, dois clientes pedindo humano juntos viram callback: menos robôs.
   if (livres === 1 && cfg.maxComUmLivre > 0 && alvo > cfg.maxComUmLivre) {

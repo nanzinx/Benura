@@ -38,6 +38,7 @@ const { VigiaRisco } = require('./vigia-risco');
 const { PerfisClientes } = require('./perfis-clientes');
 const { dataLocal } = require('../utils/datas');
 const { DiretorioOperadores } = require('../integrations/argus/diretorio-operadores.service');
+const { ContasDeSupervisores } = require('../domain/contas-supervisores');
 const { criarRotasDoRodizio } = require('./controllers');
 const { RetornoFilaService } = require('../retorno-fila/retorno-fila.service');
 const { ArquivoDeEstado } = require('../utils/persistencia-json');
@@ -85,6 +86,8 @@ function montarRodizio(overrides) {
     logger: log.filho('rodizio'),
     // Grupo do supervisor, para devolver ao Ativo quem não foi movido pelo rodízio.
     diretorio,
+    // [NOVO] Contas operacionais de supervisores: não ficam na URA.
+    contasSupervisores: new ContasDeSupervisores({ diretorio, cfg: cfg.regras.contasSupervisores, logger: log.filho('rodizio') }),
     elegiveis: cfgRodizio.soElegiveis ? montarElegiveis(cfg, diretorio, log.filho('rodizio')) : null,
     ajuste: montarAjuste(cfgRodizio, cfg.agenda.fusoHorario, log.filho('robos')),
     uraCheia: new UraCheia({ arquivo: cfgRodizio.arquivoUraCheia, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { abasDoRelatorio, diaCurto, totaisDoRelatorio } from './relatorio';
+import { abasDoRelatorio, diaCurto, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio } from './relatorio';
 import type { RelatorioDoDia } from './tipos';
 
 const hora = (h: string, x: Partial<RelatorioDoDia['horas'][number]>) => ({
@@ -45,5 +45,32 @@ describe('relatório do dia', () => {
 
   it('sem histórico nem atendentes, só a aba do dia', () => {
     expect(abasDoRelatorio({ ...r, comparacao: { anterior: null, semana: null }, porAtendente: [] })).toHaveLength(1);
+  });
+});
+
+describe('cores do relatório', () => {
+  it('tendencia: menor é melhor; igual ou sem dado, neutro', () => {
+    expect(tendencia(3, 8)).toBe('melhor');
+    expect(tendencia(10, 8)).toBe('pior');
+    expect(tendencia(8, 8)).toBe('igual');
+    expect(tendencia(null, 8)).toBeNull();
+    expect(tendencia(3, null)).toBeNull();
+  });
+
+  it('nivelDoIndicador: bom, atenção ou ruim pelas faixas de cada quadro', () => {
+    expect(nivelDoIndicador('transbordos', 0)).toBe('bom');
+    expect(nivelDoIndicador('transbordos', 3)).toBe('atencao');
+    expect(nivelDoIndicador('transbordos', 6)).toBe('ruim');
+    expect(nivelDoIndicador('torMin', 1)).toBe('bom');
+    expect(nivelDoIndicador('torMin', 15)).toBe('ruim');
+    expect(nivelDoIndicador('tmeSeg', 232)).toBe('atencao');
+    expect(nivelDoIndicador('oplSeg', 100)).toBe('bom');
+    expect(nivelDoIndicador('tpaMin', 45)).toBe('ruim');
+    expect(nivelDoIndicador('tmeSeg', null)).toBeNull();
+  });
+
+  it('statusPorHora: os minutos de cada status em cada hora, e o que sobra até 60 min fica de fora', () => {
+    const h = { ...hora('09', { calmaMin: 30, agressivaMin: 10 }), normalMin: 15, medindoMin: 5 };
+    expect(statusPorHora([h])).toEqual([{ hora: '09', calma: 30, normal: 15, agressiva: 10, medindo: 5, total: 60 }]);
   });
 });

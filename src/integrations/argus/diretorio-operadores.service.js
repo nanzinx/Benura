@@ -23,6 +23,7 @@
 const { normalizarNome, normalizarLogin } = require('../../utils/texto');
 const { TipoUsuario } = require('./argus.client');
 const { ArquivoJsonObservado } = require('../../utils/arquivo-json');
+const { mesmaPessoa } = require('../../domain/contas-supervisores');
 
 class DiretorioIndisponivelError extends Error {
   constructor(mensagem, cause) {
@@ -79,6 +80,17 @@ function indexar(itens, chaveDe) {
     mapa.get(k).push(item);
   }
   return mapa;
+}
+
+/** Ramal → { ramal, nome, supervisor } dos operadores que são a mesma pessoa que um supervisor. */
+function contasDeSupervisores(operadores, supervisores) {
+  const nomes = new Set([...supervisores.map((s) => s.nome), ...operadores.flatMap((op) => op.vinculos.map((v) => v.nomeSupervisor))].filter(Boolean));
+  const contas = new Map();
+  for (const op of operadores) {
+    const supervisor = op.ramal && [...nomes].find((nome) => mesmaPessoa(op.nome, nome));
+    if (supervisor) contas.set(op.ramal, { ramal: op.ramal, nome: op.nome, supervisor });
+  }
+  return contas;
 }
 
 class DiretorioOperadores {
@@ -154,6 +166,7 @@ class DiretorioOperadores {
       supervisores,
       supervisoresPorChave: indexar(supervisores, (u) => u.chave),
       grupoInferidoPorSupervisor: this.inferirGruposDosSupervisores(operadoresAtivos),
+      contasDeSupervisores: contasDeSupervisores(operadoresAtivos, supervisores),
     };
   }
 
@@ -184,6 +197,16 @@ class DiretorioOperadores {
   }
 
   // ───────────────────────────── Consultas ─────────────────────────────
+
+  /** [NOVO] Contas operacionais de supervisores (ramal com o nome de um supervisor). */
+  contasDeSupervisores() {
+    return [...this.exigirSnapshot().contasDeSupervisores.values()];
+  }
+
+  /** @returns {{ ramal: string, nome: string, supervisor: string }|null} */
+  contaDeSupervisor(ramal) {
+    return this.exigirSnapshot().contasDeSupervisores.get(String(ramal)) || null;
+  }
 
   /** Operadores ativos com este nome. */
   operadoresPorNome(nome) {

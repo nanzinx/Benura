@@ -144,3 +144,12 @@ test('rotas do rodízio: cadastrar, listar (sem segredo), testar e remover; tudo
   assert.equal((await rota('DELETE', '/webhooks/clientes').handler({ req: { url: '/webhooks/clientes?id=nao-existe' } })).status, 404);
   assert.equal((await rota('POST', '/webhooks/clientes/remover').handler({ corpo: { id: 'nao-existe' }, req: { url: '/' } })).status, 404);
 });
+
+test('[NOVO] painel: cadastrar cliente do webhook é rota do administrador, repassada ao rodízio', () => {
+  const { ACOES } = require('../../src/painel/servicos');
+  const acao = ACOES.find((a) => a.metodo === 'POST' && a.caminho === '/api/webhooks/clientes');
+  assert.ok(acao, 'falta a rota de cadastro no painel');
+  assert.equal(acao.servico, 'rodizio');
+  assert.equal(acao.destino, '/webhooks/clientes');
+  assert.equal(acao.papel, 'administrador');
+});

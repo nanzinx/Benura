@@ -4,6 +4,10 @@ A BenURA avisa um sistema cliente sempre que um operador é transferido da **URA
 
 ## 1. Cadastro (o cliente faz uma vez)
 
+**Pelo painel (mais fácil):** aba Serviços → "Clientes do webhook de transferências", só administrador. Preencha o nome e o endereço e clique em Cadastrar. O segredo aparece uma vez só: copie e passe ao cliente.
+
+**Por API (o próprio cliente):**
+
 ```http
 POST http://<servidor-da-benura>:3000/webhooks/clientes
 Authorization: Bearer <token da BenURA (WEBHOOK_TOKEN)>

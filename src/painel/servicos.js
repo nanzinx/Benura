@@ -45,8 +45,9 @@ const ACOES = Object.freeze([
   { metodo: 'POST', caminho: '/api/rodizio/risco/desligar', servico: 'rodizio', destino: '/risco/desligar', nome: 'ligar "desligar robôs com cliente de risco"' },
   { metodo: 'DELETE', caminho: '/api/rodizio/risco/desligar', servico: 'rodizio', destino: '/risco/desligar', nome: 'desligar "desligar robôs com cliente de risco"' },
   { metodo: 'GET', caminho: '/api/rodizio/perfis/risco', servico: 'rodizio', destino: '/perfis/risco' },
-  // [NOVO] webhook de transferências para clientes (só administrador; o cadastro é o cliente que faz, por API)
+  // [NOVO] webhook de transferências para clientes (só administrador; o cliente também se cadastra por API)
   { metodo: 'GET', caminho: '/api/webhooks/clientes', servico: 'rodizio', destino: '/webhooks/clientes', papel: 'administrador' },
+  { metodo: 'POST', caminho: '/api/webhooks/clientes', servico: 'rodizio', destino: '/webhooks/clientes', nome: 'cadastrar um cliente do webhook', papel: 'administrador', limiteBytes: 2048 },
   { metodo: 'POST', caminho: '/api/webhooks/clientes/testar', servico: 'rodizio', destino: '/webhooks/clientes/testar', nome: 'testar o webhook de um cliente', papel: 'administrador', limiteBytes: 1024, timeoutMs: 15_000 },
   { metodo: 'POST', caminho: '/api/webhooks/clientes/remover', servico: 'rodizio', destino: '/webhooks/clientes/remover', nome: 'remover um cliente do webhook', papel: 'administrador', limiteBytes: 1024 },
   { metodo: 'GET', caminho: '/api/roteador/status', servico: 'roteador', destino: '/status' },

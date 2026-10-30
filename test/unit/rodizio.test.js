@@ -87,6 +87,18 @@ test('alvoDeRobos: com 1 livre só, no máximo maxComUmLivre; com 2, volta ao pr
   assert.equal(alvoDeRobos({ ramaisUra: ['1'], status: st({ 1: 'livre' }), agora, total: 58, cfg: { porLivre: 15, maxComUmLivre: 0 } }).alvo, 15, '0 = sem teto');
 });
 
+test('alvoDeRobos: com todosComLivres (URA calma), a partir desse tanto de livres liga todos (até o máximo)', () => {
+  const agora = 100_000;
+  const st = (n) => new Map(Array.from({ length: n }, (_, i) => [String(i), { classe: Classe.LIVRE, ts: agora }]));
+  const ramais = (n) => Array.from({ length: n }, (_, i) => String(i));
+  const cfg = { porLivre: 20, maxComUmLivre: 20, todosComLivres: 2 };
+  assert.equal(alvoDeRobos({ ramaisUra: ramais(1), status: st(1), agora, total: 58, cfg }).alvo, 20);
+  assert.deepEqual(alvoDeRobos({ ramaisUra: ramais(2), status: st(2), agora, total: 58, cfg }),
+    { alvo: 58, livres: 2, motivo: 'URA calma com 2 livres: todos os robôs' });
+  assert.equal(alvoDeRobos({ ramaisUra: ramais(3), status: st(3), agora, total: 58, cfg: { ...cfg, maximo: 50 } }).alvo, 50, 'ROBOS_MAXIMO ainda vale');
+  assert.equal(alvoDeRobos({ ramaisUra: ramais(2), status: st(2), agora, total: 58, cfg: { ...cfg, todosComLivres: 0 } }).alvo, 40, '0 = desligado');
+});
+
 test('decidirRobos: robôs proporcionais aos livres; reduzir é imediato, aumentar espera', () => {
   const agora = 100_000;
   const st = (pares) => new Map(Object.entries(pares).map(([r, classe]) => [r, { classe, ts: agora }]));

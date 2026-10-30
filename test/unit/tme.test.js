@@ -22,3 +22,14 @@ test('[NOVO] TME: sem ligação com tempo livre conhecido, fica vazio', () => {
   const e = new EstatisticasDia({ fusoHorario: FUSO });
   assert.equal(e.resumo().tmeSeg, null);
 });
+
+test('[NOVO] status da URA por hora: calma, normal, agressiva e medindo (a barra hora a hora do painel)', () => {
+  const e = new EstatisticasDia({ fusoHorario: FUSO });
+  const amostras = (hora, termometro) => { for (let t = em(hora); t < em(hora) + 6 * 60_000; t += 10_000) e.amostrar(t, { livres: 1, robosLigados: 1, termometro }); };
+  amostras('09:00', 'medindo');
+  amostras('09:06', 'normal');
+  amostras('09:12', 'calma');
+  amostras('09:18', 'agressiva');
+  const [h] = e.resumo().horas;
+  assert.deepEqual([h.medindoMin, h.normalMin, h.calmaMin, h.agressivaMin].map(Math.round), [6, 6, 6, 6]);
+});

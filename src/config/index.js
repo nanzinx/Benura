@@ -170,6 +170,7 @@ function carregarConfig(overrides = {}) {
             esperaS: envNum(`ROBOS_ESPERA_ALVO_${S}_S`, meta.esperaS),
             min: envNum(`ROBOS_POR_LIVRE_MIN_${S}`, meta.min),
             max: envNum(`ROBOS_POR_LIVRE_MAX_${S}`, meta.max),
+            todosComLivres: envNum(`ROBOS_TODOS_COM_LIVRES_${S}`, meta.todosComLivres),
           }];
         })),
       },
@@ -218,7 +219,7 @@ function carregarConfig(overrides = {}) {
       // A regra do ocioso vale sempre. Quando o último livre da URA está a este tempo de
       // sair, os robôs param de discar para os que estão em ligação terminarem antes. 0 = não prepara.
       // (SEGURAR_ULTIMO_LIVRE_MS, do .env antigo, não vale mais: era 90 s, demais com poucos na URA.)
-      prepararSaidaMs: envNum('PREPARAR_SAIDA_ULTIMO_LIVRE_MS', 30_000),
+      prepararSaidaMs: envNum('PREPARAR_SAIDA_ULTIMO_LIVRE_MS', 15_000),
       // Quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta
       // como livre para os robôs depois deste tempo (15/10: callback 37 s depois da troca).
       carenciaTrocaMs: envNum('CARENCIA_TROCA_GRUPO_MS', 60_000),
@@ -278,6 +279,13 @@ function carregarConfig(overrides = {}) {
       // true (padrão): fixos e equipes fixas ficam na URA de vez, sem a regra do ocioso.
       // false: depois de subir, seguem o rodízio (ociosos vão ao Ativo e voltam ao atender lá).
       fixosPermanentesUra: envBool('FIXOS_PERMANENTES_URA', true),
+      // [NOVO] Contas operacionais de supervisores (ex.: "Ariel Souza da Conceicao", supervisora "Ariel
+      // Conceicao") não ficam na URA. Automático pelo nome; mais/menos ramais à mão.
+      contasSupervisores: {
+        automatico: envBool('CONTAS_SUPERVISORES_FORA_DA_URA', true),
+        ramais: envLista('CONTAS_SUPERVISORES_RAMAIS', ''),
+        exceto: envLista('CONTAS_SUPERVISORES_EXCETO', ''),
+      },
       // Se true, vendedores que estão em um grupo diferente de URA/Ativo
       // (ex.: colocados manualmente em treinamento/supervisão) não são tocados.
       respeitarGruposExternos: envBool('RESPEITAR_GRUPOS_EXTERNOS', true),
@@ -542,10 +550,11 @@ function validarRodizio(cfg) {
     fatais.push('GRUPOS_ROBOS_URA_IDS é obrigatório (grupos dos robôs da URA, ex.: 6).');
   }
   if (!(r.robosPorLivre >= 1)) fatais.push('ROBOS_POR_LIVRE deve ser 1 ou mais.');
-  for (const [status, { esperaS, min, max }] of Object.entries(r.robosTaxa.porStatus)) {
+  for (const [status, { esperaS, min, max, todosComLivres }] of Object.entries(r.robosTaxa.porStatus)) {
     const S = status.toUpperCase();
     if (!(esperaS >= 10 && esperaS <= 600)) fatais.push(`ROBOS_ESPERA_ALVO_${S}_S deve ficar entre 10 e 600 segundos.`);
     if (!(min >= 1 && max >= min)) fatais.push(`ROBOS_POR_LIVRE_MIN_${S} (${min}) deve ser 1 ou mais e no máximo ROBOS_POR_LIVRE_MAX_${S} (${max}).`);
+    if (!(todosComLivres >= 0)) fatais.push(`ROBOS_TODOS_COM_LIVRES_${S} deve ser 0 (nunca) ou mais.`);
   }
   if (!a.gruposAtivosIds.length) fatais.push('GRUPOS_ATIVOS_IDS é obrigatório (whitelist dos grupos do Ativo).');
   if (a.gruposAtivosIds.includes(a.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');

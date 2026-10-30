@@ -543,7 +543,7 @@ const CENARIOS = {
     if (health.robos.maxComUmLivre !== 3) throw new Error('o /health não mostra o teto com 1 livre');
   },
 
-  async 'Robôs pela taxa: com 1 livre o teto é o do status da URA (agressiva 6, calma mais que 6)'(r) {
+  async 'Robôs pela taxa: com 1 livre o teto é o do status da URA (agressiva 6, calma 20)'(r) {
     const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
     const status = (s) => fetch(`${r.base}/ura/status`, {
       method: 'PUT', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s, modo: 'manual', por: 'cenário' }),
@@ -551,9 +551,9 @@ const CENARIOS = {
     if ((await status('agressiva')).status !== 200) throw new Error('não fixou a agressiva');
     await aguardar(() => ligados().length === 6, { descricao: 'agressiva com 1 livre: teto 6' });
     if ((await status('calma')).status !== 200) throw new Error('não fixou a calma');
-    await aguardar(() => ligados().length === 8, { descricao: 'calma com 1 livre: 8 por livre, teto 15 (não o 6 do .env)' });
+    await aguardar(() => ligados().length === 10, { descricao: 'calma com 1 livre: piso 20 (não o 6 do .env) = os 10 robôs' });
     const { robos } = await (await fetch(`${r.base}/health`)).json();
-    if (robos.maxComUmLivre !== 15) throw new Error(`teto com 1 livre: ${robos.maxComUmLivre}`);
+    if (robos.maxComUmLivre !== 20) throw new Error(`teto com 1 livre: ${robos.maxComUmLivre}`);
     if (robos.calculo?.fonte !== 'medindo' || robos.calculo.status !== 'calma' || robos.calculo.esperaAlvoS !== 45) {
       throw new Error(`calculo: ${JSON.stringify(robos.calculo)}`);
     }
@@ -1094,7 +1094,7 @@ const VARIACOES = {
       ROBOS_POR_LIVRE: '5', ROBOS_MAX_COM_1_LIVRE: '3', ROBOS_PASSIVA_APOS_MIN: '0.03', ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
     },
   },
-  'Robôs pela taxa: com 1 livre o teto é o do status da URA (agressiva 6, calma mais que 6)': {
+  'Robôs pela taxa: com 1 livre o teto é o do status da URA (agressiva 6, calma 20)': {
     grupos: [
       { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
       { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200'] },
