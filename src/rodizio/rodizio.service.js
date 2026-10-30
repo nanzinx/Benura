@@ -24,6 +24,7 @@
 const {
   Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, ultimoLivreQueSai,
   decidirRobos, alvoDeRobos, livresUteis, reconciliarMovidos, VALIDADE_STATUS_MS, porAntiguidade, bonusDeAntiguidade,
+  planoDaCalma, excessoDaCalma,
 } = require('../domain/rodizio');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
@@ -127,6 +128,8 @@ class RodizioService {
     this.ultimoAtendimentoUraEm = Date.now();
     /** ramais do Ativo que atenderam uma ligação desde que ficaram online */
     this.atenderamNoAtivo = new Set();
+    /** [NOVO] voltaram ao Ativo (ocioso ou excesso da calma): só sobem de novo depois de atender lá */
+    this.esperandoAtender = new Set();
     /** ramais com transferência em andamento */
     this.emTransferencia = new Set();
     this.avaliandoRobos = false;
@@ -276,7 +279,70 @@ class RodizioService {
     // [NOVO] Na URA cheia, qualquer um que atender no Ativo sobe (sem olhar elegíveis). Ninguém
     // sobe só por estar no Ativo: quem voltou por ocioso ou foi tirado à mão fica lá até atender.
     const alvos = porAntiguidade(this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal)), (a) => a.ramal);
-    await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
+    // [NOVO] URA calma: ninguém sobe sozinho; depois de ler todos, sobem os mais antigos que faltam.
+    const calma = this.emCalmaComLimite();
+    const lidos = await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo, { subir: !calma }));
+    if (calma) await this.completarLivresDaCalma(lidos.filter(Boolean));
+  }
+
+  // ───────────────────────────── [NOVO] URA calma: de 4 a 6 livres ─────────────────────────────
+
+  /** Status calma, a regra ligada (URA_CALMA_LIMITAR_LIVRES) e sem URA cheia. */
+  emCalmaComLimite(agora = Date.now()) {
+    return Boolean(this.cfg.calmaLimitarLivres) && this.statusAtualDaUra() === 'calma' && !this.emUraCheia(agora);
+  }
+
+  /** Livres na URA (fixos inclusive) mais quem já subiu e está a caminho. */
+  livresContadosNaCalma(saindo = []) {
+    const fora = new Set(saindo.map(String));
+    return [...this.ramaisUra].filter((r) => !fora.has(r) && (this.statusUra.get(r)?.classe === Classe.LIVRE || this.aguardandoTroca.has(r))).length;
+  }
+
+  /**
+   * Abaixo de URA_CALMA_LIVRES_MIN, sobem os mais antigos (ramal menor) livres no Ativo,
+   * menos quem voltou e ainda não atendeu lá.
+   * @param {{ ramal: string, grupo: number, classe: string }[]} lidos - livres no Ativo deste ciclo
+   */
+  async completarLivresDaCalma(lidos) {
+    const contados = this.livresContadosNaCalma();
+    const { subir } = planoDaCalma({ contados, min: this.cfg.calmaLivresMin, max: this.cfg.calmaLivresMax });
+    if (!subir) return;
+    const fila = porAntiguidade(lidos.filter((l) => l.classe === Classe.LIVRE && !this.esperandoAtender.has(l.ramal)), (l) => l.ramal);
+    const escolhidos = fila.slice(0, subir);
+    if (!escolhidos.length) return;
+    this.log.info(`URA calma com ${contados} livre(s) (mín. ${this.cfg.calmaLivresMin}): sobem os mais antigos ${escolhidos.map((l) => l.ramal).join(', ')}.`);
+    for (const { ramal, grupo } of escolhidos) await this.moverParaUra(ramal, grupo);
+  }
+
+  /**
+   * Acima de URA_CALMA_LIVRES_MAX, voltam ao Ativo os livres há mais tempo (fixos, travados à mão,
+   * em transferência e na carência ficam). @param {string[]} saindo - os que já saem pelo ocioso agora
+   */
+  async devolverExcessoDaCalma(saindo) {
+    const contados = this.livresContadosNaCalma(saindo);
+    const { devolver } = planoDaCalma({ contados, min: this.cfg.calmaLivresMin, max: this.cfg.calmaLivresMax });
+    if (!devolver) return;
+    const fora = new Set(saindo.map(String));
+    const candidatos = [...this.ramaisUra]
+      .filter((r) => !fora.has(r) && !this.permanentes.has(r) && this.travadoEm(r) !== 'ura' && !this.emTransferencia.has(r))
+      .map((r) => ({ ramal: r, info: this.statusUra.get(r) }))
+      .filter(({ info }) => info?.classe === Classe.LIVRE && !info.emCarencia && info.livreDesde != null)
+      .map(({ ramal, info }) => ({ ramal, livreDesde: info.livreDesde }));
+    const motivo = `URA calma com ${contados} livres (máx. ${this.cfg.calmaLivresMax})`;
+    for (const ramal of excessoDaCalma(candidatos, devolver)) {
+      const r = await this.moverParaAtivo(ramal, motivo);
+      if (r.ok) this.esperandoAtender.add(ramal);
+    }
+  }
+
+  resumoDaCalma() {
+    return {
+      ativa: this.emCalmaComLimite(),
+      min: this.cfg.calmaLivresMin ?? null,
+      max: this.cfg.calmaLivresMax ?? null,
+      contados: this.livresContadosNaCalma(),
+      esperandoAtender: [...this.esperandoAtender],
+    };
   }
 
   async atualizarDiretorio() {
@@ -300,21 +366,29 @@ class RodizioService {
     return !this.elegiveis || this.elegiveis.permite(ramal);
   }
 
-  async verificarOperadorDoAtivo({ ramal, grupo }) {
+  /**
+   * Lê quem está no Ativo; sobe quem atendeu lá e ficou livre. [NOVO] Com `subir: false` (URA
+   * calma), só lê: devolve o livre para o completarLivresDaCalma escolher.
+   * @returns {Promise<{ ramal: string, grupo: number, classe: string }|undefined>}
+   */
+  async verificarOperadorDoAtivo({ ramal, grupo }, { subir = true } = {}) {
     const { classe, status } = await this.lerStatus(ramal);
-    if (classe === Classe.ERRO) return;
+    if (classe === Classe.ERRO) return undefined;
     if (classe === Classe.OFFLINE) {
       this.atenderamNoAtivo.delete(ramal);
-      return;
+      return undefined;
     }
     // A lista de grupos pode estar desatualizada: só age se o status confirma o grupo.
-    if (String(status.idGrupo) !== String(grupo)) return;
+    if (String(status.idGrupo) !== String(grupo)) return undefined;
 
     if (classe === Classe.ATENDIMENTO) {
       this.atenderamNoAtivo.add(ramal);
-      return;
+      this.esperandoAtender?.delete(ramal);
+      return undefined;
     }
+    if (!subir) return classe === Classe.LIVRE ? { ramal, grupo, classe } : undefined;
     if (deveIrParaUra(classe, this.atenderamNoAtivo.has(ramal))) await this.moverParaUra(ramal, grupo);
+    return undefined;
   }
 
   /** @returns {Promise<boolean>} true se transferiu (ou simulou, em DRY_RUN) */
@@ -358,6 +432,8 @@ class RodizioService {
 
     this.avisarSeSemWebhook();
     await mapearComLimite(ociosos, this.cfg.concorrencia, (ramal) => this.devolverAoAtivo(ramal));
+    // [NOVO] URA calma: mais de URA_CALMA_LIVRES_MAX livres, o excesso volta ao Ativo.
+    if (this.emCalmaComLimite()) await this.devolverExcessoDaCalma(ociosos);
   }
 
   /**
@@ -565,6 +641,7 @@ class RodizioService {
 
   async devolverAoAtivo(ramal) {
     const r = await this.moverParaAtivo(ramal, this.ehContaDeSupervisor(ramal) ? 'conta de supervisor não fica na URA' : null);
+    if (r.ok) this.esperandoAtender.add(ramal); // [NOVO] só sobe de novo depois de atender no Ativo
     // [NOVO] Passou do tempo e não saiu: diz por quê (uma vez, até conseguir).
     this.naoSaiu ??= new Set();
     if (r.ok) this.naoSaiu.delete(ramal);
@@ -1464,6 +1541,8 @@ class RodizioService {
       },
       // [NOVO] contas operacionais de supervisores (não ficam na URA)
       contasSupervisores: this.contasSupervisores?.lista() ?? [],
+      // [NOVO] URA calma: de URA_CALMA_LIVRES_MIN a URA_CALMA_LIVRES_MAX livres
+      calmaLivres: this.resumoDaCalma(),
       intervaloUraMs: this.intervaloUraMs(),
       ultimoLivreSaindo: this.ultimoSaindo ? { ramal: this.ultimoSaindo.ramal, desde: new Date(this.ultimoSaindo.desde).toISOString() } : null,
       ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,

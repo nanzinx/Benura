@@ -220,6 +220,11 @@ function carregarConfig(overrides = {}) {
       // sair, os robôs param de discar para os que estão em ligação terminarem antes. 0 = não prepara.
       // (SEGURAR_ULTIMO_LIVRE_MS, do .env antigo, não vale mais: era 90 s, demais com poucos na URA.)
       prepararSaidaMs: envNum('PREPARAR_SAIDA_ULTIMO_LIVRE_MS', 15_000),
+      // [NOVO] URA calma: de URA_CALMA_LIVRES_MIN a URA_CALMA_LIVRES_MAX humanos livres. Faltando, sobem os
+      // mais antigos (ramal menor) livres no Ativo; passando, voltam os livres há mais tempo.
+      calmaLimitarLivres: envBool('URA_CALMA_LIMITAR_LIVRES', true),
+      calmaLivresMin: envNum('URA_CALMA_LIVRES_MIN', 4),
+      calmaLivresMax: envNum('URA_CALMA_LIVRES_MAX', 6),
       // Quem acabou de passar a telefonia para a URA (troca de grupo ou relogin) só conta
       // como livre para os robôs depois deste tempo (15/10: callback 37 s depois da troca).
       carenciaTrocaMs: envNum('CARENCIA_TROCA_GRUPO_MS', 60_000),
@@ -560,6 +565,9 @@ function validarRodizio(cfg) {
   if (a.gruposAtivosIds.includes(a.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');
   if (r.gruposRobosIds.includes(a.grupoUraId)) fatais.push('GRUPOS_ROBOS_URA_IDS não pode conter o GRUPO_URA_ID.');
   if (r.tempoNaUraMs <= 0) fatais.push('TEMPO_MIN deve ser maior que zero.');
+  if (!(r.calmaLivresMin >= 1 && r.calmaLivresMax >= r.calmaLivresMin)) {
+    fatais.push(`URA_CALMA_LIVRES_MIN (${r.calmaLivresMin}) deve ser 1 ou mais e no máximo URA_CALMA_LIVRES_MAX (${r.calmaLivresMax}).`);
+  }
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: o webhook do rodízio aceita chamadas sem autenticação.');
   if (cfg.retornoFila.ativo && !cfg.retornoFila.skillHash) {
     fatais.push('RETORNO_FILA_ATIVO=true exige RETORNO_SKILL_HASH (hash da skill que recebe os retornos; veja /listarskills).');
