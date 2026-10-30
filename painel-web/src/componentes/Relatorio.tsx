@@ -32,9 +32,9 @@ const DICAS = {
 
 /** [NOVO] Cor de cada quadro pelo nível (faixas em relatorio.ts: FAIXAS_DOS_QUADROS). */
 const FUNDO_DO_NIVEL: Record<Nivel, string> = {
-  bom: 'bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:ring-emerald-900',
-  atencao: 'bg-amarelo-100 ring-1 ring-amber-200 dark:bg-amber-950/50 dark:ring-amber-900',
-  ruim: 'bg-red-50 ring-1 ring-red-200 dark:bg-red-950/50 dark:ring-red-900',
+  bom: 'bg-emerald-50 dark:bg-emerald-950/40',
+  atencao: 'bg-amarelo-100 dark:bg-amber-950/50',
+  ruim: 'bg-red-50 dark:bg-red-950/50',
 };
 const TEXTO_DO_NIVEL: Record<Nivel, string> = {
   bom: 'text-emerald-800 dark:text-emerald-200',
@@ -44,11 +44,11 @@ const TEXTO_DO_NIVEL: Record<Nivel, string> = {
 
 function Numero({ rotulo, valor, nota, nivel, dica, comparar }: { rotulo: string; valor: ReactNode; nota?: ReactNode; nivel?: Nivel | null; dica?: string; comparar?: ReactNode }) {
   return (
-    <div title={dica} className={clsx(dica && 'cursor-help', 'grid content-start rounded-lg px-3 py-2.5', nivel ? FUNDO_DO_NIVEL[nivel] : 'bg-azul-50 dark:bg-noite-800')}>
-      <span className="rotulo">{rotulo}</span>
-      <b className={clsx('text-xl tabular-nums', nivel && TEXTO_DO_NIVEL[nivel])}>{valor}</b>
-      {nota && <span className="text-xs text-slate-500 dark:text-slate-400">{nota}</span>}
-      {comparar && <span className="mt-1 border-t border-slate-200/80 pt-1 text-[11px] text-slate-500 dark:border-noite-700 dark:text-slate-400">{comparar}</span>}
+    <div title={dica} className={clsx(dica && 'cursor-help', 'grid min-w-0 content-start gap-0.5 rounded-lg px-2.5 py-2', nivel ? FUNDO_DO_NIVEL[nivel] : 'bg-azul-50 dark:bg-noite-800')}>
+      <span className="truncate text-[11px] font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">{rotulo}</span>
+      <b className={clsx('text-lg leading-tight tabular-nums', nivel && TEXTO_DO_NIVEL[nivel])}>{valor}</b>
+      {nota && <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">{nota}</span>}
+      {comparar && <span className="mt-0.5 grid gap-px border-t border-slate-200/80 pt-1 text-[11px] leading-tight text-slate-500 dark:border-noite-700 dark:text-slate-400">{comparar}</span>}
     </div>
   );
 }
@@ -76,7 +76,7 @@ function comparativo(c: Comparacao | undefined, campo: CampoDoQuadro, formatar: 
   return linhas.map(({ rotulo, valor }) => {
     const t = tendencia(hoje, valor);
     return (
-      <span key={rotulo} className={clsx('flex items-center gap-1 whitespace-nowrap', t && COR_DA_TENDENCIA[t])} title={t ? TEXTO_DA_TENDENCIA[t] : undefined}>
+      <span key={rotulo} className={clsx('flex items-center gap-1 truncate whitespace-nowrap', t && COR_DA_TENDENCIA[t])} title={t ? TEXTO_DA_TENDENCIA[t] : undefined}>
         {t && t !== 'igual' && <span aria-hidden>{SETA[t]}</span>}
         {rotulo}: {formatar(valor)}
       </span>
@@ -117,10 +117,10 @@ function StatusDoDia({ r, atual }: { r: RelatorioDoDia; atual: EstadoTermometro 
   };
   const item = 'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left';
   return (
-    <div ref={raiz} className="relative grid content-start rounded-lg bg-azul-50 px-3 py-2.5 dark:bg-noite-800" title={DICAS.status}>
-      <span className="rotulo">Status da URA</span>
+    <div ref={raiz} className="relative grid min-w-0 content-start gap-1 rounded-lg bg-azul-50 px-2.5 py-2 dark:bg-noite-800" title={DICAS.status}>
+      <span className="truncate text-[11px] font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">Status da URA</span>
       <button type="button" onClick={() => setAberto((a) => !a)} aria-haspopup="menu" aria-expanded={aberto} aria-controls={idMenu} disabled={mutacao.isPending}
-        className={clsx('mt-1 inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-bold tracking-wide uppercase disabled:cursor-progress', CORES_DA_URA[status])}>
+        className={clsx('inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold tracking-wide uppercase disabled:cursor-progress', CORES_DA_URA[status])}>
         {manual && <Lock className="size-3.5" aria-label="manual" />}
         {NOMES_DA_URA[status]}
         <ChevronDown className={clsx('size-4 transition-transform', aberto && 'rotate-180')} aria-hidden />
@@ -209,7 +209,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
         </Botao>
       </>
     )}>
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={r.transbordos ?? '–'} nivel={nivelDoIndicador('transbordos', transbordos)} nota={notaTransbordos}
           comparar={comparativo(c, 'transbordos', numero, transbordos)} />
         <Numero rotulo="TOR" dica={DICAS.tor} valor={minutos(ociosoTotal)} nivel={nivelDoIndicador('torMin', ociosoTotal)}
@@ -220,7 +220,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
           comparar={comparativo(c, 'oplSeg', duracao, oplTotal)} />
         <Numero rotulo="TPA" dica={DICAS.tpa} valor={minutos(panicoTotal)} nivel={nivelDoIndicador('tpaMin', panicoTotal)} nota={`pânico ativo · ${vezes} vez(es)`}
           comparar={comparativo(c, 'tpaMin', minutos, panicoTotal)} />
-        <div className="col-span-2 md:col-span-1"><StatusDoDia r={r} atual={statusAtual} /></div>
+        <StatusDoDia r={r} atual={statusAtual} />
       </div>
       <BarraTermometro r={r} />
       {horas.length ? (
