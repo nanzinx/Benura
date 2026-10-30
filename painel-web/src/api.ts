@@ -62,6 +62,7 @@ export const api = {
   simulacao: (ligada: boolean) => pedir<EstadoAutomacao>('POST', '/api/simulacao', { ligada }),
   testarAviso: () => pedir<ResultadoTesteAviso>('POST', '/api/notificacoes/testar'),
   clientesWebhook: () => pedir<{ clientes: ClienteWebhook[] }>('GET', '/api/webhooks/clientes'),
+  cadastrarClienteWebhook: (c: { nome: string; url: string }) => pedir<ClienteWebhook & { segredo: string }>('POST', '/api/webhooks/clientes', c),
   testarClienteWebhook: (id: string) => pedir<{ ok: boolean; erro?: string }>('POST', '/api/webhooks/clientes/testar', { id }),
   removerClienteWebhook: (id: string) => pedir<{ removido: boolean }>('POST', '/api/webhooks/clientes/remover', { id }),
   // [NOVO] dois PCs: este PC pega a trava vencida do outro (ele caiu)

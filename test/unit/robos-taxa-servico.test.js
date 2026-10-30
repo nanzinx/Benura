@@ -123,6 +123,7 @@ function config(env) {
 test('config: ROBOS_CALCULO=taxa por padrão, metas por status pelo .env, validadas', () => {
   const { cfg, fatais } = config({});
   assert.equal(cfg.rodizio.robosCalculo, 'taxa');
+  assert.equal(cfg.rodizio.prepararSaidaMs, 15_000, 'último livre: os robôs param 15 s antes de ele sair');
   assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 45, min: 20, max: 20, todosComLivres: 2 });
   assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.agressiva, { esperaS: 120, min: 2, max: 6, todosComLivres: 0 });
   assert.deepEqual(fatais, []);

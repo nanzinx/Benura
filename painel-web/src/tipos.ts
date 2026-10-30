@@ -168,6 +168,9 @@ export interface HoraDoRelatorio {
   panicoMin: number;
   calmaMin: number;
   agressivaMin: number;
+  /** [NOVO] para a barra do status hora a hora */
+  normalMin?: number;
+  medindoMin?: number;
   leadsDerivados?: number;
   transbordos?: number;
 }

@@ -1,10 +1,14 @@
 import { clsx } from 'clsx';
-import { ChevronDown, Download } from 'lucide-react';
+import { Check, ChevronDown, Download, Lock, Wand2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { duracao, minutos } from '../formatos';
 import { baixarXlsx } from '../planilha';
-import { abasDoRelatorio, diaCurto, totaisDoRelatorio } from '../relatorio';
-import type { EstadoTermometro, RelatorioDoDia } from '../tipos';
+import {
+  abasDoRelatorio, diaCurto, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio, type CampoDoQuadro, type Nivel, type Tendencia,
+} from '../relatorio';
+import { useStatusUra, useVisao } from '../dados';
+import { semAcesso, usePode } from '../sessao';
+import type { EstadoTermometro, RelatorioDoDia, StatusDaUra } from '../tipos';
 import { Botao, Cartao, Vazio } from '../ui/base';
 import { CORES_DA_URA, NOMES_DA_URA } from './StatusUra';
 
@@ -23,14 +27,26 @@ const DICAS = {
   opl: 'OPL — Ociosidade Por Lead: o tempo livre de todos somado, dividido pelas ligações que chegaram aos humanos. Alto = gente demais livre para as ligações.',
   tpa: 'TPA — Tempo de Pânico Ativo: tempo em que o BenURA estava desligando ou reduzindo os robôs (0 livre, último livre saindo ou 1 fixo livre).',
   leads: 'Leads derivados: ligações dos robôs que a Argus derivou para um humano (o "Derivou" da Argus), na hora da ligação.',
-  status: 'Status da URA ao longo do dia: clique para ver quanto tempo ela passou em cada um.',
+  status: 'Status da URA: clique para trocar e ver quanto tempo ela passou em cada um hoje.',
 };
 
-function Numero({ rotulo, valor, nota, destaque, dica, comparar }: { rotulo: string; valor: ReactNode; nota?: ReactNode; destaque?: 'perigo' | 'alerta'; dica?: string; comparar?: ReactNode }) {
+/** [NOVO] Cor de cada quadro pelo nível (faixas em relatorio.ts: FAIXAS_DOS_QUADROS). */
+const FUNDO_DO_NIVEL: Record<Nivel, string> = {
+  bom: 'bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:ring-emerald-900',
+  atencao: 'bg-amarelo-100 ring-1 ring-amber-200 dark:bg-amber-950/50 dark:ring-amber-900',
+  ruim: 'bg-red-50 ring-1 ring-red-200 dark:bg-red-950/50 dark:ring-red-900',
+};
+const TEXTO_DO_NIVEL: Record<Nivel, string> = {
+  bom: 'text-emerald-800 dark:text-emerald-200',
+  atencao: 'text-amber-900 dark:text-amber-100',
+  ruim: 'text-red-700 dark:text-red-300',
+};
+
+function Numero({ rotulo, valor, nota, nivel, dica, comparar }: { rotulo: string; valor: ReactNode; nota?: ReactNode; nivel?: Nivel | null; dica?: string; comparar?: ReactNode }) {
   return (
-    <div title={dica} className={clsx(dica && 'cursor-help', 'grid content-start rounded-lg px-3 py-2.5', destaque === 'perigo' ? 'bg-red-50 dark:bg-red-950/50' : destaque === 'alerta' ? 'bg-amarelo-100 dark:bg-amber-950/50' : 'bg-azul-50 dark:bg-noite-800')}>
+    <div title={dica} className={clsx(dica && 'cursor-help', 'grid content-start rounded-lg px-3 py-2.5', nivel ? FUNDO_DO_NIVEL[nivel] : 'bg-azul-50 dark:bg-noite-800')}>
       <span className="rotulo">{rotulo}</span>
-      <b className={clsx('text-xl tabular-nums', destaque === 'perigo' && 'text-red-700 dark:text-red-300', destaque === 'alerta' && 'text-amber-900 dark:text-amber-100')}>{valor}</b>
+      <b className={clsx('text-xl tabular-nums', nivel && TEXTO_DO_NIVEL[nivel])}>{valor}</b>
       {nota && <span className="text-xs text-slate-500 dark:text-slate-400">{nota}</span>}
       {comparar && <span className="mt-1 border-t border-slate-200/80 pt-1 text-[11px] text-slate-500 dark:border-noite-700 dark:text-slate-400">{comparar}</span>}
     </div>
@@ -38,27 +54,51 @@ function Numero({ rotulo, valor, nota, destaque, dica, comparar }: { rotulo: str
 }
 
 type Comparacao = NonNullable<RelatorioDoDia['comparacao']>;
-type Campo = 'transbordos' | 'torMin' | 'tmeSeg' | 'oplSeg' | 'tpaMin';
 
-/** [NOVO] "sex 23/10: 5" e "7 dias: 4", uma linha cada (o dia de hoje ainda não acabou: compare com calma). */
-function comparativo(c: Comparacao | undefined, campo: Campo, formatar: (v: number | null) => string): ReactNode {
-  const partes = [
-    c?.anterior && `${diaCurto(c.anterior.dia)}: ${formatar(c.anterior[campo] ?? null)}`,
-    c?.semana && `7 dias: ${formatar(c.semana[campo] ?? null)}`,
-  ].filter(Boolean);
-  return partes.length ? partes.map((p) => <span key={String(p)} className="block whitespace-nowrap">{p}</span>) : undefined;
-}
-
-const ORDEM_STATUS: EstadoTermometro[] = ['calma', 'normal', 'agressiva'];
+const SETA: Record<Tendencia, string> = { melhor: '▼', pior: '▲', igual: '=' };
+const COR_DA_TENDENCIA: Record<Tendencia, string> = {
+  melhor: 'font-semibold text-emerald-700 dark:text-emerald-300',
+  pior: 'font-semibold text-red-700 dark:text-red-300',
+  igual: '',
+};
+const TEXTO_DA_TENDENCIA: Record<Tendencia, string> = { melhor: 'hoje está melhor', pior: 'hoje está pior', igual: 'igual a hoje' };
 
 /**
- * Quadrado do status da URA no relatório: fechado mostra só o status de agora
- * ("URA CALMA"); aberto, as três opções com o tempo de cada uma hoje (só leitura).
+ * [NOVO] "sex 23/10: 5" e "7 dias: 4", uma linha cada (o dia de hoje ainda não acabou: compare com calma).
+ * Verde com ▼ quando hoje está melhor (menor), vermelho com ▲ quando está pior.
+ */
+function comparativo(c: Comparacao | undefined, campo: CampoDoQuadro, formatar: (v: number | null) => string, hoje: number | null): ReactNode {
+  const linhas = [
+    c?.anterior && { rotulo: diaCurto(c.anterior.dia), valor: c.anterior[campo] ?? null },
+    c?.semana && { rotulo: '7 dias', valor: c.semana[campo] ?? null },
+  ].filter((x): x is { rotulo: string; valor: number | null } => Boolean(x));
+  if (!linhas.length) return undefined;
+  return linhas.map(({ rotulo, valor }) => {
+    const t = tendencia(hoje, valor);
+    return (
+      <span key={rotulo} className={clsx('flex items-center gap-1 whitespace-nowrap', t && COR_DA_TENDENCIA[t])} title={t ? TEXTO_DA_TENDENCIA[t] : undefined}>
+        {t && t !== 'igual' && <span aria-hidden>{SETA[t]}</span>}
+        {rotulo}: {formatar(valor)}
+      </span>
+    );
+  });
+}
+
+const ORDEM_STATUS: StatusDaUra[] = ['calma', 'normal', 'agressiva'];
+
+/**
+ * Quadrado do status da URA no relatório: fechado mostra o status de agora ("URA CALMA");
+ * aberto, Automático e os três status com o tempo de cada um hoje. [NOVO] Clicar num deles
+ * troca o status da URA (supervisor), como o seletor do topo da aba URA e robôs.
  */
 function StatusDoDia({ r, atual }: { r: RelatorioDoDia; atual: EstadoTermometro | null | undefined }) {
   const [aberto, setAberto] = useState(false);
   const raiz = useRef<HTMLDivElement>(null);
   const idMenu = useId();
+  const { data: v } = useVisao();
+  const s = v?.servicos.rodizio.dados?.statusUra;
+  const mutacao = useStatusUra();
+  const pode = usePode('supervisor');
   useEffect(() => {
     if (!aberto) return undefined;
     const fora = (e: MouseEvent) => { if (!raiz.current?.contains(e.target as Node)) setAberto(false); };
@@ -67,45 +107,71 @@ function StatusDoDia({ r, atual }: { r: RelatorioDoDia; atual: EstadoTermometro 
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); };
   }, [aberto]);
-  const status = atual ?? 'medindo';
+  const status = atual ?? s?.status ?? 'medindo';
+  const manual = s?.modo === 'manual';
+  const ativa: 'automatico' | StatusDaUra = manual ? (s!.status as StatusDaUra) : 'automatico';
+  const escolher = (id: 'automatico' | StatusDaUra) => {
+    setAberto(false);
+    if (!pode || id === ativa) return;
+    mutacao.mutate(id === 'automatico' ? { modo: 'automatico' } : { modo: 'manual', status: id });
+  };
+  const item = 'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left';
   return (
     <div ref={raiz} className="relative grid content-start rounded-lg bg-azul-50 px-3 py-2.5 dark:bg-noite-800" title={DICAS.status}>
       <span className="rotulo">Status da URA</span>
-      <button type="button" onClick={() => setAberto((a) => !a)} aria-haspopup="menu" aria-expanded={aberto} aria-controls={idMenu}
-        className={clsx('mt-1 inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-bold tracking-wide uppercase', CORES_DA_URA[status])}>
+      <button type="button" onClick={() => setAberto((a) => !a)} aria-haspopup="menu" aria-expanded={aberto} aria-controls={idMenu} disabled={mutacao.isPending}
+        className={clsx('mt-1 inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-bold tracking-wide uppercase disabled:cursor-progress', CORES_DA_URA[status])}>
+        {manual && <Lock className="size-3.5" aria-label="manual" />}
         {NOMES_DA_URA[status]}
         <ChevronDown className={clsx('size-4 transition-transform', aberto && 'rotate-180')} aria-hidden />
       </button>
       {aberto && (
-        <div id={idMenu} role="menu" className="absolute top-full right-0 z-40 mt-1 w-64 animate-entrar rounded-xl border border-slate-200 bg-white p-1.5 text-sm shadow-xl dark:border-noite-700 dark:bg-noite-900">
+        <div id={idMenu} role="menu" className="absolute top-full right-0 z-40 mt-1 w-72 animate-entrar rounded-xl border border-slate-200 bg-white p-1.5 text-sm shadow-xl dark:border-noite-700 dark:bg-noite-900">
+          <button type="button" role="menuitemradio" aria-checked={ativa === 'automatico'} disabled={!pode} onClick={() => escolher('automatico')}
+            className={clsx(item, pode && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-noite-800', ativa === 'automatico' && 'bg-azul-50 font-semibold dark:bg-noite-800')}>
+            <Wand2 className="size-4 text-slate-400" aria-hidden />
+            <span className="flex-1">Automático</span>
+            {ativa === 'automatico' && <Check className="size-4 text-azul-600 dark:text-azul-300" aria-hidden />}
+          </button>
           {ORDEM_STATUS.map((e) => (
-            <div key={e} role="menuitem" className={clsx('flex items-center gap-2 rounded-lg px-3 py-2', e === status && 'bg-azul-50 font-semibold dark:bg-noite-800')}>
+            <button key={e} type="button" role="menuitemradio" aria-checked={ativa === e} disabled={!pode} onClick={() => escolher(e)}
+              className={clsx(item, pode && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-noite-800', ativa === e && 'bg-azul-50 font-semibold dark:bg-noite-800')}>
               <span className={clsx('size-2.5 rounded-full border', CORES_DA_URA[e])} aria-hidden />
               <span className="flex-1">{NOMES_DA_URA[e]}</span>
               <span className="text-slate-500 tabular-nums dark:text-slate-400">{minutos(r.termometroMin[e])}</span>
-            </div>
+              {ativa === e && <Check className="size-4 text-azul-600 dark:text-azul-300" aria-hidden />}
+            </button>
           ))}
-          <p className="mt-1 border-t border-slate-100 px-3 pt-2 pb-1 text-xs text-slate-500 dark:border-noite-800 dark:text-slate-400">Tempo em cada status hoje (00:00 até agora).</p>
+          <p className="mt-1 border-t border-slate-100 px-3 pt-2 pb-1 text-xs text-slate-500 dark:border-noite-800 dark:text-slate-400">
+            {pode ? 'Clique para trocar o status da URA. ' : `${semAcesso('supervisor')} troca o status. `}Ao lado, o tempo em cada status hoje.
+          </p>
         </div>
       )}
     </div>
   );
 }
 
-/** Quanto do dia a URA passou calma, normal ou agressiva (os tempos ficam no quadrado do status). */
+/** [NOVO] O status da URA hora a hora: cada hora uma barra com o tempo calma, normal, agressiva e medindo. */
 function BarraTermometro({ r }: { r: RelatorioDoDia }) {
   const ordem: EstadoTermometro[] = ['agressiva', 'normal', 'calma', 'medindo'];
-  const total = ordem.reduce((s, e) => s + (r.termometroMin[e] ?? 0), 0);
-  if (!total) return null;
+  const horas = statusPorHora(r.horas);
+  if (!horas.some((h) => h.total > 0)) return null;
   return (
     <div className="mb-4 grid gap-1.5">
-      <div className="flex h-3 overflow-hidden rounded-full" role="img"
-        aria-label={`Status da URA no dia: ${ordem.map((e) => `${e} ${minutos(r.termometroMin[e])}`).join(', ')}`}>
-        {ordem.map((e) => r.termometroMin[e] > 0 && <span key={e} className={CORES_TERMOMETRO[e]} style={{ width: `${(r.termometroMin[e] / total) * 100}%` }} />)}
+      <div className="flex gap-1" role="img"
+        aria-label={`Status da URA por hora: ${horas.map((h) => `${h.hora}h ${ordem.filter((e) => h[e] > 0).map((e) => `${e} ${minutos(h[e])}`).join(', ') || 'sem medida'}`).join('; ')}`}>
+        {horas.map((h) => (
+          <div key={h.hora} className="grid min-w-0 flex-1 gap-1" title={`${h.hora}h: ${ordem.filter((e) => h[e] > 0).map((e) => `${e} ${minutos(h[e])}`).join(' · ') || 'sem medida'}`}>
+            <div className="flex h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-noite-800">
+              {ordem.map((e) => h[e] > 0 && <span key={e} className={CORES_TERMOMETRO[e]} style={{ width: `${(h[e] / Math.max(60, h.total)) * 100}%` }} />)}
+            </div>
+            <span className="text-center text-[11px] text-slate-500 tabular-nums dark:text-slate-400">{h.hora}h</span>
+          </div>
+        ))}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
         {ordem.map((e) => (
-          <span key={e} className="inline-flex items-center gap-1.5"><span className={clsx('size-2.5 rounded-sm', CORES_TERMOMETRO[e])} aria-hidden />{e}</span>
+          <span key={e} className="inline-flex items-center gap-1.5"><span className={clsx('size-2.5 rounded-sm', CORES_TERMOMETRO[e])} aria-hidden />{e} {minutos(r.termometroMin[e])}</span>
         ))}
       </div>
     </div>
@@ -144,13 +210,16 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
       </>
     )}>
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={r.transbordos ?? '–'} destaque={transbordos ? 'perigo' : undefined} nota={notaTransbordos}
-          comparar={comparativo(c, 'transbordos', numero)} />
-        <Numero rotulo="TOR" dica={DICAS.tor} valor={minutos(ociosoTotal)} destaque={ociosoTotal >= 15 ? 'alerta' : undefined}
-          nota="ocioso sem robô" comparar={comparativo(c, 'torMin', minutos)} />
-        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(tmeTotal)} nota={`${esperaQtdTotal} ligação(ões) medida(s)`} comparar={comparativo(c, 'tmeSeg', duracao)} />
-        <Numero rotulo="OPL" dica={DICAS.opl} valor={duracao(oplTotal)} nota={`${minutos(livresTotal)} livres`} comparar={comparativo(c, 'oplSeg', duracao)} />
-        <Numero rotulo="TPA" dica={DICAS.tpa} valor={minutos(panicoTotal)} nota={`pânico ativo · ${vezes} vez(es)`} comparar={comparativo(c, 'tpaMin', minutos)} />
+        <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={r.transbordos ?? '–'} nivel={nivelDoIndicador('transbordos', transbordos)} nota={notaTransbordos}
+          comparar={comparativo(c, 'transbordos', numero, transbordos)} />
+        <Numero rotulo="TOR" dica={DICAS.tor} valor={minutos(ociosoTotal)} nivel={nivelDoIndicador('torMin', ociosoTotal)}
+          nota="ocioso sem robô" comparar={comparativo(c, 'torMin', minutos, ociosoTotal)} />
+        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(tmeTotal)} nivel={nivelDoIndicador('tmeSeg', tmeTotal)} nota={`${esperaQtdTotal} ligação(ões) medida(s)`}
+          comparar={comparativo(c, 'tmeSeg', duracao, tmeTotal)} />
+        <Numero rotulo="OPL" dica={DICAS.opl} valor={duracao(oplTotal)} nivel={nivelDoIndicador('oplSeg', oplTotal)} nota={`${minutos(livresTotal)} livres`}
+          comparar={comparativo(c, 'oplSeg', duracao, oplTotal)} />
+        <Numero rotulo="TPA" dica={DICAS.tpa} valor={minutos(panicoTotal)} nivel={nivelDoIndicador('tpaMin', panicoTotal)} nota={`pânico ativo · ${vezes} vez(es)`}
+          comparar={comparativo(c, 'tpaMin', minutos, panicoTotal)} />
         <div className="col-span-2 md:col-span-1"><StatusDoDia r={r} atual={statusAtual} /></div>
       </div>
       <BarraTermometro r={r} />

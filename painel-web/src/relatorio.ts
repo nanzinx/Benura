@@ -74,3 +74,41 @@ export function abasDoRelatorio(r: RelatorioDoDia): Aba[] {
   }
   return abas;
 }
+
+// ───────────── [NOVO] Cores do relatório ─────────────
+
+export type Tendencia = 'melhor' | 'pior' | 'igual';
+export type Nivel = 'bom' | 'atencao' | 'ruim';
+export type CampoDoQuadro = 'transbordos' | 'torMin' | 'tmeSeg' | 'oplSeg' | 'tpaMin';
+
+/** Hoje comparado com outro dia: em todos os quadros, menor é melhor. */
+export function tendencia(hoje: number | null | undefined, outro: number | null | undefined): Tendencia | null {
+  if (hoje == null || outro == null) return null;
+  return hoje < outro ? 'melhor' : hoje > outro ? 'pior' : 'igual';
+}
+
+/**
+ * Faixas de cor de cada quadro: até `bom` é verde, até `atencao` é amarelo, acima é vermelho.
+ * Mudou a régua da operação, mude aqui.
+ */
+export const FAIXAS_DOS_QUADROS: Record<CampoDoQuadro, { bom: number; atencao: number }> = {
+  transbordos: { bom: 0, atencao: 5 }, // callbacks
+  torMin: { bom: 5, atencao: 14.9 }, // minutos ociosos sem robô
+  tmeSeg: { bom: 120, atencao: 240 }, // segundos livres antes de cada ligação
+  oplSeg: { bom: 180, atencao: 300 }, // segundos livres por ligação
+  tpaMin: { bom: 10, atencao: 29.9 }, // minutos de pânico
+};
+
+export function nivelDoIndicador(campo: CampoDoQuadro, valor: number | null | undefined): Nivel | null {
+  if (valor == null) return null;
+  const f = FAIXAS_DOS_QUADROS[campo];
+  return valor <= f.bom ? 'bom' : valor <= f.atencao ? 'atencao' : 'ruim';
+}
+
+/** Minutos de cada status da URA em cada hora (a barra hora a hora). */
+export function statusPorHora(horas: RelatorioDoDia['horas']) {
+  return horas.map((h) => {
+    const m = { calma: h.calmaMin ?? 0, normal: h.normalMin ?? 0, agressiva: h.agressivaMin ?? 0, medindo: h.medindoMin ?? 0 };
+    return { hora: h.hora, ...m, total: Math.round((m.calma + m.normal + m.agressiva + m.medindo) * 10) / 10 };
+  });
+}
