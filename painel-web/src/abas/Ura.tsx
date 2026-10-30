@@ -240,10 +240,10 @@ export function Ura() {
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">URA e robôs</h1>
           <StatusUra />
-          {r.calmaLivres?.ativa && (
+          {r.uraCheiaLivres?.ativa && (
             <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200"
-              title="URA calma: faltando livre, sobem os mais antigos livres do Ativo; passando do máximo, voltam os livres há mais tempo. Quem volta só sobe de novo depois de atender no Ativo.">
-              Calma: mantendo de {r.calmaLivres.min} a {r.calmaLivres.max} livres (agora {r.calmaLivres.contados})
+              title="URA calma com URA cheia: faltando livre, sobem os mais antigos livres do Ativo; passando do máximo, voltam os livres há mais tempo. Quem volta só sobe de novo depois de atender no Ativo.">
+              Calma + URA cheia: mantendo de {r.uraCheiaLivres.min} a {r.uraCheiaLivres.max} livres (agora {r.uraCheiaLivres.contados})
             </span>
           )}
         </div>

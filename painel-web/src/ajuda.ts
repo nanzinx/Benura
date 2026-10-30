@@ -53,6 +53,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'Ninguém sobe só por estar no Ativo: quem está ocioso lá fica até atender.',
       'A regra do ocioso continua: quem fica livre 2 minutos seguidos na URA volta ao Ativo.',
       'Vale até desligar ou até virar o dia. A URA cheia não liga robô.',
+      'Com a URA calma e a URA cheia ligada ao mesmo tempo: a URA fica com 4 a 6 humanos livres (fixos contam). Faltando, sobem os mais antigos (ramal menor) livres no Ativo, sem precisar ter atendido; passando de 6, voltam ao Ativo os livres há mais tempo. Quem volta só sobe de novo depois de atender no Ativo.',
     ],
   },
   {
@@ -63,7 +64,6 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'Automático: o termômetro decide pela espera de quem está livre nos últimos 5 min. Até 60 s é agressiva, de 60 a 120 s é normal, e 120 s ou mais é calma. Um callback nos últimos 5 min deixa agressiva.',
       'Manual: a supervisão escolhe calma, normal ou agressiva, e vale até alguém escolher "Automático" de novo.',
       'Calma: com 1 livre, fixo ou não, os robôs seguem até ele atender ou ir para o Ativo (o pânico não desliga nem reduz).',
-      'Calma: a URA fica com 4 a 6 humanos livres (fixos contam). Faltando, sobem os mais antigos (ramal menor) livres no Ativo, entre os elegíveis; passando de 6, voltam ao Ativo os livres há mais tempo. Quem volta só sobe de novo depois de atender no Ativo. Na URA cheia esta regra não vale.',
     ],
   },
   {

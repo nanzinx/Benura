@@ -24,7 +24,7 @@
 const {
   Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, ultimoLivreQueSai,
   decidirRobos, alvoDeRobos, livresUteis, reconciliarMovidos, VALIDADE_STATUS_MS, porAntiguidade, bonusDeAntiguidade,
-  planoDaCalma, excessoDaCalma,
+  planoDosLivres, excessoDeLivres,
 } = require('../domain/rodizio');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
@@ -279,48 +279,48 @@ class RodizioService {
     // [NOVO] Na URA cheia, qualquer um que atender no Ativo sobe (sem olhar elegíveis). Ninguém
     // sobe só por estar no Ativo: quem voltou por ocioso ou foi tirado à mão fica lá até atender.
     const alvos = porAntiguidade(this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal)), (a) => a.ramal);
-    // [NOVO] URA calma: ninguém sobe sozinho; depois de ler todos, sobem os mais antigos que faltam.
-    const calma = this.emCalmaComLimite();
-    const lidos = await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo, { subir: !calma }));
-    if (calma) await this.completarLivresDaCalma(lidos.filter(Boolean));
+    // [NOVO] URA calma com URA cheia: ninguém sobe sozinho; depois de ler todos, sobem os mais antigos que faltam.
+    const comLimite = this.emUraCheiaComLimite();
+    const lidos = await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo, { subir: !comLimite }));
+    if (comLimite) await this.completarLivresDaUraCheia(lidos.filter(Boolean));
   }
 
-  // ───────────────────────────── [NOVO] URA calma: de 4 a 6 livres ─────────────────────────────
+  // ───────────────────────────── [NOVO] URA calma com URA cheia: de 4 a 6 livres ─────────────────────────────
 
-  /** Status calma, a regra ligada (URA_CALMA_LIMITAR_LIVRES) e sem URA cheia. */
-  emCalmaComLimite(agora = Date.now()) {
-    return Boolean(this.cfg.calmaLimitarLivres) && this.statusAtualDaUra() === 'calma' && !this.emUraCheia(agora);
+  /** Status calma E URA cheia ligada, com a regra dos livres ligada (URA_CHEIA_LIMITAR_LIVRES). */
+  emUraCheiaComLimite(agora = Date.now()) {
+    return Boolean(this.cfg.cheiaLimitarLivres) && this.emUraCheia(agora) && this.statusAtualDaUra() === 'calma';
   }
 
   /** Livres na URA (fixos inclusive) mais quem já subiu e está a caminho. */
-  livresContadosNaCalma(saindo = []) {
+  livresContadosNaUraCheia(saindo = []) {
     const fora = new Set(saindo.map(String));
     return [...this.ramaisUra].filter((r) => !fora.has(r) && (this.statusUra.get(r)?.classe === Classe.LIVRE || this.aguardandoTroca.has(r))).length;
   }
 
   /**
-   * Abaixo de URA_CALMA_LIVRES_MIN, sobem os mais antigos (ramal menor) livres no Ativo,
+   * Abaixo de URA_CHEIA_LIVRES_MIN, sobem os mais antigos (ramal menor) livres no Ativo,
    * menos quem voltou e ainda não atendeu lá.
    * @param {{ ramal: string, grupo: number, classe: string }[]} lidos - livres no Ativo deste ciclo
    */
-  async completarLivresDaCalma(lidos) {
-    const contados = this.livresContadosNaCalma();
-    const { subir } = planoDaCalma({ contados, min: this.cfg.calmaLivresMin, max: this.cfg.calmaLivresMax });
+  async completarLivresDaUraCheia(lidos) {
+    const contados = this.livresContadosNaUraCheia();
+    const { subir } = planoDosLivres({ contados, min: this.cfg.cheiaLivresMin, max: this.cfg.cheiaLivresMax });
     if (!subir) return;
     const fila = porAntiguidade(lidos.filter((l) => l.classe === Classe.LIVRE && !this.esperandoAtender.has(l.ramal)), (l) => l.ramal);
     const escolhidos = fila.slice(0, subir);
     if (!escolhidos.length) return;
-    this.log.info(`URA calma com ${contados} livre(s) (mín. ${this.cfg.calmaLivresMin}): sobem os mais antigos ${escolhidos.map((l) => l.ramal).join(', ')}.`);
+    this.log.info(`URA cheia com ${contados} livre(s) (mín. ${this.cfg.cheiaLivresMin}): sobem os mais antigos ${escolhidos.map((l) => l.ramal).join(', ')}.`);
     for (const { ramal, grupo } of escolhidos) await this.moverParaUra(ramal, grupo);
   }
 
   /**
-   * Acima de URA_CALMA_LIVRES_MAX, voltam ao Ativo os livres há mais tempo (fixos, travados à mão,
+   * Acima de URA_CHEIA_LIVRES_MAX, voltam ao Ativo os livres há mais tempo (fixos, travados à mão,
    * em transferência e na carência ficam). @param {string[]} saindo - os que já saem pelo ocioso agora
    */
-  async devolverExcessoDaCalma(saindo) {
-    const contados = this.livresContadosNaCalma(saindo);
-    const { devolver } = planoDaCalma({ contados, min: this.cfg.calmaLivresMin, max: this.cfg.calmaLivresMax });
+  async devolverExcessoDaUraCheia(saindo) {
+    const contados = this.livresContadosNaUraCheia(saindo);
+    const { devolver } = planoDosLivres({ contados, min: this.cfg.cheiaLivresMin, max: this.cfg.cheiaLivresMax });
     if (!devolver) return;
     const fora = new Set(saindo.map(String));
     const candidatos = [...this.ramaisUra]
@@ -328,19 +328,19 @@ class RodizioService {
       .map((r) => ({ ramal: r, info: this.statusUra.get(r) }))
       .filter(({ info }) => info?.classe === Classe.LIVRE && !info.emCarencia && info.livreDesde != null)
       .map(({ ramal, info }) => ({ ramal, livreDesde: info.livreDesde }));
-    const motivo = `URA calma com ${contados} livres (máx. ${this.cfg.calmaLivresMax})`;
-    for (const ramal of excessoDaCalma(candidatos, devolver)) {
+    const motivo = `URA cheia com ${contados} livres (máx. ${this.cfg.cheiaLivresMax})`;
+    for (const ramal of excessoDeLivres(candidatos, devolver)) {
       const r = await this.moverParaAtivo(ramal, motivo);
       if (r.ok) this.esperandoAtender.add(ramal);
     }
   }
 
-  resumoDaCalma() {
+  resumoDosLivresDaUraCheia() {
     return {
-      ativa: this.emCalmaComLimite(),
-      min: this.cfg.calmaLivresMin ?? null,
-      max: this.cfg.calmaLivresMax ?? null,
-      contados: this.livresContadosNaCalma(),
+      ativa: this.emUraCheiaComLimite(),
+      min: this.cfg.cheiaLivresMin ?? null,
+      max: this.cfg.cheiaLivresMax ?? null,
+      contados: this.livresContadosNaUraCheia(),
       esperandoAtender: [...this.esperandoAtender],
     };
   }
@@ -368,7 +368,7 @@ class RodizioService {
 
   /**
    * Lê quem está no Ativo; sobe quem atendeu lá e ficou livre. [NOVO] Com `subir: false` (URA
-   * calma), só lê: devolve o livre para o completarLivresDaCalma escolher.
+   * calma com URA cheia), só lê: devolve o livre para o completarLivresDaUraCheia escolher.
    * @returns {Promise<{ ramal: string, grupo: number, classe: string }|undefined>}
    */
   async verificarOperadorDoAtivo({ ramal, grupo }, { subir = true } = {}) {
@@ -432,8 +432,8 @@ class RodizioService {
 
     this.avisarSeSemWebhook();
     await mapearComLimite(ociosos, this.cfg.concorrencia, (ramal) => this.devolverAoAtivo(ramal));
-    // [NOVO] URA calma: mais de URA_CALMA_LIVRES_MAX livres, o excesso volta ao Ativo.
-    if (this.emCalmaComLimite()) await this.devolverExcessoDaCalma(ociosos);
+    // [NOVO] URA calma com URA cheia: mais de URA_CHEIA_LIVRES_MAX livres, o excesso volta ao Ativo.
+    if (this.emUraCheiaComLimite()) await this.devolverExcessoDaUraCheia(ociosos);
   }
 
   /**
@@ -1541,8 +1541,8 @@ class RodizioService {
       },
       // [NOVO] contas operacionais de supervisores (não ficam na URA)
       contasSupervisores: this.contasSupervisores?.lista() ?? [],
-      // [NOVO] URA calma: de URA_CALMA_LIVRES_MIN a URA_CALMA_LIVRES_MAX livres
-      calmaLivres: this.resumoDaCalma(),
+      // [NOVO] URA calma com URA cheia: de URA_CHEIA_LIVRES_MIN a URA_CHEIA_LIVRES_MAX livres
+      uraCheiaLivres: this.resumoDosLivresDaUraCheia(),
       intervaloUraMs: this.intervaloUraMs(),
       ultimoLivreSaindo: this.ultimoSaindo ? { ramal: this.ultimoSaindo.ramal, desde: new Date(this.ultimoSaindo.desde).toISOString() } : null,
       ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,
