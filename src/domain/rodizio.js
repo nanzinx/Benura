@@ -356,23 +356,23 @@ function ordenarRobos(ramais, nomeDe = () => null) {
 }
 
 /**
- * [NOVO] URA calma: de `min` a `max` humanos livres. `contados` = livres na URA (fixos inclusive)
+ * [NOVO] URA calma com URA cheia: de `min` a `max` humanos livres. `contados` = livres na URA (fixos inclusive)
  * mais quem já subiu e está a caminho. Abaixo do mínimo sobe o que falta; acima do máximo volta o excesso.
  * @returns {{ subir: number, devolver: number }}
  */
-function planoDaCalma({ contados, min, max }) {
+function planoDosLivres({ contados, min, max }) {
   return { subir: Math.max(0, min - contados), devolver: Math.max(0, contados - max) };
 }
 
-/** [NOVO] Excesso de livres na calma: volta quem está livre há mais tempo. @returns {string[]} ramais */
-function excessoDaCalma(livres, n) {
+/** [NOVO] Excesso de livres na URA cheia: volta quem está livre há mais tempo. @returns {string[]} ramais */
+function excessoDeLivres(livres, n) {
   if (!(n > 0)) return [];
   return [...livres].sort((a, b) => a.livreDesde - b.livreDesde).slice(0, n).map((l) => l.ramal);
 }
 
 module.exports = {
-  planoDaCalma,
-  excessoDaCalma,
+  planoDosLivres,
+  excessoDeLivres,
   ordenarRobos,
   porAntiguidade,
   bonusDeAntiguidade,

@@ -211,12 +211,6 @@ src/utils/                         HTTP com retry, persistência atômica, trava
      - **Desligar:** `PRIORIDADE_RAMAL_PASSO_S=0` tira a escada; a ordem continua.
    - **O BenURA não loga nem desloga humano:** só move de grupo, e a telefonia troca quando a pessoa fica livre (os robôs seguem sendo deslogados para desligar).
    - Quem o rodízio moveu volta ao **grupo de origem**; os demais (colocados à mão, pelo roteador ou antes de o programa iniciar) voltam ao **grupo do supervisor** (diretório da Argus ou `SUPERVISORES_GRUPOS_FILE`). O grupo do supervisor é o grupo do Ativo com a maioria da equipe dele; se não houver ninguém da equipe no Ativo, o grupo cujo nome começa pelo primeiro nome do supervisor ("ROBSON - COMERCIAL"). Sem o grupo do supervisor, volta ao grupo do Ativo de onde o roteador a tirou (gravado no `state-vendas.json`). Sem nenhum dos dois, fica na URA com um aviso: rode `npm run conferir:supervisores`.
-   - **[NOVO] URA calma: de 4 a 6 livres** (`URA_CALMA_LIMITAR_LIVRES=true`, o padrão; `URA_CALMA_LIVRES_MIN=4`, `URA_CALMA_LIVRES_MAX=6`). Com o status da URA em calma (termômetro ou escolhido no painel) e sem URA cheia:
-     - contam os humanos livres na URA, fixos inclusive, mais quem já subiu e está trocando de grupo;
-     - **abaixo de 4**, sobem os que faltam entre os **livres no Ativo** que são elegíveis, dos **mais antigos (ramal menor)** para os mais novos, sem precisar ter atendido no Ativo;
-     - **acima de 6**, voltam ao Ativo na hora os **livres há mais tempo** (fixos, travados à mão e quem está na carência ficam);
-     - quem volta ao Ativo (pelo ocioso ou pelo excesso) **só sobe de novo depois de atender uma ligação lá**: a vez passa para os próximos;
-     - entre 4 e 6, a regra do ocioso faz a roda girar. O `/health` mostra `calmaLivres: { ativa, min, max, contados, esperandoAtender }`.
    - **O último livre sai no horário, e os robôs param antes.** Sem livre na URA, o alvo vira 0 e um robô em ligação que derivar não acha ninguém (callback). Por isso, quando o último livre está a `PREPARAR_SAIDA_ULTIMO_LIVRE_MS` (**15 s**, no máximo metade do `TEMPO_MIN`) de completar o tempo ocioso, os robôs param de discar e os que estão em ligação terminam enquanto ele ainda está na URA. Se ele atender ou aparecer outro livre, os robôs voltam. O `/health` mostra `ultimoLivreSaindo`.
    - Quem o rodízio moveu e ficou offline volta ao Ativo se continuar offline por `OFFLINE_VOLTA_APOS_MS` (**60 s**): logo depois de uma transferência ou de um relogin, o status pisca "deslogado" por alguns segundos (em 15/10 isso devolveu ao Ativo, 42 s depois de subir, uma operadora que estava trocando de grupo).
 
@@ -224,6 +218,12 @@ src/utils/                         HTTP com retry, persistência atômica, trava
 Quando pedirem a URA cheia, ligue pelo painel (aba URA e robôs) ou em **`http://localhost:3000/ura`** (**Ligar a URA cheia**, pede o `WEBHOOK_TOKEN`, se configurado).
 - [NOVO] **Qualquer operador dos grupos do Ativo (`GRUPOS_ATIVOS_IDS`) que atender uma ligação sobe para a URA**, sem olhar elegíveis (meta, venda, fixo). **Ninguém sobe só por estar no Ativo**: quem está ocioso lá, quem voltou por ociosidade e quem foi tirado da URA à mão ficam no Ativo até atender (antes, a URA cheia levava todos de uma vez, e quem estava ocioso ia e voltava).
 - **A regra do ocioso continua valendo**: quem ficar livre `TEMPO_MIN` seguidos volta ao Ativo e só sobe de novo ao atender lá, mesmo sem ser elegível (não fica indo e voltando). Os robôs continuam proporcionais aos livres (`ROBOS_POR_LIVRE`), até o total de robôs, e a telefonia continua sendo conferida.
+- **[NOVO] URA calma com URA cheia: de 4 a 6 livres** (`URA_CHEIA_LIMITAR_LIVRES=true`, o padrão; `URA_CHEIA_LIVRES_MIN=4`, `URA_CHEIA_LIVRES_MAX=6`). Vale só com as duas ao mesmo tempo: status da URA em calma (termômetro ou escolhido no painel) e a URA cheia ligada. Nos outros status a URA cheia segue como acima.
+  - contam os humanos livres na URA, fixos inclusive, mais quem já subiu e está trocando de grupo;
+  - **abaixo de 4**, sobem os que faltam entre os **livres no Ativo**, dos **mais antigos (ramal menor)** para os mais novos, sem precisar ter atendido no Ativo;
+  - **acima de 6**, voltam ao Ativo na hora os **livres há mais tempo** (fixos, travados à mão e quem está na carência ficam);
+  - quem volta ao Ativo (pelo ocioso ou pelo excesso) **só sobe de novo depois de atender uma ligação lá**: a vez passa para os próximos;
+  - entre 4 e 6, a regra do ocioso faz a roda girar. O `/health` mostra `uraCheiaLivres: { ativa, min, max, contados, esperandoAtender }`.
 - **Voltar ao normal**: só os elegíveis voltam a subir do Ativo.
 - Vale até desligar ou até virar o dia; sobrevive a reinício (`RODIZIO_URA_CHEIA_FILE`). O `/health` mostra `uraCheia: { ligada, desde }`.
 - Pela API: `POST /ura/cheia` liga e `DELETE /ura/cheia` desliga (com token).

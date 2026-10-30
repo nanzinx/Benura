@@ -133,8 +133,8 @@ export interface SaudeRodizio {
     calculo?: CalculoRobos | null;
   };
   uraCheia?: { ligada: boolean; desde: string | null };
-  /** [NOVO] URA calma: de min a max livres; faltando, sobem os mais antigos do Ativo */
-  calmaLivres?: { ativa: boolean; min: number | null; max: number | null; contados: number; esperandoAtender: string[] };
+  /** [NOVO] URA calma com URA cheia: de min a max livres; faltando, sobem os mais antigos do Ativo */
+  uraCheiaLivres?: { ativa: boolean; min: number | null; max: number | null; contados: number; esperandoAtender: string[] };
   panico?: Interruptor & {
     modo: boolean;
     ativoAgora: string | null;
