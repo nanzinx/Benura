@@ -30,6 +30,8 @@ const { alinharLogin } = require('../integrations/argus/alinhar-login');
 const { raioXDoCallback, horaNoFuso } = require('../domain/raio-x-callback');
 const { mapearComLimite } = require('../utils/concorrencia');
 const { limitesMin: LIMITES_PAUSA } = require('../config/pausas');
+const { robosPorLivrePelaTaxa, roboMinutos, CALCULO_PADRAO } = require('../domain/robos-por-taxa');
+const { dataLocal } = require('../utils/datas');
 
 /** Quanto tempo de fotos da URA o raio-x dos callbacks guarda (o relatório chega com até alguns minutos de atraso). */
 const FOTOS_MS = 15 * 60_000;
@@ -150,6 +152,9 @@ class RodizioService {
     this.desligandoAutomacao = false;
     /** Fotos da URA dos últimos FOTOS_MS (raio-x de cada callback: raio-x-callback.js). */
     this.fotos = [];
+    /** [NOVO] Derivações e robôs ligados dos últimos 30 min: a taxa real que dimensiona os robôs (robos-por-taxa.js). */
+    this.derivacoesRecentes = [];
+    this.amostrasRobos = [];
     this.iniciadoEm = Date.now();
     this.ultimoWebhookEm = 0;
     this.ultimoAvisoSemWebhookEm = 0;
@@ -643,7 +648,7 @@ class RodizioService {
         intervaloSubidaMs: this.cfg.intervaloSubidaMs,
         porLivre: this.porLivreComStatus(agora),
         maximo: this.cfg.robosMaximo,
-        maxComUmLivre: this.cfg.robosMaxComUmLivre,
+        maxComUmLivre: this.maxComUmLivreAgora(agora),
         // Com poll lento, o status "envelhece" entre ciclos: não pode virar "sem visibilidade".
         validadeStatusMs: Math.max(VALIDADE_STATUS_MS, this.cfg.pollUraMs * 2 + 1000),
       },
@@ -817,6 +822,8 @@ class RodizioService {
    */
   registrarDerivacao(agora, esperaMs = null, ramal = null) {
     this.ultimoAtendimentoUraEm = agora;
+    this.derivacoesRecentes.push(agora);
+    this.descartarAntigas(agora);
     this.termometro?.registrarDerivacao(agora, esperaMs);
     this.estatisticas?.registrarDerivacao(agora, ramal, esperaMs);
   }
@@ -955,6 +962,11 @@ class RodizioService {
       this.log.aviso(`Callback (${callback.motivo}) com ${situacao}.`);
       return;
     }
+    // [NOVO] Com a taxa valendo, o callback já pesa pelo status (agressiva por 5 min): o ajuste não desce.
+    if (this.calculoDosRobos(ts)?.fonte === 'taxa') {
+      this.log.aviso(`Callback (${callback.motivo}) com ${situacao}. Robôs pela taxa real: o status da URA ajusta.`);
+      return;
+    }
     const baixou = this.ajuste.registrarCallback(callback, { manual: Date.now() < this.manualAte, situacao });
     if (baixou) this.avaliarRobos().catch((e) => this.log.erro(`Falha ao avaliar robôs após callback: ${e.message}`));
   }
@@ -983,6 +995,23 @@ class RodizioService {
     const { ligados, alvo } = this.robos.resumo();
     this.fotos.push({ ts: agora, robos: { ligados: ligados ?? null, alvo: alvo ?? null }, ura });
     while (this.fotos.length && agora - this.fotos[0].ts > FOTOS_MS) this.fotos.shift();
+    this.amostrarRobos(agora, ligados ?? 0);
+  }
+
+  /** [NOVO] Quantos robôs estavam ligados agora (integra os robô-minutos da taxa). */
+  amostrarRobos(agora, ligados) {
+    this.amostrasRobos.push({ ts: agora, ligados });
+    this.descartarAntigas(agora);
+  }
+
+  descartarAntigas(agora) {
+    const desde = agora - this.janelaDaTaxa();
+    while (this.derivacoesRecentes.length && this.derivacoesRecentes[0] < desde) this.derivacoesRecentes.shift();
+    while (this.amostrasRobos.length && this.amostrasRobos[0].ts < desde) this.amostrasRobos.shift();
+  }
+
+  janelaDaTaxa() {
+    return (this.cfg.robosTaxa ?? CALCULO_PADRAO).janelaMs;
   }
 
   /** Houve robô ligado em alguma foto de `janelaMs` para cá? (o vigia de callbacks só lê nesse caso) */
@@ -1016,6 +1045,7 @@ class RodizioService {
     // rajada quando chegasse o segundo livre.
     // Em DRY_RUN os robôs não discam de verdade: sem derivação, a URA sempre pareceria passiva.
     if (!this.ajuste || this.cfg.dryRun || !(this.ultimosLivres > 1) || agora < this.manualAte || this.ultimoLivreSaindo()) return;
+    if (this.calculoDosRobos(agora)?.fonte === 'taxa') return; // [NOVO] a taxa já mede a URA passiva
     const { ligados, alvo } = this.robos.resumo();
     if (!ligados || ligados < alvo) return;
     const semDerivacaoMs = agora - this.ultimoAtendimentoUraEm;
@@ -1149,14 +1179,49 @@ class RodizioService {
   }
 
   /**
-   * [NOVO] Robôs por livre que valem no modo automático: o de agora (ajuste) vezes o peso do
-   * status da URA (calma = ROBOS_FATOR_CALMA, agressiva = ROBOS_FATOR_AGRESSIVA). Pelo menos 1.
+   * [NOVO] Robôs por livre que valem no modo automático:
+   *  - escolhido à mão hoje (painel): esse;
+   *  - ROBOS_CALCULO=taxa com dados dos últimos 30 min: a taxa real de derivação, pela meta do status;
+   *  - senão (medindo ou ROBOS_CALCULO=fixo): o de agora (ajuste) vezes o peso do status da URA
+   *    (calma = ROBOS_FATOR_CALMA, agressiva = ROBOS_FATOR_AGRESSIVA). Pelo menos 1.
    */
   porLivreComStatus(agora = Date.now()) {
+    const calculo = this.calculoDosRobos(agora);
+    if (calculo?.fonte === 'taxa') return calculo.porLivre;
     const base = this.porLivreAgora(agora);
+    if (calculo?.fonte === 'manual') return base;
     const status = this.statusAtualDaUra();
     const fator = status === 'calma' ? (this.cfg.robosFatorCalma ?? 1) : status === 'agressiva' ? (this.cfg.robosFatorAgressiva ?? 1) : 1;
     return Math.max(1, Math.round(base * fator));
+  }
+
+  /** [NOVO] Teto com 1 livre: o do status na conta pela taxa; ROBOS_MAX_COM_1_LIVRE no fixo. */
+  maxComUmLivreAgora(agora = Date.now()) {
+    return this.calculoDosRobos(agora)?.max ?? this.cfg.robosMaxComUmLivre;
+  }
+
+  /** O "por livre" foi escolhido à mão no painel hoje? (vale até virar o dia) */
+  ajustadoAMaoHoje(agora) {
+    const em = this.ajuste?.ajustadoAMaoEm;
+    if (!(em > 0)) return false;
+    const fuso = this.cfg.fusoHorario ?? 'America/Sao_Paulo';
+    return dataLocal(fuso, new Date(em)) === dataLocal(fuso, new Date(agora));
+  }
+
+  /**
+   * [NOVO] A conta dos robôs pela taxa real (null com ROBOS_CALCULO=fixo).
+   * fonte: 'taxa' (vale), 'medindo' (poucos dados: conta de antes) ou 'manual' (escolhido à mão hoje).
+   */
+  calculoDosRobos(agora = Date.now()) {
+    if (this.cfg.robosCalculo !== 'taxa') return null;
+    const cfg = this.cfg.robosTaxa ?? CALCULO_PADRAO;
+    const desde = agora - cfg.janelaMs;
+    const derivacoes = this.derivacoesRecentes.filter((t) => t >= desde && t <= agora).length;
+    const minutos = roboMinutos(this.amostrasRobos.filter((a) => a.ts >= desde && a.ts <= agora));
+    const status = this.statusAtualDaUra() ?? 'medindo';
+    const conta = robosPorLivrePelaTaxa({ derivacoes, roboMinutos: minutos, status, cfg });
+    const fonte = this.ajustadoAMaoHoje(agora) ? 'manual' : conta.fonte;
+    return { ...conta, fonte, status, derivacoes30: derivacoes, roboMinutos30: minutos };
   }
 
   /** Robôs por livre agora (ajustado pelos callbacks, pela URA passiva ou à mão). */
@@ -1361,7 +1426,9 @@ class RodizioService {
         porLivre: this.porLivreAgora(),
         // [NOVO] o que vale no automático, com o peso do status da URA
         porLivreComStatus: this.porLivreComStatus(),
-        maxComUmLivre: this.cfg.robosMaxComUmLivre || null,
+        maxComUmLivre: this.maxComUmLivreAgora() || null,
+        // [NOVO] a conta pela taxa real (null com ROBOS_CALCULO=fixo)
+        calculo: this.calculoDosRobos(),
         modo: this.modoDosRobos(),
         // [NOVO] quem escolheu o modo no painel (sem escolha: o ROBOS_MODO do .env)
         modoDesde: this.modoRobos?.resumo().desde ?? null,

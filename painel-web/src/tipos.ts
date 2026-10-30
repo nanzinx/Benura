@@ -95,6 +95,23 @@ export interface StatusUra {
   automatico: Termometro | null;
 }
 
+/** [NOVO] Robôs por livre pela taxa real de derivação (últimos 30 min), pela meta do status da URA. */
+export interface CalculoRobos {
+  fonte: 'taxa' | 'medindo' | 'manual';
+  status: string;
+  esperaAlvoS: number;
+  min: number;
+  max: number;
+  /** derivações por robô ligado por minuto */
+  taxa: number | null;
+  /** a conta antes do piso e do teto */
+  bruto: number | null;
+  porLivre: number | null;
+  limitadoPor: 'piso' | 'teto' | null;
+  derivacoes30: number;
+  roboMinutos30: number;
+}
+
 export interface SaudeRodizio {
   lastLoopUra?: string;
   uptime?: number;
@@ -108,6 +125,10 @@ export interface SaudeRodizio {
     /** [NOVO] modo escolhido no painel (sem escolha: o ROBOS_MODO do .env) */
     modo?: ModoRobos; modoDesde?: string | null; modoPor?: string | null;
     porLivre?: number; porLivreComStatus?: number;
+    /** [NOVO] teto com 1 livre (o do status, na conta pela taxa) */
+    maxComUmLivre?: number | null;
+    /** [NOVO] a conta pela taxa real (null com ROBOS_CALCULO=fixo) */
+    calculo?: CalculoRobos | null;
   };
   uraCheia?: { ligada: boolean; desde: string | null };
   panico?: Interruptor & {

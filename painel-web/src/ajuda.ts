@@ -31,6 +31,18 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     ],
   },
   {
+    id: 'robos-automatico',
+    titulo: 'Robôs no automático (quantos por livre)',
+    onde: 'Aba URA e robôs → Rodízio dos robôs',
+    itens: [
+      'O BenURA mede quantas derivações cada robô ligado gera por minuto nos últimos 30 min e liga robôs para cada livre receber uma ligação dentro da espera alvo do status da URA.',
+      'Espera alvo: calma 45 s, normal 90 s, agressiva 120 s. Quanto menor a espera alvo, mais robôs por livre. A agressiva liga menos para não gerar callback.',
+      'Cada status tem um piso e um teto de robôs por livre: calma de 6 a 15, normal de 4 a 10, agressiva de 2 a 6. Com 1 livre só, vale o teto do status.',
+      'No começo do dia, com poucas derivações, aparece "medindo a taxa": até lá vale o ajuste do dia.',
+      'O cartão "Rodízio dos robôs" mostra a conta. "Robôs por livre" escolhido à mão vale até virar o dia.',
+    ],
+  },
+  {
     id: 'ura-cheia',
     titulo: 'URA cheia',
     onde: 'Aba URA e robôs → "Ligar a URA cheia"',

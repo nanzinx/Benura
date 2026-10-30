@@ -100,6 +100,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       OFFLINE_VOLTA_APOS_MS: '0',
       ROBOS_PASSIVA_APOS_MIN: '60', // os cenários de URA passiva ligam a sua
       ROBOS_MAX_COM_1_LIVRE: '0', // o cenário de 1 livre liga o seu
+      ROBOS_CALCULO: 'fixo', // [NOVO] contagens exatas; o cenário da taxa liga a sua
       CALLBACKS_VERIFICAR_SEG: '0', // o cenário do vigia de callbacks liga o seu
       ROBOS_MODO: 'automatico', // os cenários do modo pânico ligam o seu
       PERFIS_VIGIA_SEG: '0', // o cenário de cliente de risco liga o seu
@@ -540,6 +541,22 @@ const CENARIOS = {
     if (health.ajusteRobos.porLivre !== 5) throw new Error(`por livre mudou: ${health.ajusteRobos.porLivre}`);
     if (r.saida.join('').includes('URA passiva (')) throw new Error('subiu por passividade com 1 livre');
     if (health.robos.maxComUmLivre !== 3) throw new Error('o /health não mostra o teto com 1 livre');
+  },
+
+  async 'Robôs pela taxa: com 1 livre o teto é o do status da URA (agressiva 6, calma mais que 6)'(r) {
+    const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
+    const status = (s) => fetch(`${r.base}/ura/status`, {
+      method: 'PUT', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s, modo: 'manual', por: 'cenário' }),
+    });
+    if ((await status('agressiva')).status !== 200) throw new Error('não fixou a agressiva');
+    await aguardar(() => ligados().length === 6, { descricao: 'agressiva com 1 livre: teto 6' });
+    if ((await status('calma')).status !== 200) throw new Error('não fixou a calma');
+    await aguardar(() => ligados().length === 8, { descricao: 'calma com 1 livre: 8 por livre, teto 15 (não o 6 do .env)' });
+    const { robos } = await (await fetch(`${r.base}/health`)).json();
+    if (robos.maxComUmLivre !== 15) throw new Error(`teto com 1 livre: ${robos.maxComUmLivre}`);
+    if (robos.calculo?.fonte !== 'medindo' || robos.calculo.status !== 'calma' || robos.calculo.esperaAlvoS !== 45) {
+      throw new Error(`calculo: ${JSON.stringify(robos.calculo)}`);
+    }
   },
 
   async 'Vigia de callbacks: callback no relatório da Argus (sem webhook) → raio-x em callbacks.txt e ajuste desce'(r) {
@@ -1076,6 +1093,16 @@ const VARIACOES = {
     env: {
       ROBOS_POR_LIVRE: '5', ROBOS_MAX_COM_1_LIVRE: '3', ROBOS_PASSIVA_APOS_MIN: '0.03', ROBOS_DEGRAU: '10', TEMPO_MIN: '5',
     },
+  },
+  'Robôs pela taxa: com 1 livre o teto é o do status da URA (agressiva 6, calma mais que 6)': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200'] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ROBOS_10 },
+    ],
+    status: { 100: 'em atendimento', 200: 'livre', ...Object.fromEntries(ROBOS_10.map((x) => [x, 'livre'])) },
+    // No começo do dia a taxa ainda é medida: vale o ROBOS_POR_LIVRE, com o teto do status.
+    env: { ROBOS_CALCULO: 'taxa', ROBOS_POR_LIVRE: '8', ROBOS_MAX_COM_1_LIVRE: '6', ROBOS_DEGRAU: '10', TEMPO_MIN: '5' },
   },
   'Robôs: redução parcial não derruba robô em ligação; ele sai quando a ligação termina': {
     grupos: [

@@ -322,18 +322,35 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
    - **Ordem fixa, como à mão:** liga em ordem crescente: `OPER VIRTUAL 0/1, 2, 3…` pelo número do nome e, por último, os **DTMF**, também pelo número.
      - Ao reduzir, tira **do último para o primeiro** (DTMF primeiro, depois 32, 31…), pulando quem está em ligação. Os primeiros da lista ficam sempre ligados.
      - Os nomes vêm do `statusoperador`; robô sem nome lido entra pela ordem do ramal.
-   - **O status da URA pesa** (termômetro ou o escolhido no painel), sobre o "por livre" do momento:
+   - **[NOVO] Robôs por livre pela taxa real** (`ROBOS_CALCULO=taxa`, padrão): o BenURA mede quantas derivações cada robô ligado gera por minuto nos **últimos 30 min** (derivações ÷ robô-minutos ligados) e liga os robôs para cada livre receber uma derivação dentro da **espera alvo do status da URA**:
+     - robôs por livre = ⌈ (60 ÷ espera alvo) ÷ taxa ⌉, preso entre o piso e o teto do status;
+     - padrões (todos trocáveis no `.env`):
+
+       | Status | Espera alvo (`ROBOS_ESPERA_ALVO_*_S`) | Piso (`ROBOS_POR_LIVRE_MIN_*`) | Teto (`ROBOS_POR_LIVRE_MAX_*`) |
+       | --- | --- | --- | --- |
+       | calma | 45 s | 6 | 15 |
+       | normal (e medindo) | 90 s | 4 | 10 |
+       | agressiva | 120 s | 2 | 6 |
+
+     - **com 1 livre** vale o teto do status (no lugar do `ROBOS_MAX_COM_1_LIVRE`): na calma, até 15;
+     - exemplo: 0,1 derivação por robô por minuto na calma → ⌈1,33 ÷ 0,1⌉ = 14 por livre; no normal, 7; na agressiva, 5;
+     - **medindo** (menos de 5 derivações ou 30 robô-minutos na janela, como no começo do dia): vale a conta de antes (abaixo), com o teto do status;
+     - com a taxa valendo, o callback e a URA passiva não mexem no ajuste do dia: o callback já deixa a URA agressiva, e a passividade aparece na taxa;
+     - **à mão** (`POST /robos/por-livre` ou página `/ura`): vale por cima da conta até virar o dia;
+     - o `/health` mostra `robos.calculo: { fonte, status, taxa, derivacoes30, roboMinutos30, esperaAlvoS, porLivre, bruto, min, max, limitadoPor }`, e o painel mostra a conta no cartão "Rodízio dos robôs";
+     - `ROBOS_CALCULO=fixo` volta tudo como era antes desta versão.
+   - **O status da URA pesa** (termômetro ou o escolhido no painel), sobre o "por livre" do momento (com `ROBOS_CALCULO=fixo` ou enquanto a taxa é medida):
      - **calma** (livres esperando muito): × `ROBOS_FATOR_CALMA` (**1,3**), ou seja, 7 → 9 por livre;
      - **agressiva** (cliente esperando): × `ROBOS_FATOR_AGRESSIVA` (**0,7**), ou seja, 7 → 5;
      - **normal**: sem peso.
      - Nunca fica abaixo de 1. O `/health` mostra `robos.porLivreComStatus`.
-   - **Com 1 livre só**, no máximo `ROBOS_MAX_COM_1_LIVRE` (**6**) robôs, seja qual for o "por livre" do momento: dois clientes pedindo humano juntos com um livre só viram callback. `0` = sem esse teto.
+   - **Com 1 livre só** (com `ROBOS_CALCULO=fixo`), no máximo `ROBOS_MAX_COM_1_LIVRE` (**6**) robôs, seja qual for o "por livre" do momento: dois clientes pedindo humano juntos com um livre só viram callback. `0` = sem esse teto.
    - **Ninguém livre** → todos desligados **na hora**. **Com gente livre**, a redução só acontece se a queda de livres durar `ROBOS_REDUZIR_APOS_MS` (**10 s**), para não reagir a cada piscada de status, e desliga **só os robôs que não estão em ligação**: derrubar um robô falando corta o cliente e vira callback. Os que estão em ligação saem nos ciclos seguintes, quando a ligação termina (o log mostra "N em ligação mantidos até terminar").
    - **Aumentar** espera `MIN_ROBOS_OFF_MS` (padrão **15 s**) desde a última redução e sobe **em degraus**: no máximo `ROBOS_DEGRAU` (**7**) robôs a cada `ROBOS_SUBIDA_INTERVALO_MS` (**10 s**). Religar todos de uma vez faz todos discarem juntos, as derivações chegam juntas e o excedente vira callback.
    - A URA é lida a cada `POLL_URA_MS` (**5 s**). Com **1 a `LIVRES_ALERTA` (2) livres** ela entra **em alerta** e passa a ser lida a cada `POLL_URA_ALERTA_MS` (**1 s**): o próximo atendimento pode zerar os livres com robôs ligados.
    - Robô que liga ou desliga **sem comando do BenURA** (outra cópia, script antigo, painel) gera um aviso no log e conta em `/health` (`robos.mudancasPorFora`).
    - **Modo manual**: `POST /robos/manual` `{ "minutos": 30 }` (com token) faz o BenURA parar de mexer nos robôs para a supervisão assumir pelo painel; `POST /robos/automatico` devolve.
-   - **Robôs por livre se ajustam ao dia** (`ROBOS_AJUSTE_CALLBACK=1`, padrão): o `ROBOS_POR_LIVRE` (7) é o ponto de partida.
+   - **Robôs por livre se ajustam ao dia** (`ROBOS_AJUSTE_CALLBACK=1`, padrão; com a taxa valendo, só enquanto ela é medida): o `ROBOS_POR_LIVRE` (7) é o ponto de partida.
      - **URA passiva**: fora do `DRY_RUN` (nele os robôs não discam de verdade, então nunca há derivação) e com **2 ou mais** livres (com 1, manda o teto acima), os robôs já todos no alvo e ninguém da URA atendendo há `ROBOS_PASSIVA_APOS_MIN` (**2 min**), sobe `ROBOS_AJUSTE_DEGRAU` (**2**) robôs por livre, no máximo um degrau a cada esse tempo, até `ROBOS_POR_LIVRE_MAXIMO` (**15**). Log: `URA passiva (2 min sem derivação com 2 livre(s) e 14 robô(s)): robôs por livre 7→9.`
      - **Callback**: desce o mesmo degrau, até `ROBOS_POR_LIVRE_MINIMO` (**4**), no máximo um a cada `ROBOS_AJUSTE_INTERVALO_S` (**60 s**); o mesmo callback conta uma vez; no modo manual dos robôs não ajusta. O BenURA fica sabendo do callback de dois jeitos: pelo **relatório de ligações da Argus** (vigia de callbacks, abaixo, sem configurar nada) e pelo webhook **encerramento de URA, tipo 5** ("abandonou a fila" ou "time-out na fila"), se estiver configurado na Argus (`POST /webhook?token=…`). Os dois usam o `idLigacao`: não conta em dobro. O log traz a situação no instante: `Callback (abandonou a fila) com 1 livre(s) na URA e 7 robô(s) ligado(s) | livres: …: robôs por livre 7→5.`
      - Abaixo do `ROBOS_POR_LIVRE`, sem callback por `ROBOS_RECUPERAR_APOS_MIN` (**15 min**), sobe 1 de volta.
