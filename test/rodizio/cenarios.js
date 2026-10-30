@@ -101,6 +101,7 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ROBOS_PASSIVA_APOS_MIN: '60', // os cenários de URA passiva ligam a sua
       ROBOS_MAX_COM_1_LIVRE: '0', // o cenário de 1 livre liga o seu
       ROBOS_CALCULO: 'fixo', // [NOVO] contagens exatas; o cenário da taxa liga a sua
+      URA_CALMA_LIMITAR_LIVRES: '0', // [NOVO] o cenário da calma liga a sua
       CALLBACKS_VERIFICAR_SEG: '0', // o cenário do vigia de callbacks liga o seu
       ROBOS_MODO: 'automatico', // os cenários do modo pânico ligam o seu
       PERFIS_VIGIA_SEG: '0', // o cenário de cliente de risco liga o seu
@@ -212,6 +213,28 @@ const CENARIOS = {
     await esperar(1500);
     if (r.transferencias().some((t) => t.startsWith('100→'))) throw new Error('100 não é fixo e subiu sem a lista do dia');
     if (!r.saida.join('').includes('Sem a lista de elegíveis do dia')) throw new Error('não avisou que está sem a lista');
+  },
+
+  async 'URA calma: sobem os 4 mais antigos livres do Ativo; quem volta pelo ocioso dá a vez ao próximo'(r) {
+    const subiu = (ramal) => r.transferencias().includes(`${ramal}→2`);
+    const voltou = (ramal) => r.transferencias().includes(`${ramal}→1`);
+    await esperar(1500);
+    if (r.transferencias().length) throw new Error(`subiu antes da calma: ${r.transferencias()}`);
+    const resp = await fetch(`${r.base}/ura/status`, {
+      method: 'PUT', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'calma', modo: 'manual', por: 'cenário' }),
+    });
+    if (resp.status !== 200) throw new Error('não fixou a calma');
+    await aguardar(() => ['100', '101', '102', '103'].every(subiu), { descricao: 'calma: sobem 100, 101, 102 e 103 (os mais antigos)' });
+    await esperar(1500);
+    if (['104', '105', '106', '107'].some(subiu)) throw new Error(`subiu mais que 4: ${r.transferencias()}`);
+    const { calmaLivres } = await (await fetch(`${r.base}/health`)).json();
+    if (!calmaLivres?.ativa || calmaLivres.min !== 4 || calmaLivres.max !== 6) throw new Error(`/health: ${JSON.stringify(calmaLivres)}`);
+
+    // Ocioso há TEMPO_MIN (6 s): voltam ao Ativo e sobem os próximos da fila (104…), não eles de novo.
+    await aguardar(() => voltou('100'), { timeoutMs: 15_000, descricao: '100 ocioso → Ativo' });
+    await aguardar(() => subiu('104'), { timeoutMs: 8000, descricao: 'sobe o próximo da fila (104)' });
+    const idas100 = r.transferencias().filter((t) => t === '100→2').length;
+    if (idas100 !== 1) throw new Error('quem voltou pelo ocioso subiu de novo sem atender no Ativo');
   },
 
   async 'URA cheia: ninguém sobe só por estar no Ativo; quem atender sobe mesmo sem ser elegível; a regra do ocioso vale'(r) {
@@ -1132,6 +1155,15 @@ const VARIACOES = {
     ],
     status: { 100: 'livre', 200: 'livre', 201: 'livre', 202: 'livre' }, // robôs começam desligados
     env: { ROBOS_POR_LIVRE: '2', ROBOS_DEGRAU: '2' },
+  },
+  'URA calma: sobem os 4 mais antigos livres do Ativo; quem volta pelo ocioso dá a vez ao próximo': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100', '101', '102', '103', '104', '105', '106', '107'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: [] },
+      { idGrupoUsuario: 3, idTipoGrupo: 3, ramaisOperadores: ['900', '901'] },
+    ],
+    status: { ...Object.fromEntries(['100', '101', '102', '103', '104', '105', '106', '107'].map((x) => [x, 'livre'])), 900: 'livre', 901: 'livre' },
+    env: { URA_CALMA_LIMITAR_LIVRES: '1' },
   },
   'URA cheia: ninguém sobe só por estar no Ativo; quem atender sobe mesmo sem ser elegível; a regra do ocioso vale': {
     env: { RODIZIO_SO_ELEGIVEIS: '1' },
