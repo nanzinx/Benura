@@ -362,3 +362,6 @@ export interface RespostaInterruptor extends Interruptor { mudou?: boolean }
 export interface OpcaoEmUso { nome: string; valor: string; padrao: string; doEnv: boolean }
 export interface AvisoDeConfiguracao { nivel: 'fatal' | 'aviso'; texto: string; servicos: string[] }
 export interface ConfiguracaoEmUso { lidaEm: string; opcoes: OpcaoEmUso[]; avisos: AvisoDeConfiguracao[] }
+
+/** [NOVO] Cliente do webhook de transferências (GET /api/webhooks/clientes; sem o segredo). */
+export interface ClienteWebhook { id: string; nome: string | null; url: string; criadoEm: string; ultimoEnvio?: string | null; ultimoErro?: string | null }

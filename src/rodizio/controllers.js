@@ -19,7 +19,7 @@ const { AcaoRecusada } = require('./acoes-operador');
  * @param {import('./acoes-operador').AcoesOperador} [deps.acoes] - [NOVO] ações por atendente (aba Receptivo)
  * @param {object} deps.logger
  */
-function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null, ciclos, logger }) {
+function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null, ciclos, logger, webhooksClientes = null }) {
   async function health() {
     return {
       status: 200,
@@ -212,8 +212,43 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     return { status: 200, corpo: { ...risco.desligaRobos.resumo(), mudou } };
   };
 
+  /**
+   * [NOVO] Webhook de transferências para clientes (docs/webhook-clientes.md): o cliente se
+   * cadastra com a URL dele e recebe { codigo, nome, mensagem } a cada transferência URA ↔ Ativo.
+   */
+  const comClientes = (fn) => async (args) => {
+    if (!webhooksClientes) return { status: 404, corpo: { erro: 'webhook de transferências indisponível' } };
+    return fn(args);
+  };
+  const idDoPedido = (req, corpo) => String(corpo?.id ?? new URL(req?.url ?? '/', 'http://x').searchParams.get('id') ?? '');
+  const cadastrarCliente = comClientes(async ({ corpo }) => {
+    try {
+      const c = await webhooksClientes.assinaturas.cadastrar({ url: corpo?.url, nome: corpo?.nome });
+      return { status: 201, corpo: { id: c.id, nome: c.nome, url: c.url, criadoEm: c.criadoEm, segredo: c.segredo } };
+    } catch (e) {
+      return { status: 400, corpo: { erro: e.message } };
+    }
+  });
+  const listarClientes = comClientes(async () => {
+    const situacao = webhooksClientes.aviso.situacao();
+    return { status: 200, corpo: { clientes: webhooksClientes.assinaturas.listar().map((c) => ({ ...c, ...situacao[c.id] })) } };
+  });
+  const removerCliente = comClientes(async ({ req, corpo }) => {
+    const removido = await webhooksClientes.assinaturas.remover(idDoPedido(req, corpo));
+    return removido ? { status: 200, corpo: { removido: true } } : { status: 404, corpo: { erro: 'cliente não encontrado' } };
+  });
+  const testarCliente = comClientes(async ({ req, corpo }) => {
+    const r = await webhooksClientes.aviso.testar(idDoPedido(req, corpo));
+    return { status: r.ok ? 200 : r.erro === 'Cliente não encontrado.' ? 404 : 502, corpo: r };
+  });
+
   return [
     { metodo: 'GET', caminho: '/health', handler: health },
+    { metodo: 'POST', caminho: '/webhooks/clientes', handler: cadastrarCliente, protegida: true },
+    { metodo: 'GET', caminho: '/webhooks/clientes', handler: listarClientes, protegida: true },
+    { metodo: 'DELETE', caminho: '/webhooks/clientes', handler: removerCliente, protegida: true },
+    { metodo: 'POST', caminho: '/webhooks/clientes/remover', handler: removerCliente, protegida: true },
+    { metodo: 'POST', caminho: '/webhooks/clientes/testar', handler: testarCliente, protegida: true },
     { metodo: 'GET', caminho: '/alertas', handler: alertas },
     { metodo: 'GET', caminho: '/perfis/risco', handler: perfisDeRisco },
     { metodo: 'POST', caminho: '/risco/desligar', handler: definirDesligaRobos(true), protegida: true },

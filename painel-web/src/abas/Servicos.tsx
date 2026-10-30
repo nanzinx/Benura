@@ -11,6 +11,7 @@ import { Cartao, Esqueleto, Segmentado, Selo, Vazio } from '../ui/base';
 import { GerenciarUsuarios } from '../componentes/Usuarios';
 import { ConfiguracaoEmUso } from '../componentes/ConfiguracaoEmUso';
 import { AvisosBenhub } from '../componentes/AvisosBenhub';
+import { ClientesWebhook } from '../componentes/ClientesWebhook';
 import { CartaoDoisPcs } from '../componentes/DoisPcs';
 import { semAcesso, usePode } from '../sessao';
 
@@ -198,6 +199,7 @@ export function Servicos() {
       {v ? <Cartoes v={v} /> : <Esqueleto className="mb-5 h-32 w-full" />}
       {admin && <GerenciarUsuarios />}
       {admin && v && <AvisosBenhub v={v} />}
+      {admin && <ClientesWebhook />}
       {admin && <ConfiguracaoEmUso />}
       {v && <Simulacao v={v} />}
       <Avisos />

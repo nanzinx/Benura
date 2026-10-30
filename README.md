@@ -530,6 +530,12 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 - Não avisam: o atualizador, a automação desligada ou mudando de estado, e o PC que não está agindo de verdade (o reserva ou a simulação). Assim os dois PCs não avisam em dobro.
 - **Testar envio** manda um aviso de teste e diz se chegou. A URL e o token não aparecem no painel nem nos logs.
 
+**[NOVO] Webhook de transferências para clientes:** um sistema cliente se cadastra por API e recebe `{ "codigo", "nome", "mensagem" }` a cada operador transferido entre a URA e o Ativo. O `codigo` é o `idUsuario` da Argus. O contrato completo, para passar ao cliente, está em [`docs/webhook-clientes.md`](docs/webhook-clientes.md).
+- O cadastro é feito no rodízio, porta 3000, com o `WEBHOOK_TOKEN`. Fica em `WEBHOOKS_CLIENTES_FILE` (`state-webhooks-clientes.json`), que o roteador também lê.
+- Avisam o rodízio (ocioso, URA cheia, todos no Ativo, retomar, movimentos à mão) e o roteador (venda, distribuição da manhã, fixos). Só transferências de verdade avisam: o DRY_RUN não avisa.
+- Cada aviso leva o cabeçalho `X-BenURA-Assinatura` (HMAC-SHA256 com o segredo do cadastro). O envio não segura a transferência: são 2 tentativas, 5 s de limite cada, e a falha vai para o log sem a URL.
+- No painel, o cartão "Clientes do webhook de transferências" (aba Serviços, só administrador) mostra os cadastrados, o último envio ou erro, e tem os botões Testar e Remover.
+
 **Modo simulação (aba Serviços):** liga ou desliga o DRY_RUN sem editar o `.env`. Simulação ligada: o BenURA continua lendo a Argus e mostrando o que faria, mas não move ninguém nem mexe nos robôs.
 - **Como vale:** a escolha fica em `SIMULACAO_FILE` (`state-simulacao.json`) e os três serviços reiniciam em seguida (`npx pm2 startOrRestart`), porque o DRY_RUN é lido quando cada um sobe.
 - **Selo "Simulação":** fica no topo enquanto ela estiver ligada; clicar nele leva ao cartão.

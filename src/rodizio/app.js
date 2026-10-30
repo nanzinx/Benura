@@ -17,6 +17,8 @@ const { vigiarPosse } = require('../utils/posse');
 const { registrarDesligamento, fecharServidor, escutar } = require('../utils/ciclo-de-vida');
 const { EstadoRodizioRepository } = require('./estado-rodizio.repository');
 const { Transferencias } = require('./transferencias');
+const { Assinaturas } = require('../webhooks-clientes/assinaturas');
+const { AvisoTransferencias } = require('../webhooks-clientes/avisar-transferencia');
 const { ControleRobos } = require('./controle-robos');
 const { RodizioService } = require('./rodizio.service');
 const { ElegiveisUra } = require('./elegiveis-ura');
@@ -54,6 +56,12 @@ const configDoRodizio = (cfg) => ({
   fixosPermanentesUra: cfg.regras.fixosPermanentesUra,
 });
 
+/** [NOVO] Clientes do webhook de transferências e quem avisa (o mesmo módulo do roteador). */
+function montarWebhooksClientes(cfg, diretorio, log) {
+  const assinaturas = new Assinaturas({ arquivo: cfg.webhooksClientes.arquivo, logger: log.filho('webhooks') });
+  return { assinaturas, aviso: new AvisoTransferencias({ assinaturas, diretorio, logger: log.filho('webhooks') }) };
+}
+
 /** Monta as dependências (sem efeitos colaterais: nada é iniciado aqui). */
 function montarRodizio(overrides) {
   const cfg = carregarConfig(overrides);
@@ -64,9 +72,13 @@ function montarRodizio(overrides) {
   const diretorio = new DiretorioOperadores({
     client, cfg: cfg.argus, arquivoSupervisoresGrupos: cfg.arquivoSupervisoresGrupos, logger: log.filho('diretorio'),
   });
+  // [NOVO] Webhook de transferências: cada operador movido entre URA e Ativo avisa os clientes cadastrados.
+  const webhooksClientes = montarWebhooksClientes(cfg, diretorio, log);
   const rodizio = new RodizioService({
     client,
-    transferencias: new Transferencias({ client, cfg: cfgRodizio, logger: log.filho('transferencias') }),
+    transferencias: new Transferencias({
+      client, cfg: cfgRodizio, logger: log.filho('transferencias'), aoTransferir: (t) => { webhooksClientes.aviso.avisar(t).catch((e) => log.aviso(`Webhook de transferências: ${e.message}`)); },
+    }),
     robos: new ControleRobos({ client, cfg: cfgRodizio, logger: log.filho('robos') }),
     repositorio: new EstadoRodizioRepository({ arquivo: cfgRodizio.arquivoEstado, logger: log.filho('estado') }),
     cfg: cfgRodizio,
@@ -103,7 +115,7 @@ function montarRodizio(overrides) {
     client, rodizio, cfg: cfgVigias, logger: log.filho('callbacks'), perfis: risco?.perfis ?? null,
   }) : null;
   const acoes = new AcoesOperador({ client, rodizio, cfg: { dryRun: cfg.argus.dryRun }, logger: log.filho('acoes') });
-  return { cfg, cfgRodizio, log, rodizio, retornoFila, vigia, risco, acoes };
+  return { cfg, cfgRodizio, log, rodizio, retornoFila, vigia, risco, acoes, webhooksClientes };
 }
 
 /** Perfis de clientes + vigia de cliente de risco em ligação + interruptor "desligar robôs". */
@@ -193,13 +205,14 @@ async function lerGruposIniciais(rodizio, log) {
   }
 }
 
-function montarServidor({ cfg, log, rodizio, retornoFila, risco, acoes }, ciclos) {
+function montarServidor({ cfg, log, rodizio, retornoFila, risco, acoes, webhooksClientes }, ciclos) {
   return criarServidor({
     rotas: criarRotasDoRodizio({
       rodizio,
       retornoFila,
       risco,
       acoes,
+      webhooksClientes,
       ciclos: { ultimoCicloUra: () => ciclos.ura.ultimaExecucao(), ultimoCicloAtivo: () => ciclos.ativo.ultimaExecucao() },
       logger: log,
     }),

@@ -18,6 +18,8 @@ const { ArgusClient } = require('./integrations/argus/argus.client');
 const { ArgusMockClient } = require('./integrations/argus/argus.mock-client');
 const { DiretorioOperadores } = require('./integrations/argus/diretorio-operadores.service');
 const { DiscadoraService } = require('./integrations/argus/discadora.service');
+const { Assinaturas } = require('./webhooks-clientes/assinaturas');
+const { AvisoTransferencias } = require('./webhooks-clientes/avisar-transferencia');
 const { EstadoRepository } = require('./repositories/estado.repository');
 const { CadastroRamaisRepository } = require('./repositories/cadastro-ramais.repository');
 const { RoteamentoService } = require('./services/roteamento.service');
@@ -46,12 +48,16 @@ function montarArgus(cfg, log) {
     logger: log.filho('diretorio'),
   });
 
+  // [NOVO] Webhook de transferências: o roteador também move gente (venda, distribuição da manhã).
+  const assinaturas = new Assinaturas({ arquivo: cfg.webhooksClientes.arquivo, logger: log.filho('webhooks') });
+  const avisoTransferencias = new AvisoTransferencias({ assinaturas, diretorio, logger: log.filho('webhooks') });
   const discadora = new DiscadoraService({
     client: argusClient,
     cfg: cfg.argus,
     diretorio,
     respeitarGruposExternos: cfg.regras.respeitarGruposExternos,
     logger: log.filho('discadora'),
+    aoTransferir: (t) => { avisoTransferencias.avisar(t).catch((e) => log.aviso(`Webhook de transferências: ${e.message}`)); },
   });
 
   return { argusClient, diretorio, discadora };
