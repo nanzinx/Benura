@@ -78,10 +78,12 @@ class RoteamentoService {
    * @param {object} deps.logger
    * @param {() => { ativa: boolean }} [deps.retencao] - [NOVO] "todos no Ativo" pelo painel: não sobe ninguém para a URA
    * @param {() => (ramal: string) => 'ativo'|'ura'|null} [deps.travas] - [NOVO] quem a supervisão travou à mão pelo painel
+   * @param {{ eh(ramal: string): boolean }} [deps.contasSupervisores] - [NOVO] contas de supervisores (não sobem)
    */
   constructor({ carrossel, discadora, repositorio, diretorio, relogio, regras, logger, retencao = () => ({ ativa: false }),
-    travas = () => () => null }) {
+    travas = () => () => null, contasSupervisores = null }) {
     this.retencao = retencao;
+    this.contasSupervisores = contasSupervisores;
     this.travas = travas;
     /** Ramais já avisados como retidos no Ativo (avisa uma vez por ramal). */
     this.retidosAvisados = new Set();
@@ -427,6 +429,10 @@ class RoteamentoService {
       return travadoEm === 'ativo'
         ? { resultado: 'RETIDO_NO_ATIVO', texto: 'fica no Ativo: travado à mão pelo painel até liberarem' }
         : { resultado: 'RETIDO_NA_URA', texto: 'fica na URA: travado à mão pelo painel até liberarem' };
+    }
+    // [NOVO] Conta operacional de supervisor: não sobe nem com venda, meta ou fixa (só travada à mão na URA).
+    if (registro.fila === Fila.URA && !travadoEm && this.contasSupervisores?.eh(ramal)) {
+      return { resultado: 'RETIDO_NO_ATIVO', texto: 'fica no Ativo: conta de supervisor não vai para a URA' };
     }
     if (registro.fila === Fila.URA && !registro.fixo && this.retencao().ativa) {
       return { resultado: 'RETIDO_NO_ATIVO', texto: 'fica no Ativo: rodízio pausado pelo painel até retomarem' };

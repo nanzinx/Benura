@@ -145,7 +145,7 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
       <div className="mt-3">
         <ComoFunciona>
           <p><b>Automático:</b> liga em ordem crescente (OPER VIRTUAL 0/1, 2, 3… e os DTMF no fim) e reduz do último para o primeiro, pulando quem está em ligação. Ficam ligados os robôs por livre × humanos livres na URA. Ninguém livre: desliga todos na hora.</p>
-          <p><b>Robôs por livre:</b> sai da taxa real dos últimos 30 min (derivações ÷ minutos de robô ligado) e da espera alvo do status da URA: calma 45 s, normal 90 s, agressiva 120 s. Cada status tem um piso e um teto (calma 6 a 15, normal 4 a 10, agressiva 2 a 6); com 1 livre vale o teto. No começo do dia, enquanto mede a taxa, vale o ajuste do dia. Escolher à mão vale até virar o dia.</p>
+          <p><b>Robôs por livre:</b> sai da taxa real dos últimos 30 min (derivações ÷ minutos de robô ligado) e da espera alvo do status da URA: calma 45 s, normal 90 s, agressiva 120 s. Cada status tem um piso e um teto (calma 20, normal 4 a 10, agressiva 2 a 6); com 1 livre vale o teto. Na calma com 2 livres ou mais, liga todos os robôs. No começo do dia, enquanto mede a taxa, vale o ajuste do dia. Escolher à mão vale até virar o dia.</p>
           <p><b>Só pânico:</b> como antes — quem liga é a supervisão, pela Argus; o BenURA só desliga nas regras do pânico (cartão abaixo).</p>
           <p><b>Desligados:</b> para quando os callbacks não param. Os parados desligam na hora, os em ligação ao terminar; se alguém ligar um robô pela Argus, o BenURA desliga de novo. O rodízio dos humanos, o roteador e as rotinas continuam.</p>
         </ComoFunciona>

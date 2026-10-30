@@ -17,6 +17,7 @@ const { EsteiraManualRepository } = require('./integrations/carrossel/esteira-ma
 const { ArgusClient } = require('./integrations/argus/argus.client');
 const { ArgusMockClient } = require('./integrations/argus/argus.mock-client');
 const { DiretorioOperadores } = require('./integrations/argus/diretorio-operadores.service');
+const { ContasDeSupervisores } = require('./domain/contas-supervisores');
 const { DiscadoraService } = require('./integrations/argus/discadora.service');
 const { Assinaturas } = require('./webhooks-clientes/assinaturas');
 const { AvisoTransferencias } = require('./webhooks-clientes/avisar-transferencia');
@@ -96,6 +97,8 @@ function criarApp(overrides) {
     // "Alocar Todos no Ativo" (painel): ninguém sobe para a URA até retomarem o rodízio.
     retencao: () => lerRetencao(cfg.automacao.arquivoRetencao),
     travas: () => lerTravas(cfg.automacao.arquivoTravas, cfg.agenda.fusoHorario),
+    // [NOVO] Contas operacionais de supervisores: não sobem para a URA.
+    contasSupervisores: new ContasDeSupervisores({ diretorio, cfg: cfg.regras.contasSupervisores, logger: log.filho('roteamento') }),
   });
 
   const agendador = new Agendador({ roteamento, agenda: cfg.agenda, logger: log.filho('agendador') });

@@ -15,6 +15,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'O roteador decide quem pode ir para a URA hoje: quem bateu a meta ontem, quem vende hoje e os fixos.',
       'O rodízio leva para a URA quem atendeu uma ligação no Ativo e ficou livre, e devolve ao Ativo quem ficou livre na URA por 2 minutos seguidos. O tempo livre é o "Tempo" da Argus.',
       'O BenURA não loga nem desloga humano: só troca de grupo. A telefonia troca quando a pessoa fica livre, com um pequeno atraso da discadora.',
+      'Conta de supervisor (ramal com o nome de um supervisor, como a da Ariel) não fica na URA: não sobe nem com venda ou fixo, e volta ao Ativo assim que não estiver em ligação. Só "Trazer para a URA" no painel a põe lá.',
     ],
   },
   {
@@ -37,7 +38,8 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       'O BenURA mede quantas derivações cada robô ligado gera por minuto nos últimos 30 min e liga robôs para cada livre receber uma ligação dentro da espera alvo do status da URA.',
       'Espera alvo: calma 45 s, normal 90 s, agressiva 120 s. Quanto menor a espera alvo, mais robôs por livre. A agressiva liga menos para não gerar callback.',
-      'Cada status tem um piso e um teto de robôs por livre: calma de 6 a 15, normal de 4 a 10, agressiva de 2 a 6. Com 1 livre só, vale o teto do status.',
+      'Cada status tem um piso e um teto de robôs por livre: calma 20, normal de 4 a 10, agressiva de 2 a 6. Com 1 livre só, vale o teto do status.',
+      'URA calma com 2 livres ou mais: todos os robôs ligados (potência máxima), subindo em degraus.',
       'No começo do dia, com poucas derivações, aparece "medindo a taxa": até lá vale o ajuste do dia.',
       'O cartão "Rodízio dos robôs" mostra a conta. "Robôs por livre" escolhido à mão vale até virar o dia.',
     ],

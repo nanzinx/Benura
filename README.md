@@ -90,6 +90,8 @@ npm run test:cenarios    # cenários do rodízio contra uma Argus falsa
      **Ficam na URA de vez** (`FIXOS_PERMANENTES_URA=true`, o padrão): a regra do ocioso não vale para eles. Deslogados seguem a regra normal. Com `FIXOS_PERMANENTES_URA=false`, seguem o rodízio como todos: ociosos por `TEMPO_MIN` vão para o Ativo e voltam à URA quando atendem lá.
    - **Equipes fixas** (`EQUIPES_FIXAS_URA`, nomes de supervisores como na Argus, separados por vírgula): toda a equipe do supervisor é tratada como fixa. Ex.: `EQUIPES_FIXAS_URA=ROBSON JUNIOR` põe a equipe do Robson na URA todo dia. O ocioso volta ao grupo do supervisor; para garantir o grupo certo, coloque-o também no `supervisores-grupos.json` (ex.: `{ "ROBSON JUNIOR": 20 }`). Nome que não bater com um supervisor da Argus gera um aviso no log.
    - **Fora dos fixos** (`FORA_DOS_FIXOS_URA`, ramais ou nomes): quem saiu da equipe mas ainda aparece com o supervisor antigo na Argus. Quem entrou na equipe e ainda não foi trocado de supervisor na Argus vai em `OPERADORES_FIXOS_URA`. `npm run conferir:supervisores` lista os fixos com nome e ramal, para conferir.
+   - **[NOVO] Contas de supervisores não ficam na URA** (`CONTAS_SUPERVISORES_FORA_DA_URA=true`, o padrão): o ramal de operador de um supervisor (ex.: "Ariel Souza da Conceicao", cuja supervisora na Argus é a própria "Ariel Conceicao") não sobe para a URA, nem com venda, meta, fixo ou equipe fixa, nem na URA cheia. Se estiver na URA, o rodízio a devolve ao Ativo assim que não estiver em ligação (livre ou em pausa). Só a supervisão, com "Trazer para a URA" no painel, a põe na URA (fica até liberarem).
+     - Quem é: automático pelo nome (primeiro e último nome iguais aos de um supervisor da Argus), mais `CONTAS_SUPERVISORES_RAMAIS` e menos `CONTAS_SUPERVISORES_EXCETO` (ramais separados por vírgula). O `/health` do rodízio mostra `contasSupervisores`.
 2. **Gatilho**: quem está no Ativo e faz qualquer venda hoje sobe para a URA e fica lá até o fim do dia.
 3. **Reset**: no dia seguinte (no fuso `FUSO_HORARIO`) o ciclo recomeça.
 
@@ -326,15 +328,16 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
      - robôs por livre = ⌈ (60 ÷ espera alvo) ÷ taxa ⌉, preso entre o piso e o teto do status;
      - padrões (todos trocáveis no `.env`):
 
-       | Status | Espera alvo (`ROBOS_ESPERA_ALVO_*_S`) | Piso (`ROBOS_POR_LIVRE_MIN_*`) | Teto (`ROBOS_POR_LIVRE_MAX_*`) |
-       | --- | --- | --- | --- |
-       | calma | 45 s | 6 | 15 |
-       | normal (e medindo) | 90 s | 4 | 10 |
-       | agressiva | 120 s | 2 | 6 |
+       | Status | Espera alvo (`ROBOS_ESPERA_ALVO_*_S`) | Piso (`ROBOS_POR_LIVRE_MIN_*`) | Teto (`ROBOS_POR_LIVRE_MAX_*`) | Todos os robôs com (`ROBOS_TODOS_COM_LIVRES_*`) |
+       | --- | --- | --- | --- | --- |
+       | calma | 45 s | 20 | 20 | 2 livres |
+       | normal (e medindo) | 90 s | 4 | 10 | nunca (0) |
+       | agressiva | 120 s | 2 | 6 | nunca (0) |
 
-     - **com 1 livre** vale o teto do status (no lugar do `ROBOS_MAX_COM_1_LIVRE`): na calma, até 15;
-     - exemplo: 0,1 derivação por robô por minuto na calma → ⌈1,33 ÷ 0,1⌉ = 14 por livre; no normal, 7; na agressiva, 5;
-     - **medindo** (menos de 5 derivações ou 30 robô-minutos na janela, como no começo do dia): vale a conta de antes (abaixo), com o teto do status;
+     - **com 1 livre** vale o teto do status (no lugar do `ROBOS_MAX_COM_1_LIVRE`): na calma, 20;
+     - **URA calma com 2 livres ou mais**: todos os robôs (até `ROBOS_MAXIMO`), subindo em degraus;
+     - exemplo: 0,1 derivação por robô por minuto → no normal ⌈0,67 ÷ 0,1⌉ = 7 por livre; na agressiva, 5; na calma, o piso de 20;
+     - **medindo** (menos de 5 derivações ou 30 robô-minutos na janela, como no começo do dia): vale a conta de antes (abaixo), presa entre o piso e o teto do status;
      - com a taxa valendo, o callback e a URA passiva não mexem no ajuste do dia: o callback já deixa a URA agressiva, e a passividade aparece na taxa;
      - **à mão** (`POST /robos/por-livre` ou página `/ura`): vale por cima da conta até virar o dia;
      - o `/health` mostra `robos.calculo: { fonte, status, taxa, derivacoes30, roboMinutos30, esperaAlvoS, porLivre, bruto, min, max, limitadoPor }`, e o painel mostra a conta no cartão "Rodízio dos robôs";

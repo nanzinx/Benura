@@ -29,11 +29,12 @@ function encher(svc, { ligados = 10, minutos = 30, derivacoes = 30 } = {}) {
 }
 
 test('taxa valendo: por livre e teto com 1 livre saem do status da URA', () => {
-  for (const [status, porLivre, teto] of [['normal', 7, 10], ['calma', 14, 15], ['agressiva', 5, 6]]) {
+  for (const [status, porLivre, teto, todos] of [['normal', 7, 10, 0], ['calma', 20, 20, 2], ['agressiva', 5, 6, 0]]) {
     const svc = montar({ status });
     encher(svc); // 30 derivações em 300 robô-min = 0,1 por robô por min
     assert.equal(svc.porLivreComStatus(AGORA), porLivre, status);
     assert.equal(svc.maxComUmLivreAgora(AGORA), teto, status);
+    assert.equal(svc.todosComLivresAgora(AGORA), todos, status);
     const c = svc.calculoDosRobos(AGORA);
     assert.equal(c.fonte, 'taxa');
     assert.equal(c.derivacoes30, 30);
@@ -54,12 +55,15 @@ test('só os últimos 30 min contam: derivação e amostra mais velhas saem', ()
   assert.ok(svc.derivacoesRecentes.every((t) => t >= AGORA - 31 * MIN));
 });
 
-test('medindo (poucos dados): conta de antes, com o teto do status no lugar do 6 fixo', () => {
+test('medindo (poucos dados): conta de antes, presa entre o piso e o teto do status', () => {
   const svc = montar({ status: 'calma' });
   encher(svc, { derivacoes: 3 });
   assert.equal(svc.calculoDosRobos(AGORA).fonte, 'medindo');
-  assert.equal(svc.porLivreComStatus(AGORA), 9, '7 × 1,3');
-  assert.equal(svc.maxComUmLivreAgora(AGORA), 15);
+  assert.equal(svc.porLivreComStatus(AGORA), 20, '7 × 1,3 = 9, abaixo do piso 20 da calma');
+  assert.equal(svc.maxComUmLivreAgora(AGORA), 20);
+  assert.equal(svc.todosComLivresAgora(AGORA), 2);
+  svc.statusAtualDaUra = () => 'agressiva';
+  assert.equal(svc.porLivreComStatus(AGORA), 5, '7 × 0,7 = 5, dentro de 2 a 6');
 });
 
 test('ROBOS_CALCULO=fixo: tudo como antes', () => {
@@ -68,6 +72,7 @@ test('ROBOS_CALCULO=fixo: tudo como antes', () => {
   assert.equal(svc.calculoDosRobos(AGORA), null);
   assert.equal(svc.porLivreComStatus(AGORA), 9);
   assert.equal(svc.maxComUmLivreAgora(AGORA), 6);
+  assert.equal(svc.todosComLivresAgora(AGORA), 0);
 });
 
 test('"por livre" escolhido à mão hoje vale por cima da conta; o de ontem não', () => {
@@ -76,6 +81,7 @@ test('"por livre" escolhido à mão hoje vale por cima da conta; o de ontem não
   encher(svc);
   assert.equal(svc.porLivreComStatus(AGORA), 12);
   assert.equal(svc.calculoDosRobos(AGORA).fonte, 'manual');
+  assert.equal(svc.todosComLivresAgora(AGORA), 0, 'à mão, a supervisão manda');
   ajuste.ajustadoAMaoEm = AGORA - 24 * 60 * MIN;
   assert.equal(svc.porLivreComStatus(AGORA), 7);
 });
@@ -117,13 +123,13 @@ function config(env) {
 test('config: ROBOS_CALCULO=taxa por padrão, metas por status pelo .env, validadas', () => {
   const { cfg, fatais } = config({});
   assert.equal(cfg.rodizio.robosCalculo, 'taxa');
-  assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 45, min: 6, max: 15 });
-  assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.agressiva, { esperaS: 120, min: 2, max: 6 });
+  assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 45, min: 20, max: 20, todosComLivres: 2 });
+  assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.agressiva, { esperaS: 120, min: 2, max: 6, todosComLivres: 0 });
   assert.deepEqual(fatais, []);
 
-  const trocado = config({ ROBOS_CALCULO: 'FIXO', ROBOS_ESPERA_ALVO_CALMA_S: '30', ROBOS_POR_LIVRE_MAX_CALMA: '20' });
+  const trocado = config({ ROBOS_CALCULO: 'FIXO', ROBOS_ESPERA_ALVO_CALMA_S: '30', ROBOS_POR_LIVRE_MIN_CALMA: '15', ROBOS_POR_LIVRE_MAX_CALMA: '25', ROBOS_TODOS_COM_LIVRES_CALMA: '3' });
   assert.equal(trocado.cfg.rodizio.robosCalculo, 'fixo');
-  assert.deepEqual(trocado.cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 30, min: 6, max: 20 });
+  assert.deepEqual(trocado.cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 30, min: 15, max: 25, todosComLivres: 3 });
 
   const ruim = config({ ROBOS_POR_LIVRE_MIN_NORMAL: '12', ROBOS_ESPERA_ALVO_AGRESSIVA_S: '5' });
   assert.match(ruim.fatais.join(' | '), /ROBOS_POR_LIVRE_MIN_NORMAL.*ROBOS_POR_LIVRE_MAX_NORMAL/);

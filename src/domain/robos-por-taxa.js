@@ -16,9 +16,10 @@ const CALCULO_PADRAO = Object.freeze({
   minRoboMinutos: 30,
   janelaMs: 30 * 60_000,
   porStatus: Object.freeze({
-    agressiva: Object.freeze({ esperaS: 120, min: 2, max: 6 }),
-    normal: Object.freeze({ esperaS: 90, min: 4, max: 10 }),
-    calma: Object.freeze({ esperaS: 45, min: 6, max: 15 }),
+    agressiva: Object.freeze({ esperaS: 120, min: 2, max: 6, todosComLivres: 0 }),
+    normal: Object.freeze({ esperaS: 90, min: 4, max: 10, todosComLivres: 0 }),
+    // Calma: 20 por livre e, com 2 livres ou mais, todos os robôs (pedido da supervisão, 30/10).
+    calma: Object.freeze({ esperaS: 45, min: 20, max: 20, todosComLivres: 2 }),
   }),
 });
 
@@ -34,8 +35,8 @@ const metaDo = (status, cfg) => cfg.porStatus[status] ?? cfg.porStatus.normal;
  *            limitadoPor: 'piso'|'teto'|null, bruto: number|null }}
  */
 function robosPorLivrePelaTaxa({ derivacoes, roboMinutos: minutos, status, cfg = CALCULO_PADRAO }) {
-  const { esperaS, min, max } = metaDo(status, cfg);
-  const base = { esperaAlvoS: esperaS, min, max };
+  const { esperaS, min, max, todosComLivres = 0 } = metaDo(status, cfg);
+  const base = { esperaAlvoS: esperaS, min, max, todosComLivres };
   if (derivacoes < cfg.minDerivacoes || minutos < cfg.minRoboMinutos || !(minutos > 0)) {
     return { ...base, fonte: 'medindo', porLivre: null, taxa: minutos > 0 ? derivacoes / minutos : null, limitadoPor: null, bruto: null };
   }

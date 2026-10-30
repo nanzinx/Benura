@@ -90,11 +90,11 @@ class RodizioService {
   constructor({
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
     panico = null, fixos = null, termometro = null, statusDaUra = null, estatisticas = null, retencao = null, travas = null,
-    modoRobos = null,
+    modoRobos = null, contasSupervisores = null,
   }) {
     Object.assign(this, {
       client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, fixos,
-      termometro, statusDaUra, estatisticas, retencao, travas, modoRobos,
+      termometro, statusDaUra, estatisticas, retencao, travas, modoRobos, contasSupervisores,
     });
     if (this.robos) this.robos.modoAtual = () => this.modoDosRobos();
     /** Fixos na URA de vez (FIXOS_PERMANENTES_URA): a regra do ocioso não vale para eles. */
@@ -272,10 +272,19 @@ class RodizioService {
     if (this.retencao?.ativa) return;
     const cheia = this.emUraCheia();
     if (!cheia) await this.elegiveis?.atualizar();
+    await this.atualizarDiretorio(); // [NOVO] contas de supervisores (cache; Argus fora: segue sem)
     // [NOVO] Na URA cheia, qualquer um que atender no Ativo sobe (sem olhar elegíveis). Ninguém
     // sobe só por estar no Ativo: quem voltou por ocioso ou foi tirado à mão fica lá até atender.
     const alvos = porAntiguidade(this.operadoresDoAtivo().filter(({ ramal }) => cheia || this.podeIrParaUra(ramal)), (a) => a.ramal);
     await mapearComLimite(alvos, this.cfg.concorrencia, (alvo) => this.verificarOperadorDoAtivo(alvo));
+  }
+
+  async atualizarDiretorio() {
+    try {
+      await this.diretorio?.atualizar();
+    } catch (e) {
+      this.log.debug(`Diretório indisponível: ${e.message}`);
+    }
   }
 
   /** Quem está no Ativo e não está sendo mexido agora. */
@@ -283,7 +292,7 @@ class RodizioService {
     return this.gruposAtivos.flatMap((g) => (g.ramaisOperadores || [])
       .map((ramal) => ({ ramal: String(ramal), grupo: g.idGrupoUsuario })))
       .filter(({ ramal }) => !this.movidos[ramal] && !this.ramaisUra.has(ramal) && !this.emTransferencia.has(ramal)
-        && !this.alinhandoLogin.has(ramal) && this.travadoEm(ramal) !== 'ativo');
+        && !this.alinhandoLogin.has(ramal) && this.travadoEm(ramal) !== 'ativo' && !this.ehContaDeSupervisor(ramal));
   }
 
   /** Só quem é elegível (meta de ontem, venda hoje ou fixo) sobe; os demais nem são lidos. */
@@ -506,9 +515,18 @@ class RodizioService {
     });
   }
 
+  /** [NOVO] Conta operacional de supervisor (não fica na URA; contas-supervisores.js). */
+  ehContaDeSupervisor(ramal) {
+    return Boolean(this.contasSupervisores?.eh(ramal));
+  }
+
   deveDevolver(ramal, agora) {
     const info = this.statusUra.get(ramal);
     if (!info || this.emTransferencia.has(ramal)) return false;
+    // [NOVO] Conta de supervisor: sai assim que não estiver em ligação (nem fixa fica), a não ser posta à mão.
+    if (this.ehContaDeSupervisor(ramal) && this.travadoEm(ramal) !== 'ura') {
+      return info.classe === Classe.LIVRE || info.classe === Classe.OUTRO;
+    }
     // Fixos ficam na URA de vez: o ocioso não vale (deslogado segue a regra normal).
     if (this.permanentes.has(String(ramal)) && info.classe !== Classe.OFFLINE) return false;
     // Travado à mão na URA pelo painel: fica até liberarem.
@@ -546,7 +564,7 @@ class RodizioService {
   }
 
   async devolverAoAtivo(ramal) {
-    const r = await this.moverParaAtivo(ramal);
+    const r = await this.moverParaAtivo(ramal, this.ehContaDeSupervisor(ramal) ? 'conta de supervisor não fica na URA' : null);
     // [NOVO] Passou do tempo e não saiu: diz por quê (uma vez, até conseguir).
     this.naoSaiu ??= new Set();
     if (r.ok) this.naoSaiu.delete(ramal);
@@ -649,6 +667,7 @@ class RodizioService {
         porLivre: this.porLivreComStatus(agora),
         maximo: this.cfg.robosMaximo,
         maxComUmLivre: this.maxComUmLivreAgora(agora),
+        todosComLivres: this.todosComLivresAgora(agora),
         // Com poll lento, o status "envelhece" entre ciclos: não pode virar "sem visibilidade".
         validadeStatusMs: Math.max(VALIDADE_STATUS_MS, this.cfg.pollUraMs * 2 + 1000),
       },
@@ -1192,12 +1211,20 @@ class RodizioService {
     if (calculo?.fonte === 'manual') return base;
     const status = this.statusAtualDaUra();
     const fator = status === 'calma' ? (this.cfg.robosFatorCalma ?? 1) : status === 'agressiva' ? (this.cfg.robosFatorAgressiva ?? 1) : 1;
-    return Math.max(1, Math.round(base * fator));
+    const comPeso = Math.max(1, Math.round(base * fator));
+    // [NOVO] Medindo a taxa: a conta de antes, presa entre o piso e o teto do status.
+    return calculo ? Math.min(calculo.max, Math.max(calculo.min, comPeso)) : comPeso;
   }
 
   /** [NOVO] Teto com 1 livre: o do status na conta pela taxa; ROBOS_MAX_COM_1_LIVRE no fixo. */
   maxComUmLivreAgora(agora = Date.now()) {
     return this.calculoDosRobos(agora)?.max ?? this.cfg.robosMaxComUmLivre;
+  }
+
+  /** [NOVO] Com quantos livres o status liga todos os robôs (calma: 2). 0 = nunca (fixo ou à mão). */
+  todosComLivresAgora(agora = Date.now()) {
+    const calculo = this.calculoDosRobos(agora);
+    return calculo && calculo.fonte !== 'manual' ? calculo.todosComLivres : 0;
   }
 
   /** O "por livre" foi escolhido à mão no painel hoje? (vale até virar o dia) */
@@ -1435,6 +1462,8 @@ class RodizioService {
         modoPor: this.modoRobos?.resumo().por ?? null,
         manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,
       },
+      // [NOVO] contas operacionais de supervisores (não ficam na URA)
+      contasSupervisores: this.contasSupervisores?.lista() ?? [],
       intervaloUraMs: this.intervaloUraMs(),
       ultimoLivreSaindo: this.ultimoSaindo ? { ramal: this.ultimoSaindo.ramal, desde: new Date(this.ultimoSaindo.desde).toISOString() } : null,
       ultimoWebhook: this.ultimoWebhookEm ? new Date(this.ultimoWebhookEm).toISOString() : null,

@@ -108,6 +108,8 @@ export interface CalculoRobos {
   bruto: number | null;
   porLivre: number | null;
   limitadoPor: 'piso' | 'teto' | null;
+  /** [NOVO] com este tanto de livres, todos os robôs (0 = nunca) */
+  todosComLivres?: number;
   derivacoes30: number;
   roboMinutos30: number;
 }
