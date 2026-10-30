@@ -5,11 +5,12 @@
  */
 
 import { clsx } from 'clsx';
-import { Bell, BellRing, Bot, PowerOff, Search, ShieldAlert } from 'lucide-react';
+import { Bell, BellRing, Bot, Calculator, PowerOff, Search, ShieldAlert } from 'lucide-react';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import type { ComandoUra } from '../api';
 import { useComandoUra, useModoRobos, useRisco, useVisao } from '../dados';
 import { dataBr, horaCurta, motivoLegivel } from '../formatos';
+import { descreverCalculo } from '../calculo-robos';
 import { StatusUra } from '../componentes/StatusUra';
 import { ativarAvisos, avisosAtivos } from '../notificacoes';
 import type { ModoRobos, SaudeRodizio } from '../tipos';
@@ -81,6 +82,7 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
   const robos = r.robos;
   const modo: ModoRobos = robos?.modo ?? 'panico';
   const atual = MODOS.find((m) => m.id === modo)!;
+  const calculo = descreverCalculo(robos?.calculo);
 
   const escolher = async (novo: ModoRobos) => {
     if (novo === modo || mutacao.isPending) return;
@@ -109,13 +111,19 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
         <div className="flex gap-6 text-right">
           <div><span className="rotulo block">Ligados agora</span><b className="text-2xl tabular-nums">{robos?.ligados ?? '–'}</b><span className="text-sm text-slate-500"> / {robos?.total ?? '–'}</span></div>
           {modo === 'automatico' && (
-            <div title="Robôs por humano livre: o ajuste do dia vezes o peso do status da URA">
+            <div title="Robôs por humano livre: pela taxa real de derivação e a meta do status da URA">
               <span className="rotulo block">Por livre</span>
               <b className="text-2xl tabular-nums">{robos?.porLivreComStatus ?? robos?.porLivre ?? '–'}</b>
             </div>
           )}
         </div>
       </header>
+      {modo === 'automatico' && calculo && (
+        <p className="mb-4 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-noite-800/60 dark:text-slate-300">
+          <Calculator className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
+          <span>{calculo}</span>
+        </p>
+      )}
       <div role="radiogroup" aria-label="Modo dos robôs" className="grid gap-3 sm:grid-cols-3">
         {MODOS.map((m) => {
           const ativo = m.id === modo;
@@ -136,7 +144,8 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
       </div>
       <div className="mt-3">
         <ComoFunciona>
-          <p><b>Automático:</b> liga em ordem crescente (OPER VIRTUAL 0/1, 2, 3… e os DTMF no fim) e reduz do último para o primeiro, pulando quem está em ligação. Ficam ligados os robôs por livre × humanos livres na URA; o status da URA pesa (calma liga mais, agressiva menos). Ninguém livre: desliga todos na hora.</p>
+          <p><b>Automático:</b> liga em ordem crescente (OPER VIRTUAL 0/1, 2, 3… e os DTMF no fim) e reduz do último para o primeiro, pulando quem está em ligação. Ficam ligados os robôs por livre × humanos livres na URA. Ninguém livre: desliga todos na hora.</p>
+          <p><b>Robôs por livre:</b> sai da taxa real dos últimos 30 min (derivações ÷ minutos de robô ligado) e da espera alvo do status da URA: calma 45 s, normal 90 s, agressiva 120 s. Cada status tem um piso e um teto (calma 6 a 15, normal 4 a 10, agressiva 2 a 6); com 1 livre vale o teto. No começo do dia, enquanto mede a taxa, vale o ajuste do dia. Escolher à mão vale até virar o dia.</p>
           <p><b>Só pânico:</b> como antes — quem liga é a supervisão, pela Argus; o BenURA só desliga nas regras do pânico (cartão abaixo).</p>
           <p><b>Desligados:</b> para quando os callbacks não param. Os parados desligam na hora, os em ligação ao terminar; se alguém ligar um robô pela Argus, o BenURA desliga de novo. O rodízio dos humanos, o roteador e as rotinas continuam.</p>
         </ComoFunciona>

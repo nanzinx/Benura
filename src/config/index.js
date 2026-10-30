@@ -11,6 +11,7 @@ const os = require('os');
 const path = require('path');
 const { METRICAS } = require('../integrations/carrossel/carrossel.mapper');
 const { lerJson } = require('../utils/arquivo-json');
+const { CALCULO_PADRAO } = require('../domain/robos-por-taxa');
 
 /**
  * Carrega o .env, a menos que BENURA_SEM_DOTENV=1 (usado pela simulação no PM2
@@ -157,6 +158,21 @@ function carregarConfig(overrides = {}) {
       robosFatorAgressiva: envNum('ROBOS_FATOR_AGRESSIVA', 0.7),
       // Com 1 livre só na URA, no máximo estes robôs (dois clientes juntos = callback). 0 = sem teto.
       robosMaxComUmLivre: envNum('ROBOS_MAX_COM_1_LIVRE', 6),
+      // [NOVO] Modo automático: robôs por livre pela taxa real de derivação dos últimos 30 min, com uma
+      // espera alvo, um piso e um teto por status da URA (o teto também vale com 1 livre). Enquanto mede
+      // (começo do dia) ou com ROBOS_CALCULO=fixo, vale a conta de antes (ROBOS_POR_LIVRE × ROBOS_FATOR_*).
+      robosCalculo: env('ROBOS_CALCULO', 'taxa').toLowerCase() === 'fixo' ? 'fixo' : 'taxa',
+      robosTaxa: {
+        ...CALCULO_PADRAO,
+        porStatus: Object.fromEntries(Object.entries(CALCULO_PADRAO.porStatus).map(([status, meta]) => {
+          const S = status.toUpperCase();
+          return [status, {
+            esperaS: envNum(`ROBOS_ESPERA_ALVO_${S}_S`, meta.esperaS),
+            min: envNum(`ROBOS_POR_LIVRE_MIN_${S}`, meta.min),
+            max: envNum(`ROBOS_POR_LIVRE_MAX_${S}`, meta.max),
+          }];
+        })),
+      },
       // Cada callback (cliente desistiu da fila: webhook tipo 5) baixa um degrau de robôs
       // por livre, até o mínimo; sem callback por ROBOS_RECUPERAR_APOS_MIN, sobe um de volta.
       ajusteCallback: envBool('ROBOS_AJUSTE_CALLBACK', true),
@@ -526,6 +542,11 @@ function validarRodizio(cfg) {
     fatais.push('GRUPOS_ROBOS_URA_IDS é obrigatório (grupos dos robôs da URA, ex.: 6).');
   }
   if (!(r.robosPorLivre >= 1)) fatais.push('ROBOS_POR_LIVRE deve ser 1 ou mais.');
+  for (const [status, { esperaS, min, max }] of Object.entries(r.robosTaxa.porStatus)) {
+    const S = status.toUpperCase();
+    if (!(esperaS >= 10 && esperaS <= 600)) fatais.push(`ROBOS_ESPERA_ALVO_${S}_S deve ficar entre 10 e 600 segundos.`);
+    if (!(min >= 1 && max >= min)) fatais.push(`ROBOS_POR_LIVRE_MIN_${S} (${min}) deve ser 1 ou mais e no máximo ROBOS_POR_LIVRE_MAX_${S} (${max}).`);
+  }
   if (!a.gruposAtivosIds.length) fatais.push('GRUPOS_ATIVOS_IDS é obrigatório (whitelist dos grupos do Ativo).');
   if (a.gruposAtivosIds.includes(a.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');
   if (r.gruposRobosIds.includes(a.grupoUraId)) fatais.push('GRUPOS_ROBOS_URA_IDS não pode conter o GRUPO_URA_ID.');
