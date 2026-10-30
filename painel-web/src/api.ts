@@ -1,7 +1,7 @@
 /** Cliente da API do benura-painel. Escrita leva o cabeçalho X-Painel (o servidor exige). */
 
 import type {
-  ClienteDeRisco, Componente, ConfiguracaoEmUso, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada, ResultadoTesteAviso,
+  ClienteDeRisco, ClienteWebhook, Componente, ConfiguracaoEmUso, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada, ResultadoTesteAviso,
   ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao,
 } from './tipos';
 import type { Papel, UsuarioDaSessao } from './sessao';
@@ -61,6 +61,9 @@ export const api = {
   componente: (app: Componente, ligar: boolean) => pedir<EstadoAutomacao>('POST', '/api/automacao/componente', { app, ligar }),
   simulacao: (ligada: boolean) => pedir<EstadoAutomacao>('POST', '/api/simulacao', { ligada }),
   testarAviso: () => pedir<ResultadoTesteAviso>('POST', '/api/notificacoes/testar'),
+  clientesWebhook: () => pedir<{ clientes: ClienteWebhook[] }>('GET', '/api/webhooks/clientes'),
+  testarClienteWebhook: (id: string) => pedir<{ ok: boolean; erro?: string }>('POST', '/api/webhooks/clientes/testar', { id }),
+  removerClienteWebhook: (id: string) => pedir<{ removido: boolean }>('POST', '/api/webhooks/clientes/remover', { id }),
   // [NOVO] dois PCs: este PC pega a trava vencida do outro (ele caiu)
   assumir: () => pedir<{ ok: true }>('POST', '/api/trava/assumir'),
   // [NOVO]

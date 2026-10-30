@@ -115,6 +115,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'O painel avisa quando o roteador, o rodízio ou as rotinas ficam mais de 5 min fora do ar, e quando voltam.',
       'Às 18:00, antes de desligar, manda o resumo do dia: transbordos, leads derivados, TME, OPL, TOR e TPA, com o dia anterior e a semana.',
       'Os avisos ficam sempre no log de hoje. Com o BenHub configurado, também chegam lá. "Testar envio" confere.',
+      'Webhook de transferências: sistemas que se cadastram por API recebem um aviso (código da Argus, nome e "Transferido da URA para o Ativo" ou o contrário) a cada operador transferido. O cartão "Clientes do webhook de transferências" mostra quem está cadastrado e permite testar e remover.',
     ],
   },
   {

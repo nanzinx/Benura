@@ -58,7 +58,8 @@ class DiscadoraService {
    * @param {boolean} deps.respeitarGruposExternos
    * @param {object} deps.logger
    */
-  constructor({ client, cfg, diretorio, respeitarGruposExternos, logger }) {
+  constructor({ client, cfg, diretorio, respeitarGruposExternos, logger, aoTransferir = null }) {
+    this.aoTransferir = aoTransferir; // [NOVO] webhook dos clientes: só na transferência de verdade
     this.client = client;
     this.cfg = cfg;
     this.diretorio = diretorio;
@@ -213,6 +214,7 @@ class DiscadoraService {
     try {
       await this.client.transferirOperador(ramal, destinoId);
       this.invalidarCache();
+      this.aoTransferir?.({ ramal: String(ramal), paraUra: Number(destinoId) === Number(this.cfg.grupoUraId) });
       return { ...base, resultado: Resultado.TRANSFERIDO };
     } catch (e) {
       this.log.erro(`Falha ao transferir ramal ${ramal} → ${rotulo}: ${e.message}`);

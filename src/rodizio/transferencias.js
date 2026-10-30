@@ -21,13 +21,15 @@ class Transferencias {
   /**
    * @param {object} deps
    * @param {import('../integrations/argus/argus.client').ArgusClient} deps.client
-   * @param {{ dryRun: boolean }} deps.cfg
+   * @param {{ dryRun: boolean, grupoUraId?: number }} deps.cfg
    * @param {object} deps.logger
+   * @param {(t: { ramal: string, paraUra: boolean }) => void} [deps.aoTransferir] - [NOVO] webhook dos clientes
    */
-  constructor({ client, cfg, logger }) {
+  constructor({ client, cfg, logger, aoTransferir = null }) {
     this.client = client;
     this.cfg = cfg;
     this.log = logger;
+    this.aoTransferir = aoTransferir;
     this.falhas = new Map(); // ramal → falhas seguidas
     this.liberadoEm = new Map(); // ramal → timestamp a partir do qual pode tentar de novo
   }
@@ -47,6 +49,8 @@ class Transferencias {
     try {
       await this.client.transferirOperador(ramal, grupoDestinoId);
       this.falhas.delete(ramal);
+      // [NOVO] Avisa os clientes do webhook sem esperar (só transferência de verdade).
+      this.aoTransferir?.({ ramal: String(ramal), paraUra: Number(grupoDestinoId) === Number(this.cfg.grupoUraId) });
       return true;
     } catch (e) {
       this.registrarFalha(ramal, e);

@@ -321,6 +321,12 @@ function carregarConfig(overrides = {}) {
     arquivoTrava: env('ATUALIZADOR_LOCK_FILE', path.join(DADOS, 'atualizador.lock')),
   };
 
+  // --- [NOVO] Webhook de transferências para clientes (docs/webhook-clientes.md) ---
+  // Os clientes se cadastram por API no rodízio; o roteador lê o mesmo arquivo.
+  cfg.webhooksClientes = {
+    arquivo: env('WEBHOOKS_CLIENTES_FILE', path.join(DADOS, 'state-webhooks-clientes.json')),
+  };
+
   // --- Notificações (avisos e resumos) ---
   cfg.notificacoes = {
     tipo: env('NOTIFICADOR', 'log'),
