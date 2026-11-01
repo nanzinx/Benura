@@ -64,8 +64,8 @@ export function minutos(min: number | null | undefined): string {
   return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
 }
 
-/** [NOVO] Ordem dos grupos na Visão Geral: em atendimento na URA → livres → pausa → sem resposta → offline. */
-const ORDEM_DOS_GRUPOS: Record<string, number> = { atendimento: 0, livre: 1, outro: 2, erro: 3, offline: 4 };
+/** [NOVO] Ordem dos grupos (como na Argus): livres → em atendimento → pausa → sem resposta → offline. */
+const ORDEM_DOS_GRUPOS: Record<string, number> = { livre: 0, atendimento: 1, outro: 2, erro: 3, offline: 4 };
 
 /**
  * [NOVO] Operadores humanos (sem robô) na ordem da Visão Geral: pelo grupo; dentro dele,

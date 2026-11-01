@@ -24,7 +24,7 @@
 const {
   Classe, AcaoRobos, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, ultimoLivreQueSai,
   decidirRobos, alvoDeRobos, livresUteis, reconciliarMovidos, VALIDADE_STATUS_MS, porAntiguidade, bonusDeAntiguidade,
-  planoDosLivres, excessoDeLivres,
+  planoDosLivres, excessoDeLivres, saidaDaUra,
 } = require('../domain/rodizio');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
@@ -32,6 +32,7 @@ const { raioXDoCallback, horaNoFuso } = require('../domain/raio-x-callback');
 const { mapearComLimite } = require('../utils/concorrencia');
 const { limitesMin: LIMITES_PAUSA } = require('../config/pausas');
 const { robosPorLivrePelaTaxa, roboMinutos, CALCULO_PADRAO } = require('../domain/robos-por-taxa');
+const { JanelaDeIndicadores } = require('../domain/indicadores');
 const { dataLocal } = require('../utils/datas');
 
 /** Quanto tempo de fotos da URA o raio-x dos callbacks guarda (o relatório chega com até alguns minutos de atraso). */
@@ -158,6 +159,8 @@ class RodizioService {
     /** [NOVO] Derivações e robôs ligados dos últimos 30 min: a taxa real que dimensiona os robôs (robos-por-taxa.js). */
     this.derivacoesRecentes = [];
     this.amostrasRobos = [];
+    /** [NOVO] OPL dos últimos 15 min e TOR da última hora (alertas do painel: domain/indicadores.js) */
+    this.indicadores = new JanelaDeIndicadores();
     this.iniciadoEm = Date.now();
     this.ultimoWebhookEm = 0;
     this.ultimoAvisoSemWebhookEm = 0;
@@ -920,6 +923,7 @@ class RodizioService {
     this.ultimoAtendimentoUraEm = agora;
     this.derivacoesRecentes.push(agora);
     this.descartarAntigas(agora);
+    this.indicadores?.registrarDerivacao(agora);
     this.termometro?.registrarDerivacao(agora, esperaMs);
     this.estatisticas?.registrarDerivacao(agora, ramal, esperaMs);
   }
@@ -927,6 +931,7 @@ class RodizioService {
   /** Fim do ciclo da URA: amostra para o termômetro e o relatório do dia. */
   amostrarDia(agora) {
     const amostra = { livres: this.ultimosLivres ?? 0, robosLigados: this.robos.situacao(this.ramaisRobos.length).ligados };
+    this.indicadores?.amostrar(agora, amostra);
     // Quem está livre agora (e conta para os robôs): há quanto tempo espera uma ligação.
     const esperasEmCursoMs = livresUteis([...this.ramaisUra], this.statusUra)
       .map((r) => this.statusUra.get(r)?.livreDesde)
@@ -1504,8 +1509,10 @@ class RodizioService {
   /** Quem está na URA e como está (painel da supervisão). Só dados do operador. */
   uraAgora() {
     const robos = new Set(this.ramaisRobos.map(String));
+    const agora = Date.now();
     return [...this.ramaisUra].map((ramal) => {
       const s = this.statusUra.get(ramal);
+      const travado = this.travadoEm(ramal);
       return {
         ramal,
         nome: s?.detalhe?.nome ?? null,
@@ -1517,7 +1524,13 @@ class RodizioService {
         virtual: robos.has(String(ramal)) || ehOperadorVirtual(s?.detalhe?.nome),
         pausa: s?.classe === Classe.OUTRO ? s?.detalhe?.pausa ?? null : null,
         statusDesde: desdeDoStatus(s),
-        travado: this.travadoEm(ramal),
+        travado,
+        // [NOVO] quanto falta para voltar ao Ativo, ou por que não volta (só para quem está livre)
+        saida: s ? saidaDaUra({
+          classe: s.classe, livreDesde: s.livreDesde, agora, limiteMs: this.limiteOciosoMs(ramal),
+          supervisor: this.ehContaDeSupervisor(ramal), fixo: this.permanentes.has(String(ramal)), travadoUra: travado === 'ura',
+          emTransferencia: this.emTransferencia.has(ramal), semGrupo: this.semGrupoAvisados.has(ramal),
+        }) : null,
       };
     });
   }
@@ -1539,6 +1552,8 @@ class RodizioService {
         modoPor: this.modoRobos?.resumo().por ?? null,
         manualAte: this.manualAte ? new Date(this.manualAte).toISOString() : null,
       },
+      // [NOVO] OPL dos últimos 15 min e TOR da última hora (os alertas do painel leem daqui)
+      indicadores: this.indicadores?.resumo() ?? null,
       // [NOVO] contas operacionais de supervisores (não ficam na URA)
       contasSupervisores: this.contasSupervisores?.lista() ?? [],
       // [NOVO] URA calma com URA cheia: de URA_CHEIA_LIVRES_MIN a URA_CHEIA_LIVRES_MAX livres

@@ -551,6 +551,10 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 **[NOVO] Configuração em uso (aba Serviços, só administrador):** cada opção que o BenURA leu do `.env`, o valor em uso e o padrão. "Só as que mudei" mostra o que difere do padrão. Os avisos da configuração aparecem no topo. Senhas e tokens aparecem só como "definido" ou "vazio". A leitura é de quando o painel subiu: mudou o `.env`, rode `npx pm2 restart all`.
 
 **[NOVO] Avisos (BenHub) (aba Serviços, só administrador):** o painel avisa quando um serviço (roteador, rodízio ou rotinas) fica **mais de 5 min fora do ar** e quando ele volta, e manda o **resumo do dia às 18:00**, logo antes de a agenda desligar: Transbordos, Leads derivados, TME, OPL, TOR e TPA, com o dia anterior e a média de 7 dias.
+- **[NOVO] Alertas da operação**, lidos do mesmo `/health` que o vigia de saúde já busca (sem chamada a mais); só com a automação ligada e no PC que está agindo:
+  - **OPL alto:** o OPL dos últimos 15 min passou de `ALERTA_OPL_SEG` (**300 s**). Avisa uma vez e de novo quando normalizar.
+  - **TOR subindo:** mais de `ALERTA_TOR_MIN` (**10 min**) na última hora com gente livre na URA e todos os robôs desligados. No máximo um aviso por hora.
+  - `0` desliga cada alerta. O `/health` do rodízio mostra `indicadores: { opl15Seg, derivacoes15, tor60Min, coberturaMin }`.
 - Os avisos ficam sempre no log de hoje (`logs/notificacoes.jsonl`).
 - Com `NOTIFICADOR=webhook`, `NOTIFICACOES_WEBHOOK_URL` e `NOTIFICACOES_WEBHOOK_TOKEN`, também vão para o BenHub (ou qualquer webhook). É um `POST` em JSON `{ titulo, texto, nivel, origem: "BenURA", em }` com `Authorization: Bearer <token>`. Pedido ao BenHub: a rota `POST /api/notificacoes`.
 - Não avisam: o atualizador, a automação desligada ou mudando de estado, e o PC que não está agindo de verdade (o reserva ou a simulação). Assim os dois PCs não avisam em dobro.

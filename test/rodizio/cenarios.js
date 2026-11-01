@@ -343,6 +343,14 @@ const CENARIOS = {
     r.argus.definirStatus('101', 'livre');
     await aguardar(() => r.transferencias().includes('101→2'), { descricao: '101→URA' });
     const entrou = Date.now();
+    // [NOVO] O /health diz quanto falta para ele voltar (o painel do receptivo mostra "sai em 0:05").
+    await aguardar(async () => {
+      const { uraAgora } = await (await fetch(`${r.base}/health`)).json();
+      const s = uraAgora.find((o) => o.ramal === '101')?.saida;
+      return s && s.motivo === null && s.limiteMs === 6000 && s.emMs > 0 && s.emMs <= 6000;
+    }, { descricao: '/health: saída do 101 com o tempo que falta' });
+    const { indicadores } = await (await fetch(`${r.base}/health`)).json();
+    if (!indicadores || !('opl15Seg' in indicadores) || !('tor60Min' in indicadores)) throw new Error(`/health sem indicadores: ${JSON.stringify(indicadores)}`);
     await aguardar(() => r.transferencias().includes('101→1'), { timeoutMs: 12_000, descricao: '101→Ativo' });
     const segundos = (Date.now() - entrou) / 1000;
     if (segundos < 4.5) throw new Error(`voltou cedo demais (${segundos.toFixed(1)}s; TEMPO_MIN = 6s)`);

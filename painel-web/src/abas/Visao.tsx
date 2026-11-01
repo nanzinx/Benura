@@ -95,7 +95,7 @@ function Kpis({ r, metricas }: { r: SaudeRodizio | null | undefined; metricas: M
 type FiltroUra = 'todos' | 'livre' | 'atendimento' | 'outros';
 
 /**
- * Quem está na URA (só humanos), na ordem: em atendimento → livres → pausa → sem resposta → offline;
+ * Quem está na URA (só humanos), na ordem da Argus: livres → em atendimento → pausa → sem resposta → offline;
  * dentro do grupo, há mais tempo no status primeiro, depois o nome. A troca de posição é animada (FLIP).
  */
 function TabelaUra({ ura }: { ura: OperadorNaUra[] }) {

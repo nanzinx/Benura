@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { abasDoRelatorio, diaCurto, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio } from './relatorio';
+import { abasDoRelatorio, colunaDoStatus, diaCurto, horaMaisOciosa, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio } from './relatorio';
 import type { RelatorioDoDia } from './tipos';
 
 const hora = (h: string, x: Partial<RelatorioDoDia['horas'][number]>) => ({
@@ -72,5 +72,29 @@ describe('cores do relatório', () => {
   it('statusPorHora: os minutos de cada status em cada hora, e o que sobra até 60 min fica de fora', () => {
     const h = { ...hora('09', { calmaMin: 30, agressivaMin: 10 }), normalMin: 15, medindoMin: 5 };
     expect(statusPorHora([h])).toEqual([{ hora: '09', calma: 30, normal: 15, agressiva: 10, medindo: 5, total: 60 }]);
+  });
+});
+
+describe('coluna do status [NOVO]', () => {
+  it('a coluna da tabela segue o status da URA: título, minutos de cada hora e o total', () => {
+    const horas = [
+      { ...hora('08', { calmaMin: 50, agressivaMin: 5 }), normalMin: 5, medindoMin: 0 },
+      { ...hora('09', { calmaMin: 20, agressivaMin: 10 }), normalMin: 30, medindoMin: 0 },
+    ];
+    expect(colunaDoStatus(horas, 'calma')).toEqual({ titulo: 'Calma', status: 'calma', porHora: [50, 20], total: 70 });
+    expect(colunaDoStatus(horas, 'normal')).toEqual({ titulo: 'Normal', status: 'normal', porHora: [5, 30], total: 35 });
+    expect(colunaDoStatus(horas, 'agressiva')).toEqual({ titulo: 'Agressiva', status: 'agressiva', porHora: [5, 10], total: 15 });
+    expect(colunaDoStatus(horas, 'medindo').titulo).toBe('Medindo');
+    expect(colunaDoStatus(horas, null).titulo, 'sem status: calma, como antes').toBe('Calma');
+  });
+});
+
+describe('hora mais ociosa [NOVO]', () => {
+  it('é a de OPL mais alto (tempo livre por lead), só se passar da faixa verde do OPL', () => {
+    const h = (hr: string, opl: number | null, livresMin = 30) => ({ ...hora(hr, { livresMin }), esperaPorDerivacaoSeg: opl });
+    expect(horaMaisOciosa([h('08', 553), h('09', 189), h('10', 160)])).toBe('08');
+    expect(horaMaisOciosa([h('08', 120), h('09', 150)]), 'todas no verde (até 3 min): nenhuma').toBeNull();
+    expect(horaMaisOciosa([h('08', 400), h('09', null, 20)]), 'sem lead e com 20 min livres: 20 min por lead').toBe('09');
+    expect(horaMaisOciosa([h('08', null, 0)])).toBeNull();
   });
 });

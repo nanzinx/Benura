@@ -21,8 +21,9 @@ const emMinutos = (ms) => {
 };
 
 class VigiaSaude {
-  constructor({ servicos, automacao, notificador, fuso, logger, agora = Date.now, limiteMs = LIMITE_MS }) {
-    Object.assign(this, { servicos, automacao, notificador, fuso, log: logger, agora, limiteMs });
+  /** @param {{ indicadores?: { verificar(saudeDoRodizio: object|null): Promise<void> } }} deps - [NOVO] alertas de OPL e TOR (mesma leitura) */
+  constructor({ servicos, automacao, notificador, fuso, logger, agora = Date.now, limiteMs = LIMITE_MS, indicadores = null }) {
+    Object.assign(this, { servicos, automacao, notificador, fuso, log: logger, agora, limiteMs, indicadores });
     /** serviço → { desde, nome, avisado } */
     this.fora = new Map();
   }
@@ -35,6 +36,7 @@ class VigiaSaude {
     }
     const saude = await this.servicos.saude();
     const agora = this.agora();
+    await this.indicadores?.verificar(saude.rodizio?.online ? saude.rodizio.dados : null);
     for (const [servico, s] of Object.entries(saude)) {
       if (IGNORAR.includes(servico) || e.componentes?.[`benura-${servico}`]?.desligado) {
         this.fora.delete(servico);

@@ -15,6 +15,7 @@ import { RelatorioPessoal } from '../componentes/RelatorioPessoal';
 import { StatusUra } from '../componentes/StatusUra';
 import { useMetricasHoje, useRetomarRodizio, useTransferirUraAtivo, useVisao } from '../dados';
 import { cronometro, horaCurta, limiteDaPausa, minutos, ordenarOperadores } from '../formatos';
+import { textoDaSaida } from '../saida-da-ura';
 import type { OperadorNaUra, SaudeRodizio } from '../tipos';
 import { Botao, Cartao, ComoFunciona, Esqueleto, Selo, Vazio } from '../ui/base';
 import { useFlip } from '../ui/flip';
@@ -116,6 +117,7 @@ function Operadores({ ura, agora }: { ura: OperadorNaUra[]; agora: number }) {
             <tbody ref={corpo}>{lista.map((u) => {
               const c = CLASSES[u.classe ?? 'erro'];
               const seg = segundosDesde(u.statusDesde, agora);
+              const saida = textoDaSaida(u.saida, u.livreDesde, agora);
               return (
                 <tr key={u.ramal} data-flip={u.ramal}>
                   <td>
@@ -131,6 +133,12 @@ function Operadores({ ura, agora }: { ura: OperadorNaUra[]; agora: number }) {
                   </td>
                   <td>
                     <Selo tom={c.tom}>{u.classe === 'outro' && u.pausa ? `Pausa · ${u.pausa}` : c.texto}</Selo>
+                    {saida && (
+                      <span title={saida.dica} className={clsx('mt-0.5 block cursor-help text-xs font-medium tabular-nums',
+                        saida.tom === 'alerta' ? 'text-amber-700 dark:text-amber-300' : saida.tom === 'info' ? 'text-azul-700 dark:text-azul-300' : 'text-slate-500 dark:text-slate-400')}>
+                        {saida.texto}
+                      </span>
+                    )}
                     <span className="mt-0.5 block text-xs text-slate-500 tabular-nums sm:hidden dark:text-slate-400">há {seg != null ? cronometro(seg) : '–'}</span>
                   </td>
                   <td className="numero hidden text-right sm:table-cell">{seg != null ? cronometro(seg) : '–'}</td>

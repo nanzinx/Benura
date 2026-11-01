@@ -4,7 +4,7 @@
  */
 
 import type { Aba } from './planilha';
-import type { RelatorioDoDia } from './tipos';
+import type { EstadoTermometro, RelatorioDoDia } from './tipos';
 
 export function totaisDoRelatorio(r: RelatorioDoDia) {
   const soma = (f: (h: RelatorioDoDia['horas'][number]) => number) => Math.round(r.horas.reduce((s, h) => s + f(h), 0) * 10) / 10;
@@ -111,4 +111,28 @@ export function statusPorHora(horas: RelatorioDoDia['horas']) {
     const m = { calma: h.calmaMin ?? 0, normal: h.normalMin ?? 0, agressiva: h.agressivaMin ?? 0, medindo: h.medindoMin ?? 0 };
     return { hora: h.hora, ...m, total: Math.round((m.calma + m.normal + m.agressiva + m.medindo) * 10) / 10 };
   });
+}
+
+const TITULOS_DO_STATUS: Record<EstadoTermometro, string> = { calma: 'Calma', normal: 'Normal', agressiva: 'Agressiva', medindo: 'Medindo' };
+const CAMPO_DO_STATUS = { calma: 'calmaMin', normal: 'normalMin', agressiva: 'agressivaMin', medindo: 'medindoMin' } as const;
+
+/** [NOVO] A coluna da tabela por hora segue o status da URA de agora: título, minutos de cada hora e o total. */
+export function colunaDoStatus(horas: RelatorioDoDia['horas'], status: EstadoTermometro | null | undefined) {
+  const s: EstadoTermometro = status ?? 'calma';
+  const porHora = horas.map((h) => h[CAMPO_DO_STATUS[s]] ?? 0);
+  return { titulo: TITULOS_DO_STATUS[s], status: s, porHora, total: Math.round(porHora.reduce((t, m) => t + m, 0) * 10) / 10 };
+}
+
+/**
+ * [NOVO] A hora "mais ociosa" da tabela: a de OPL mais alto (tempo livre por lead). Hora com gente
+ * livre e nenhum lead conta todo o tempo livre. Só marca se passar da faixa verde do OPL.
+ */
+export function horaMaisOciosa(horas: RelatorioDoDia['horas']): string | null {
+  const opl = (h: RelatorioDoDia['horas'][number]) => h.esperaPorDerivacaoSeg ?? (h.livresMin > 0 ? h.livresMin * 60 : null);
+  let pior: { hora: string; seg: number } | null = null;
+  for (const h of horas) {
+    const seg = opl(h);
+    if (seg != null && (!pior || seg > pior.seg)) pior = { hora: h.hora, seg };
+  }
+  return pior && pior.seg > FAIXAS_DOS_QUADROS.oplSeg.bom ? pior.hora : null;
 }
