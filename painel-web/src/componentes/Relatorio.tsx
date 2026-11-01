@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { duracao, minutos } from '../formatos';
 import { baixarXlsx } from '../planilha';
 import {
-  abasDoRelatorio, colunaDoStatus, diaCurto, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio, type CampoDoQuadro, type Nivel, type Tendencia,
+  abasDoRelatorio, colunaDoStatus, diaCurto, horaMaisOciosa, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio, type CampoDoQuadro, type Nivel, type Tendencia,
 } from '../relatorio';
 import { useStatusUra, useVisao } from '../dados';
 import { semAcesso, usePode } from '../sessao';
@@ -184,7 +184,8 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
     return <Cartao titulo="Relatório do dia" className="mb-5"><Vazio>O relatório aparece quando o rodízio estiver rodando.</Vazio></Cartao>;
   }
   const horas = r.horas;
-  const piorOcioso = Math.max(0, ...horas.map((h) => h.ociosoSemRobosMin));
+  // [NOVO] A hora mais ociosa é a de OPL mais alto (tempo livre por lead).
+  const maisOciosaHora = horaMaisOciosa(horas);
   // [NOVO] Os quadros e o total somam as horas mostradas (só o expediente, 08h às 17h).
   const t = totaisDoRelatorio(r);
   const [panicoTotal, ociosoTotal, livresTotal, oplTotal, esperaQtdTotal, tmeTotal] = [t.tpa, t.tor, t.livres, t.opl, t.esperaQtd, t.tme];
@@ -242,10 +243,10 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
             </tr></thead>
             <tbody>{horas.map((x, i) => {
               const tb = x.transbordos ?? 0;
-              const maisOciosa = piorOcioso >= 5 && x.ociosoSemRobosMin === piorOcioso;
+              const maisOciosa = x.hora === maisOciosaHora;
               return (
                 <tr key={x.hora} className={clsx(maisOciosa && 'bg-amarelo-100/60 dark:bg-amber-950/30')}>
-                  <td className="numero whitespace-nowrap font-semibold">{x.hora}h{maisOciosa && <span className="ml-2 rounded-md bg-amarelo-500 px-1.5 py-0.5 text-[11px] font-bold text-marinho-950">mais ociosa</span>}</td>
+                  <td className="numero whitespace-nowrap font-semibold">{x.hora}h{maisOciosa && <span title="A hora com mais tempo livre por lead (OPL mais alto)" className="ml-2 cursor-help rounded-md bg-amarelo-500 px-1.5 py-0.5 text-[11px] font-bold text-marinho-950">mais ociosa</span>}</td>
                   <td className="numero text-right">{x.leadsDerivados ?? 0}</td>
                   <td className="numero text-right">{duracao(x.tmeSeg ?? null)}</td>
                   <td className="numero text-right">{duracao(x.esperaPorDerivacaoSeg)}</td>

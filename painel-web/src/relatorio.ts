@@ -122,3 +122,17 @@ export function colunaDoStatus(horas: RelatorioDoDia['horas'], status: EstadoTer
   const porHora = horas.map((h) => h[CAMPO_DO_STATUS[s]] ?? 0);
   return { titulo: TITULOS_DO_STATUS[s], status: s, porHora, total: Math.round(porHora.reduce((t, m) => t + m, 0) * 10) / 10 };
 }
+
+/**
+ * [NOVO] A hora "mais ociosa" da tabela: a de OPL mais alto (tempo livre por lead). Hora com gente
+ * livre e nenhum lead conta todo o tempo livre. Só marca se passar da faixa verde do OPL.
+ */
+export function horaMaisOciosa(horas: RelatorioDoDia['horas']): string | null {
+  const opl = (h: RelatorioDoDia['horas'][number]) => h.esperaPorDerivacaoSeg ?? (h.livresMin > 0 ? h.livresMin * 60 : null);
+  let pior: { hora: string; seg: number } | null = null;
+  for (const h of horas) {
+    const seg = opl(h);
+    if (seg != null && (!pior || seg > pior.seg)) pior = { hora: h.hora, seg };
+  }
+  return pior && pior.seg > FAIXAS_DOS_QUADROS.oplSeg.bom ? pior.hora : null;
+}

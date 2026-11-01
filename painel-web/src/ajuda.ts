@@ -99,6 +99,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'TOR (Tempo Ocioso sem Robô): tempo com alguém livre na URA e todos os robôs desligados, o que o pânico custa.',
       'TPA (Tempo de Pânico Ativo): tempo em que o BenURA estava desligando ou reduzindo os robôs.',
       'Embaixo de cada quadro: o dia anterior e a média dos últimos 7 dias. Verde com ▼ quando hoje está melhor (menor), vermelho com ▲ quando está pior. O dia de hoje ainda não acabou, então compare com calma.',
+      'Na tabela por hora, "mais ociosa" marca a hora com o OPL mais alto (mais tempo livre por lead), se passar de 3 min. A coluna de status (Calma, Normal ou Agressiva) segue o status da URA de agora.',
       'Cor de cada quadro: verde está bom, amarelo pede atenção, vermelho está ruim. Transbordos: 0 verde, até 5 amarelo. TOR: até 5 min verde, até 15 amarelo. TME: até 2 min verde, até 4 amarelo. OPL: até 3 min verde, até 5 amarelo. TPA: até 10 min verde, até 30 amarelo.',
       'A barra embaixo dos quadros mostra o status da URA hora a hora (agressiva, normal, calma, medindo). Clicar no status da URA do relatório troca o status, como o seletor da aba URA e robôs.',
       'Só conta o expediente (08:00 às 18:00). O botão "Planilha" baixa o relatório em Excel: hora a hora, comparação e por atendente.',

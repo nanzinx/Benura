@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { abasDoRelatorio, colunaDoStatus, diaCurto, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio } from './relatorio';
+import { abasDoRelatorio, colunaDoStatus, diaCurto, horaMaisOciosa, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio } from './relatorio';
 import type { RelatorioDoDia } from './tipos';
 
 const hora = (h: string, x: Partial<RelatorioDoDia['horas'][number]>) => ({
@@ -86,5 +86,15 @@ describe('coluna do status [NOVO]', () => {
     expect(colunaDoStatus(horas, 'agressiva')).toEqual({ titulo: 'Agressiva', status: 'agressiva', porHora: [5, 10], total: 15 });
     expect(colunaDoStatus(horas, 'medindo').titulo).toBe('Medindo');
     expect(colunaDoStatus(horas, null).titulo, 'sem status: calma, como antes').toBe('Calma');
+  });
+});
+
+describe('hora mais ociosa [NOVO]', () => {
+  it('é a de OPL mais alto (tempo livre por lead), só se passar da faixa verde do OPL', () => {
+    const h = (hr: string, opl: number | null, livresMin = 30) => ({ ...hora(hr, { livresMin }), esperaPorDerivacaoSeg: opl });
+    expect(horaMaisOciosa([h('08', 553), h('09', 189), h('10', 160)])).toBe('08');
+    expect(horaMaisOciosa([h('08', 120), h('09', 150)]), 'todas no verde (até 3 min): nenhuma').toBeNull();
+    expect(horaMaisOciosa([h('08', 400), h('09', null, 20)]), 'sem lead e com 20 min livres: 20 min por lead').toBe('09');
+    expect(horaMaisOciosa([h('08', null, 0)])).toBeNull();
   });
 });
