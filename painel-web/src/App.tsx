@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { clsx } from 'clsx';
 import { useEffect, useState } from 'react';
 import { api } from './api';
 import { AoVivo } from './dados';
@@ -13,6 +14,8 @@ import { Servicos } from './abas/Servicos';
 import { Ajuda } from './abas/Ajuda';
 import { useTema } from './tema';
 import { conferirSessao, definirSessao, useSessao } from './sessao';
+import { BoasVindas } from './componentes/BoasVindas';
+import { deveMostrarEntrada, diaDe, lerVistoEm, marcarVisto } from './boas-vindas';
 
 const abaDoEndereco = (): Aba => {
   const a = location.hash.slice(1) as Aba;
@@ -25,6 +28,22 @@ export function App() {
   const [tema, escuro, trocarTema] = useTema();
   const [aba, setAba] = useState<Aba>(abaDoEndereco);
   const [aoVivo, setAoVivo] = useState(true);
+  // [NOVO] Entrada de boas-vindas: uma vez por dia e sempre logo depois do login; depois, os cartões em cascata.
+  const [acabouDeEntrar, setAcabouDeEntrar] = useState(false);
+  const [entrada, setEntrada] = useState<'mostrar' | 'cascata' | 'pronto' | null>(null);
+  useEffect(() => {
+    if (estado !== 'dentro' || entrada) return;
+    const hoje = diaDe(new Date());
+    if (deveMostrarEntrada({ vistoEm: lerVistoEm(), hoje, acabouDeEntrar })) {
+      marcarVisto(hoje);
+      setEntrada('mostrar');
+    } else setEntrada('pronto');
+  }, [estado, entrada, acabouDeEntrar]);
+  useEffect(() => {
+    if (entrada !== 'cascata') return undefined;
+    const id = setTimeout(() => setEntrada('pronto'), 1200);
+    return () => clearTimeout(id);
+  }, [entrada]);
 
   useEffect(() => {
     void conferirSessao();
@@ -50,11 +69,12 @@ export function App() {
   }, [estado]);
 
   if (estado === 'verificando') return <div className="grid min-h-screen place-items-center text-slate-500">Carregando…</div>;
-  if (estado === 'fora') return <Entrada aoEntrar={() => { cliente.clear(); void conferirSessao(); }} />;
+  if (estado === 'fora') return <Entrada aoEntrar={() => { cliente.clear(); setAcabouDeEntrar(true); setEntrada(null); void conferirSessao(); }} />;
 
   const sair = async () => {
     await api.sair().catch(() => undefined);
     cliente.clear();
+    setAcabouDeEntrar(false);
     definirSessao({ estado: 'fora' });
   };
 
@@ -63,7 +83,8 @@ export function App() {
       <div className="min-h-screen">
         <Topo aba={aba} tema={tema} escuro={escuro} trocarTema={trocarTema} aoVivo={aoVivo} alternarAoVivo={() => setAoVivo((v) => !v)} sair={sair} />
         <Faixas />
-        <main className="mx-auto max-w-7xl px-4 pt-6 pb-10 sm:px-6">
+        {entrada === 'mostrar' && <BoasVindas aoTerminar={() => setEntrada('cascata')} />}
+        <main className={clsx('mx-auto max-w-7xl px-4 pt-6 pb-10 sm:px-6', entrada === 'cascata' && 'cascata')}>
           {aba === 'visao' && <Visao escuro={escuro} />}
           {aba === 'receptivo' && <Receptivo />}
           {aba === 'ura' && <Ura />}
