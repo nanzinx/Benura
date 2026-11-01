@@ -72,19 +72,41 @@
 }
 
 /* [NOVO] Entrada do painel (componentes/BoasVindas.tsx) e os cartões entrando em cascata depois dela. */
-@keyframes bv-logo { 0% { opacity: 0; transform: scale(0.85); } 60% { opacity: 1; transform: scale(1.04); } 100% { opacity: 1; transform: none; } }
+.bv-fundo { background: radial-gradient(120% 90% at 50% 40%, var(--color-marinho-800) 0%, var(--color-marinho-900) 45%, var(--color-marinho-950) 100%); }
+@keyframes bv-icone { 0% { opacity: 0; transform: scale(0.6); } 70% { opacity: 1; transform: scale(1.08); } 100% { opacity: 1; transform: none; } }
+@keyframes bv-onda { 0% { opacity: 0; transform: scale(1); } 15% { opacity: 1; } 100% { opacity: 0; transform: scale(3.2); } }
+@keyframes bv-eq { from { transform: scaleY(1); } to { transform: scaleY(0.45); } }
+@keyframes bv-abre { from { max-width: 0; } to { max-width: 320px; } }
+@keyframes bv-deslizar { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
 @keyframes bv-surgir { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes bv-sair { to { opacity: 0; visibility: hidden; } }
-@keyframes bv-expandir { to { opacity: 0; transform: scale(1.12); filter: blur(4px); } }
-@keyframes bv-onda { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -50%) scale(3.2); } }
+@keyframes bv-pulo { from { opacity: 0; transform: translateY(8px) scale(0.85); } to { opacity: 1; transform: none; } }
+@keyframes bv-encher { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes bv-expandir { to { opacity: 0; transform: scale(1.14); filter: blur(5px); } }
 @keyframes bv-brilho { 0%, 100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.15); } }
 @keyframes bv-esmaecer { from { opacity: 0; } to { opacity: 1; } }
-.bv-logo { animation: bv-logo 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-.bv-surgir { animation: bv-surgir 0.45s ease-out both; }
-.bv-saindo { animation: bv-sair 0.45s ease-in forwards; }
-.bv-expandir { animation: bv-expandir 0.45s ease-in forwards; }
-.bv-onda { animation: bv-onda 1.3s ease-out 0.15s both; }
+@keyframes bv-sair { to { opacity: 0; visibility: hidden; } }
+@property --bv-buraco { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes bv-buraco { from { --bv-buraco: 0px; } to { --bv-buraco: 1600px; } }
+.bv-icone { animation: bv-icone 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.bv-onda { opacity: 0; animation: bv-onda 1.3s ease-out 0.15s both; }
+.bv-barra { transform-box: fill-box; transform-origin: center; animation: bv-eq 0.7s ease-in-out 0.2s 2 alternate both; }
+.bv-barra:nth-of-type(3) { animation-delay: 0.3s; }
+.bv-barra:nth-of-type(4) { animation-delay: 0.38s; }
+.bv-barra:nth-of-type(5) { animation-delay: 0.26s; }
+.bv-barra:nth-of-type(6) { animation-delay: 0.44s; }
+.bv-abre { max-width: 0; animation: bv-abre 0.5s cubic-bezier(0.3, 0.7, 0.2, 1) 0.75s forwards; }
+.bv-palavra { animation: bv-deslizar 0.5s cubic-bezier(0.3, 0.7, 0.2, 1) 0.75s both; }
+.bv-surgir { animation: bv-surgir 0.4s ease-out both; }
+.bv-pulo { animation: bv-pulo 0.45s cubic-bezier(0.3, 1.5, 0.5, 1) both; }
+.bv-rodape { animation: bv-esmaecer 0.4s ease-out 0.9s both; transition: opacity 0.2s; }
+.bv-progresso { transform-origin: left; animation: bv-encher linear forwards; }
 .bv-brilho { animation: bv-brilho 2.4s ease-in-out infinite; }
+.bv-expandir { animation: bv-expandir 0.5s ease-in forwards; }
+.bv-saindo {
+  animation: bv-buraco 0.6s ease-in forwards;
+  -webkit-mask-image: radial-gradient(circle at 50% 45%, transparent var(--bv-buraco), #000 calc(var(--bv-buraco) + 2px));
+  mask-image: radial-gradient(circle at 50% 45%, transparent var(--bv-buraco), #000 calc(var(--bv-buraco) + 2px));
+}
 .cascata > * { animation: bv-surgir 0.45s ease-out both; }
 .cascata > *:nth-child(2) { animation-delay: 0.06s; }
 .cascata > *:nth-child(3) { animation-delay: 0.12s; }
@@ -92,7 +114,11 @@
 .cascata > *:nth-child(5) { animation-delay: 0.24s; }
 .cascata > *:nth-child(n + 6) { animation-delay: 0.3s; }
 @media (prefers-reduced-motion: reduce) {
-  .bv-logo, .bv-surgir, .cascata > * { animation: bv-esmaecer 0.2s ease-out both; animation-delay: 0s; }
-  .bv-onda, .bv-brilho { animation: none; opacity: 0; }
+  .bv-icone, .bv-palavra, .bv-surgir, .bv-pulo, .bv-rodape, .cascata > * { animation: bv-esmaecer 0.2s ease-out both; animation-delay: 0s; }
+  .bv-onda, .bv-brilho, .bv-barra { animation: none; }
+  .bv-onda { display: none; }
+  .bv-abre { animation: none; max-width: none; }
+  .bv-progresso { animation: none; transform: none; }
   .bv-expandir { animation: bv-sair 0.2s ease-in forwards; }
+  .bv-saindo { animation: bv-sair 0.2s ease-in forwards; -webkit-mask-image: none; mask-image: none; }
 }

@@ -31,12 +31,14 @@ export function App() {
   // [NOVO] Entrada de boas-vindas: uma vez por dia e sempre logo depois do login; depois, os cartões em cascata.
   const [acabouDeEntrar, setAcabouDeEntrar] = useState(false);
   const [entrada, setEntrada] = useState<'mostrar' | 'cascata' | 'pronto' | null>(null);
+  const [entradaNaTela, setEntradaNaTela] = useState(false);
   useEffect(() => {
     if (estado !== 'dentro' || entrada) return;
     const hoje = diaDe(new Date());
     if (deveMostrarEntrada({ vistoEm: lerVistoEm(), hoje, acabouDeEntrar })) {
       marcarVisto(hoje);
       setEntrada('mostrar');
+      setEntradaNaTela(true);
     } else setEntrada('pronto');
   }, [estado, entrada, acabouDeEntrar]);
   useEffect(() => {
@@ -83,7 +85,8 @@ export function App() {
       <div className="min-h-screen">
         <Topo aba={aba} tema={tema} escuro={escuro} trocarTema={trocarTema} aoVivo={aoVivo} alternarAoVivo={() => setAoVivo((v) => !v)} sair={sair} />
         <Faixas />
-        {entrada === 'mostrar' && <BoasVindas aoTerminar={() => setEntrada('cascata')} />}
+        {/* A cascata começa quando o círculo abre (aoSair); a entrada sai da tela no fim (aoTerminar). */}
+        {entradaNaTela && <BoasVindas aoSair={() => setEntrada('cascata')} aoTerminar={() => setEntradaNaTela(false)} />}
         <main className={clsx('mx-auto max-w-7xl px-4 pt-6 pb-10 sm:px-6', entrada === 'cascata' && 'cascata')}>
           {aba === 'visao' && <Visao escuro={escuro} />}
           {aba === 'receptivo' && <Receptivo />}

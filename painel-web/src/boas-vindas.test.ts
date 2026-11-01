@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deveMostrarEntrada, primeiroNome, saudacao } from './boas-vindas';
+import { deveMostrarEntrada, primeiroNome, saudacao, valorNaContagem } from './boas-vindas';
 
 describe('boas-vindas', () => {
   it('saudação pela hora de Brasília', () => {
@@ -21,5 +21,17 @@ describe('boas-vindas', () => {
     expect(deveMostrarEntrada({ vistoEm: '2026-11-03', hoje: '2026-11-03', acabouDeEntrar: false })).toBe(false);
     expect(deveMostrarEntrada({ vistoEm: '2026-11-02', hoje: '2026-11-03', acabouDeEntrar: false })).toBe(true);
     expect(deveMostrarEntrada({ vistoEm: '2026-11-03', hoje: '2026-11-03', acabouDeEntrar: true })).toBe(true);
+  });
+});
+
+describe('contagem dos números [NOVO]', () => {
+  it('conta de 0 até o valor, rápido no começo e devagar no fim, e para no valor', () => {
+    expect(valorNaContagem(34, 0, 650)).toBe(0);
+    expect(valorNaContagem(34, 650, 650)).toBe(34);
+    expect(valorNaContagem(34, 900, 650)).toBe(34);
+    const meio = valorNaContagem(34, 325, 650);
+    expect(meio).toBeGreaterThan(17); // passa da metade na metade do tempo (desacelera no fim)
+    expect(meio).toBeLessThan(34);
+    expect(valorNaContagem(4, -50, 650)).toBe(0);
   });
 });
