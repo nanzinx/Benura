@@ -87,6 +87,23 @@ function deveVoltarAoAtivo({ classe, livreDesde, agora, ociosoMs, movido, offlin
 }
 
 /**
+ * [NOVO] Para o painel do receptivo: quanto falta para um livre da URA voltar ao Ativo, ou por
+ * que ele não volta. Segue a mesma ordem de RodizioService.deveDevolver.
+ * @param {{ classe: string, livreDesde?: number, agora: number, limiteMs: number, supervisor?: boolean,
+ *           fixo?: boolean, travadoUra?: boolean, emTransferencia?: boolean, semGrupo?: boolean }} e
+ * @returns {{ emMs: number|null, limiteMs: number, motivo: string|null }|null} null para quem não está livre
+ */
+function saidaDaUra({ classe, livreDesde, agora, limiteMs, supervisor, fixo, travadoUra, emTransferencia, semGrupo }) {
+  if (classe !== Classe.LIVRE) return null;
+  const falta = Number.isFinite(livreDesde) ? Math.max(0, livreDesde + limiteMs - agora) : null;
+  if (emTransferencia) return { emMs: null, limiteMs, motivo: 'em transferência' };
+  if (supervisor && !travadoUra) return { emMs: 0, limiteMs, motivo: 'conta de supervisor' };
+  if (fixo) return { emMs: null, limiteMs, motivo: 'fixo' };
+  if (travadoUra) return { emMs: null, limiteMs, motivo: 'travado à mão' };
+  return { emMs: falta, limiteMs, motivo: semGrupo ? 'sem grupo do Ativo' : null };
+}
+
+/**
  * Regra 2b: se todos os livres da URA vão sair por ociosidade (agora ou em
  * breve), quem é o último a sair. A regra do ocioso vale sempre: ninguém fica
  * além do TEMPO_MIN. Saber quem é o último permite parar os robôs antes, para
@@ -371,6 +388,7 @@ function excessoDeLivres(livres, n) {
 }
 
 module.exports = {
+  saidaDaUra,
   planoDosLivres,
   excessoDeLivres,
   ordenarRobos,

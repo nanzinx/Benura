@@ -20,7 +20,12 @@ export interface OperadorNaUra {
   statusDesde?: string | null;
   /** [NOVO] travado à mão pelo painel (o rodízio não mexe até liberarem) */
   travado?: OndeTravado | null;
+  /** [NOVO] quanto falta para voltar ao Ativo, ou por que não volta (só para quem está livre) */
+  saida?: SaidaDaUra | null;
 }
+
+/** [NOVO] src/domain/rodizio.js: saidaDaUra */
+export interface SaidaDaUra { emMs: number | null; limiteMs: number; motivo: string | null }
 
 /** [NOVO] onde a supervisão travou o atendente à mão */
 export type OndeTravado = 'ativo' | 'ura';

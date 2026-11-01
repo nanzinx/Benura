@@ -59,3 +59,18 @@ test('vigia: o atualizador, a automação desligada, o componente desligado e o 
     assert.equal(avisos.length, 0, JSON.stringify(caso));
   }
 });
+
+test('[NOVO] vigia de saúde repassa o /health do rodízio ao vigia de indicadores (sem chamada a mais)', async () => {
+  const lidos = [];
+  let chamadas = 0;
+  const vigia = new VigiaSaude({
+    servicos: { saude: async () => { chamadas++; return { rodizio: { nome: 'Rodízio', online: true, dados: { indicadores: { opl15Seg: 1 } } } }; } },
+    automacao: { estado: () => ({ estado: 'ligada', componentes: {} }), agindoDeVerdade: () => true },
+    notificador: { notificar: async () => ({ ok: true }) },
+    indicadores: { verificar: async (d) => { lidos.push(d); } },
+    fuso: 'America/Sao_Paulo', logger: loggerNulo,
+  });
+  await vigia.verificar();
+  assert.equal(chamadas, 1);
+  assert.deepEqual(lidos, [{ indicadores: { opl15Seg: 1 } }]);
+});

@@ -17,6 +17,7 @@ const { obterSegredo } = require('../utils/segredo-local');
 const { Sessoes } = require('./sessoes');
 const { Usuarios } = require('./usuarios');
 const { Servicos } = require('./servicos');
+const { VigiaIndicadores } = require('./vigia-indicadores');
 const { DadosDoDia } = require('./dados-do-dia');
 const { criarServidorDoPainel } = require('./servidor');
 const { ControleAutomacao } = require('./automacao');
@@ -59,7 +60,9 @@ function montarPainel(overrides) {
   });
   // [NOVO] Avisos (log ou BenHub): serviço fora do ar, resumo das 18:00 e o "Testar envio".
   const notificador = criarNotificador({ cfg, logger: log });
-  const vigiaSaude = new VigiaSaude({ servicos, automacao, notificador, fuso: cfg.agenda.fusoHorario, logger: log });
+  // [NOVO] Alertas de OPL alto e TOR subindo: lidos do mesmo /health que o vigia de saúde já busca.
+  const indicadores = new VigiaIndicadores({ automacao, notificador, cfg: cfg.notificacoes.alertas, logger: log });
+  const vigiaSaude = new VigiaSaude({ servicos, automacao, notificador, fuso: cfg.agenda.fusoHorario, logger: log, indicadores });
   const servidor = criarServidorDoPainel({
     sessoes,
     notificador,

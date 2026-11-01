@@ -366,6 +366,12 @@ function carregarConfig(overrides = {}) {
       token: env('NOTIFICACOES_WEBHOOK_TOKEN', ''),
       timeoutMs: envNum('NOTIFICACOES_WEBHOOK_TIMEOUT_MS', 5000),
     },
+    // [NOVO] Alertas da operação (0 desliga cada um): OPL dos últimos 15 min acima disto (segundos
+    // por lead) e minutos de TOR na última hora (gente livre na URA com todos os robôs desligados).
+    alertas: {
+      oplSeg: envNum('ALERTA_OPL_SEG', 300),
+      torMin: envNum('ALERTA_TOR_MIN', 10),
+    },
   };
 
   // --- Rotinas diárias (rotinas.js / benura-rotinas) ---

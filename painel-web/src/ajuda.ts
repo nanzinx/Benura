@@ -83,6 +83,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       'Pausar (os tipos vêm da Argus), Sair da pausa, Ficar disponível e Deslogar (pede confirmação).',
       'Mandar para o Ativo ou Trazer para a URA. Quem é movido à mão fica travado onde foi posto até "Liberar para o rodízio" ou até virar o dia.',
+      'Embaixo do status de cada livre na URA: "sai em 0:45" é quanto falta para voltar ao Ativo (2 min mais a antiguidade). Se ele não sai, aparece o motivo: fixo, travado à mão, conta de supervisor ou sem grupo do Ativo (neste caso, defina o grupo do supervisor dele).',
       'Só vale para humanos da URA ou do Ativo. Cada ação fica no log com quem pediu.',
     ],
   },
@@ -133,6 +134,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'Às 18:00, antes de desligar, manda o resumo do dia: transbordos, leads derivados, TME, OPL, TOR e TPA, com o dia anterior e a semana.',
       'Os avisos ficam sempre no log de hoje. Com o BenHub configurado, também chegam lá. "Testar envio" confere.',
       'Webhook de transferências: sistemas cadastrados recebem um aviso (código da Argus, nome e "Transferido da URA para o Ativo" ou o contrário) a cada operador transferido. No cartão "Clientes do webhook de transferências" o administrador cadastra (nome e endereço; o segredo aparece uma vez só, para passar ao cliente), testa e remove. O cliente também pode se cadastrar por API.',
+      'Alertas da operação: OPL dos últimos 15 min acima de 5 min por lead (gente demais livre) e mais de 10 min na última hora com gente livre e todos os robôs desligados (TOR). Avisam uma vez; o OPL avisa também quando normaliza.',
     ],
   },
   {
