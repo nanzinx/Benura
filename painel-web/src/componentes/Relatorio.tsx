@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { duracao, minutos } from '../formatos';
 import { baixarXlsx } from '../planilha';
 import {
-  abasDoRelatorio, diaCurto, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio, type CampoDoQuadro, type Nivel, type Tendencia,
+  abasDoRelatorio, colunaDoStatus, diaCurto, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio, type CampoDoQuadro, type Nivel, type Tendencia,
 } from '../relatorio';
 import { useStatusUra, useVisao } from '../dados';
 import { semAcesso, usePode } from '../sessao';
@@ -187,7 +187,9 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
   const piorOcioso = Math.max(0, ...horas.map((h) => h.ociosoSemRobosMin));
   // [NOVO] Os quadros e o total somam as horas mostradas (só o expediente, 08h às 17h).
   const t = totaisDoRelatorio(r);
-  const [panicoTotal, ociosoTotal, livresTotal, oplTotal, esperaQtdTotal, tmeTotal, calmaTotal] = [t.tpa, t.tor, t.livres, t.opl, t.esperaQtd, t.tme, t.calma];
+  const [panicoTotal, ociosoTotal, livresTotal, oplTotal, esperaQtdTotal, tmeTotal] = [t.tpa, t.tor, t.livres, t.opl, t.esperaQtd, t.tme];
+  // [NOVO] A coluna de status da tabela segue o status da URA de agora (calma, normal, agressiva).
+  const coluna = colunaDoStatus(horas, statusAtual);
   const c = r.comparacao;
   const numero = (v: number | null) => (v == null ? '–' : String(v));
   const vezes = r.panicoVezes.zero + r.panicoVezes.saindo + r.panicoVezes.fixo;
@@ -233,10 +235,12 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
               <th className="text-right"><abbr title={DICAS.opl} className="cursor-help no-underline">OPL</abbr></th>
               <th className="text-right"><abbr title={DICAS.tor} className="cursor-help no-underline">TOR</abbr></th>
               <th className="text-right"><abbr title={DICAS.tpa} className="cursor-help no-underline">TPA</abbr></th>
-              <th className="text-right">Calma</th>
+              <th className="text-right" title={`Minutos em ${coluna.titulo.toLowerCase()} em cada hora (segue o status da URA)`}>
+                <span className="inline-flex items-center gap-1.5"><span className={clsx('size-2 rounded-full', CORES_TERMOMETRO[coluna.status])} aria-hidden />{coluna.titulo}</span>
+              </th>
               <th className="text-right"><abbr title={DICAS.transbordos} className="cursor-help no-underline">Transbordos</abbr></th>
             </tr></thead>
-            <tbody>{horas.map((x) => {
+            <tbody>{horas.map((x, i) => {
               const tb = x.transbordos ?? 0;
               const maisOciosa = piorOcioso >= 5 && x.ociosoSemRobosMin === piorOcioso;
               return (
@@ -247,7 +251,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
                   <td className="numero text-right">{duracao(x.esperaPorDerivacaoSeg)}</td>
                   <td className="numero text-right">{minutos(x.ociosoSemRobosMin)}</td>
                   <td className="numero text-right">{minutos(x.panicoMin)}</td>
-                  <td className="numero text-right">{minutos(x.calmaMin)}</td>
+                  <td className="numero text-right">{minutos(coluna.porHora[i])}</td>
                   <td className={clsx('numero text-right', tb && 'font-bold text-red-700 dark:text-red-400')}>{tb}</td>
                 </tr>
               );
@@ -260,7 +264,7 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
               <td className="numero text-right">{duracao(oplTotal)}</td>
               <td className="numero text-right">{minutos(ociosoTotal)}</td>
               <td className="numero text-right">{minutos(panicoTotal)}</td>
-              <td className="numero text-right">{minutos(calmaTotal)}</td>
+              <td className="numero text-right">{minutos(coluna.total)}</td>
               <td className={clsx('numero text-right', transbordos && 'text-red-700 dark:text-red-400')}>{transbordos}</td>
             </tr></tfoot>
           </table>
