@@ -14,7 +14,7 @@ import { Marca } from './Marca';
 import { CORES_DA_URA, NOMES_DA_URA } from './StatusUra';
 
 const DURACAO_MS = 2200;
-const SAIDA_MS = 350;
+const SAIDA_MS = 450;
 
 export function BoasVindas({ aoTerminar }: { aoTerminar: () => void }) {
   const sessao = useSessao();
@@ -47,9 +47,14 @@ export function BoasVindas({ aoTerminar }: { aoTerminar: () => void }) {
   return (
     <div role="status" aria-live="polite" onClick={() => setSaindo(true)}
       className={clsx('fixed inset-0 z-50 grid cursor-pointer place-items-center overflow-hidden bg-gradient-to-br from-marinho-900 to-marinho-950 px-6 text-center', saindo && 'bv-saindo')}>
-      <div className="pointer-events-none absolute -bottom-48 -left-48 size-[560px] rounded-full bg-amarelo-500/15 blur-3xl" aria-hidden />
-      <div className="relative grid justify-items-center gap-6">
-        <div className="bv-logo"><Marca tamanho="grande" /></div>
+      <div className="bv-brilho pointer-events-none absolute -bottom-48 -left-48 size-[560px] rounded-full bg-amarelo-500/15 blur-3xl" aria-hidden />
+      <div className={clsx('relative grid justify-items-center gap-6', saindo && 'bv-expandir')}>
+        <div className="relative">
+          {/* ondas de luz saindo da logo */}
+          <span className="bv-onda pointer-events-none absolute top-1/2 left-7 size-14 -translate-x-1/2 -translate-y-1/2 rounded-2xl border-2 border-amarelo-400/70" aria-hidden />
+          <span className="bv-onda pointer-events-none absolute top-1/2 left-7 size-14 -translate-x-1/2 -translate-y-1/2 rounded-2xl border-2 border-amarelo-400/70" style={{ animationDelay: '0.45s' }} aria-hidden />
+          <div className="bv-logo"><Marca tamanho="grande" /></div>
+        </div>
         <p className="bv-surgir text-2xl font-semibold text-white sm:text-3xl" style={{ animationDelay: '0.35s' }}>
           {saudacao()}{nome ? `, ${nome}` : ''}
         </p>

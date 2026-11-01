@@ -75,10 +75,16 @@
 @keyframes bv-logo { 0% { opacity: 0; transform: scale(0.85); } 60% { opacity: 1; transform: scale(1.04); } 100% { opacity: 1; transform: none; } }
 @keyframes bv-surgir { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes bv-sair { to { opacity: 0; visibility: hidden; } }
+@keyframes bv-expandir { to { opacity: 0; transform: scale(1.12); filter: blur(4px); } }
+@keyframes bv-onda { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -50%) scale(3.2); } }
+@keyframes bv-brilho { 0%, 100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.15); } }
 @keyframes bv-esmaecer { from { opacity: 0; } to { opacity: 1; } }
 .bv-logo { animation: bv-logo 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .bv-surgir { animation: bv-surgir 0.45s ease-out both; }
-.bv-saindo { animation: bv-sair 0.35s ease-in forwards; }
+.bv-saindo { animation: bv-sair 0.45s ease-in forwards; }
+.bv-expandir { animation: bv-expandir 0.45s ease-in forwards; }
+.bv-onda { animation: bv-onda 1.3s ease-out 0.15s both; }
+.bv-brilho { animation: bv-brilho 2.4s ease-in-out infinite; }
 .cascata > * { animation: bv-surgir 0.45s ease-out both; }
 .cascata > *:nth-child(2) { animation-delay: 0.06s; }
 .cascata > *:nth-child(3) { animation-delay: 0.12s; }
@@ -87,4 +93,6 @@
 .cascata > *:nth-child(n + 6) { animation-delay: 0.3s; }
 @media (prefers-reduced-motion: reduce) {
   .bv-logo, .bv-surgir, .cascata > * { animation: bv-esmaecer 0.2s ease-out both; animation-delay: 0s; }
+  .bv-onda, .bv-brilho { animation: none; opacity: 0; }
+  .bv-expandir { animation: bv-sair 0.2s ease-in forwards; }
 }
