@@ -42,3 +42,9 @@ export function marcarVisto(hoje: string): void {
     /* sem armazenamento: aparece de novo na próxima vez, sem problema */
   }
 }
+
+/** [NOVO] Os números da entrada contam de 0 até o valor em `duracaoMs` (rápido no começo, devagar no fim). */
+export function valorNaContagem(ate: number, passadoMs: number, duracaoMs: number): number {
+  const p = Math.min(1, Math.max(0, passadoMs / duracaoMs));
+  return Math.round(ate * (1 - (1 - p) ** 3));
+}
