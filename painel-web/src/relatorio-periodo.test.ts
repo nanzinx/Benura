@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { abasDoPeriodo, colunaDoStatus, diaMaisOcioso, horaMaisOciosa, indicadoresDoPeriodo, statusPorDia } from './relatorio';
+import { abasDoPeriodo, colunaDoStatus, diaMaisOcioso, diasVisiveis, horaMaisOciosa, indicadoresDoPeriodo, limiteVerde, serieDaTendencia, statusPorDia } from './relatorio';
 import type { DiaDoPeriodo, RelatorioDoPeriodo, TotaisDoPeriodo } from './tipos';
 
 const dia = (d: string, x: Partial<DiaDoPeriodo> = {}): DiaDoPeriodo => ({
@@ -50,5 +50,25 @@ describe('relatório de 7 e 30 dias', () => {
     expect(abas[1]!.linhas[0]).toEqual(['Indicador', 'Últimos 7 dias', '7 dias antes']);
     expect(abas[1]!.linhas.find((l) => l[0] === 'Transbordos por dia')).toEqual(['Transbordos por dia', 3, 4]);
     expect(abas[2]!.linhas[1]).toEqual(['Ana', '201', 3, 30, 45, 600, 40]);
+  });
+
+  it('30 dias: mostra os 10 mais recentes, ou todos quando pedido', () => {
+    const muitos = Array.from({ length: 21 }, (_, i) => dia(`2026-10-${String(i + 1).padStart(2, '0')}`));
+    expect(diasVisiveis(muitos, false).map((d) => d.dia)).toEqual(muitos.slice(-10).map((d) => d.dia));
+    expect(diasVisiveis(muitos, true)).toHaveLength(21);
+    expect(diasVisiveis(p.dias, false), 'com 10 ou menos, todos').toHaveLength(3);
+  });
+
+  it('tendência: uma série por vez, dia a dia, com hoje marcado; o limite verde de cada indicador', () => {
+    expect(serieDaTendencia(p.dias, 'oplSeg')).toEqual([
+      { dia: '2026-10-27', rotulo: 'ter 27/10', valor: 120, hoje: false },
+      { dia: '2026-10-28', rotulo: 'qua 28/10', valor: 410, hoje: false },
+      { dia: '2026-11-02', rotulo: 'seg 02/11', valor: 200, hoje: true },
+    ]);
+    expect(serieDaTendencia(p.dias, 'transbordos').map((x) => x.valor)).toEqual([2, 5, 2]);
+    expect(serieDaTendencia([dia('2026-10-27', { tmeSeg: null })], 'tmeSeg')[0]!.valor).toBeNull();
+    expect(limiteVerde('oplSeg')).toBe(180);
+    expect(limiteVerde('transbordos')).toBe(0);
+    expect(limiteVerde('leadsDerivados')).toBeNull();
   });
 });

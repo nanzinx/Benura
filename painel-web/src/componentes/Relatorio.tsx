@@ -1,16 +1,17 @@
 import { clsx } from 'clsx';
-import { CalendarDays, Check, ChevronDown, Download, Hourglass, Lightbulb, Lock, TriangleAlert, Wand2 } from 'lucide-react';
+import { CalendarDays, ChartLine, Check, ChevronDown, Download, Hourglass, Lightbulb, Lock, TriangleAlert, Wand2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { duracao, minutos } from '../formatos';
 import { baixarXlsx } from '../planilha';
 import {
-  abasDoPeriodo, abasDoRelatorio, colunaDoStatus, diaCurto, diaMaisOcioso, horaMaisOciosa, indicadoresDoPeriodo, nivelDoIndicador, statusPorDia, statusPorHora, tendencia,
-  totaisDoRelatorio, type CampoDoQuadro, type Nivel, type Tendencia,
+  abasDoPeriodo, abasDoRelatorio, colunaDoStatus, diaCurto, diaMaisOcioso, diasVisiveis, horaMaisOciosa, indicadoresDoPeriodo, nivelDoIndicador, statusPorDia, statusPorHora, tendencia,
+  totaisDoRelatorio, type CampoDaTendencia, type CampoDoQuadro, type Nivel, type Tendencia,
 } from '../relatorio';
 import { useRelatorioPeriodo, useStatusUra, useVisao } from '../dados';
 import { semAcesso, usePode } from '../sessao';
 import type { EstadoTermometro, RelatorioDoDia, RelatorioDoPeriodo, StatusDaUra, Sugestao } from '../tipos';
-import { Botao, Cartao, Esqueleto, Segmentado, Vazio } from '../ui/base';
+import { Botao, Cartao, Esqueleto, Segmentado, Vazio, useAberto } from '../ui/base';
+import { GraficoTendencia } from './GraficoTendencia';
 import { CORES_DA_URA, NOMES_DA_URA } from './StatusUra';
 
 const CORES_TERMOMETRO: Record<EstadoTermometro, string> = {
@@ -244,7 +245,7 @@ function RelatorioDeHoje({ r, statusAtual, seletor }: { r: RelatorioDoDia | null
       <BarraTermometro r={r} />
       {horas.length ? (
         <div className="overflow-x-auto">
-          <table className="tabela">
+          <table className="tabela tabela-cartoes">
             <thead><tr>
               <th>Hora</th>
               <th className="text-right"><abbr title={DICAS.leads} className="cursor-help no-underline">Leads derivados</abbr></th>
@@ -262,27 +263,27 @@ function RelatorioDeHoje({ r, statusAtual, seletor }: { r: RelatorioDoDia | null
               const maisOciosa = x.hora === maisOciosaHora;
               return (
                 <tr key={x.hora} className={clsx(maisOciosa && 'bg-amarelo-100/60 dark:bg-amber-950/30')}>
-                  <td className="numero whitespace-nowrap font-semibold">{x.hora}h{maisOciosa && <span title="A hora com mais tempo livre por lead (OPL mais alto)" className="ml-2 cursor-help rounded-md bg-amarelo-500 px-1.5 py-0.5 text-[11px] font-bold text-marinho-950">mais ociosa</span>}</td>
-                  <td className="numero text-right">{x.leadsDerivados ?? 0}</td>
-                  <td className="numero text-right">{duracao(x.tmeSeg ?? null)}</td>
-                  <td className="numero text-right">{duracao(x.esperaPorDerivacaoSeg)}</td>
-                  <td className="numero text-right">{minutos(x.ociosoSemRobosMin)}</td>
-                  <td className="numero text-right">{minutos(x.panicoMin)}</td>
-                  <td className="numero text-right">{minutos(coluna.porHora[i])}</td>
-                  <td className={clsx('numero text-right', tb && 'font-bold text-red-700 dark:text-red-400')}>{tb}</td>
+                  <td data-rotulo="Hora" className="numero whitespace-nowrap font-semibold">{x.hora}h{maisOciosa && <span title="A hora com mais tempo livre por lead (OPL mais alto)" className="ml-2 cursor-help rounded-md bg-amarelo-500 px-1.5 py-0.5 text-[11px] font-bold text-marinho-950">mais ociosa</span>}</td>
+                  <td data-rotulo="Leads derivados" className="numero text-right">{x.leadsDerivados ?? 0}</td>
+                  <td data-rotulo="TME" className="numero text-right">{duracao(x.tmeSeg ?? null)}</td>
+                  <td data-rotulo="OPL" className="numero text-right">{duracao(x.esperaPorDerivacaoSeg)}</td>
+                  <td data-rotulo="TOR" className="numero text-right">{minutos(x.ociosoSemRobosMin)}</td>
+                  <td data-rotulo="TPA" className="numero text-right">{minutos(x.panicoMin)}</td>
+                  <td data-rotulo={coluna.titulo} className="numero text-right">{minutos(coluna.porHora[i])}</td>
+                  <td data-rotulo="Transbordos" className={clsx('numero text-right', tb && 'font-bold text-red-700 dark:text-red-400')}>{tb}</td>
                 </tr>
               );
             })}</tbody>
             {/* [NOVO] Total do dia (00:00 até agora), com os mesmos números dos quadros de cima. */}
             <tfoot><tr className="border-t-2 border-slate-300 font-bold dark:border-noite-600">
-              <td className="numero whitespace-nowrap">Total</td>
-              <td className="numero text-right">{r.leadsDerivados ?? 0}</td>
-              <td className="numero text-right">{duracao(tmeTotal)}</td>
-              <td className="numero text-right">{duracao(oplTotal)}</td>
-              <td className="numero text-right">{minutos(ociosoTotal)}</td>
-              <td className="numero text-right">{minutos(panicoTotal)}</td>
-              <td className="numero text-right">{minutos(coluna.total)}</td>
-              <td className={clsx('numero text-right', transbordos && 'text-red-700 dark:text-red-400')}>{transbordos}</td>
+              <td data-rotulo="Hora" className="numero whitespace-nowrap">Total</td>
+              <td data-rotulo="Leads derivados" className="numero text-right">{r.leadsDerivados ?? 0}</td>
+              <td data-rotulo="TME" className="numero text-right">{duracao(tmeTotal)}</td>
+              <td data-rotulo="OPL" className="numero text-right">{duracao(oplTotal)}</td>
+              <td data-rotulo="TOR" className="numero text-right">{minutos(ociosoTotal)}</td>
+              <td data-rotulo="TPA" className="numero text-right">{minutos(panicoTotal)}</td>
+              <td data-rotulo={coluna.titulo} className="numero text-right">{minutos(coluna.total)}</td>
+              <td data-rotulo="Transbordos" className={clsx('numero text-right', transbordos && 'text-red-700 dark:text-red-400')}>{transbordos}</td>
             </tr></tfoot>
           </table>
         </div>
@@ -296,6 +297,9 @@ function RelatorioDeHoje({ r, statusAtual, seletor }: { r: RelatorioDoDia | null
 
 // ───────────── [NOVO] Relatório de 7 e 30 dias ─────────────
 
+/** Na tabela do período, com mais que isso, só os mais recentes (e "Ver todos"). */
+const LIMITE_DE_DIAS = 10;
+
 const virgula = (v: number | null | undefined) => (v == null ? '–' : String(Math.round(v * 10) / 10).replace('.', ','));
 
 /** "7 dias antes: 1,3/dia", verde com ▼ quando o período atual está melhor (menor), vermelho com ▲ quando pior. */
@@ -306,7 +310,7 @@ function comparativoDoPeriodo(rotulo: string, atual: number | null, antes: numbe
     <span className={clsx('flex items-center gap-1 truncate whitespace-nowrap', t && COR_DA_TENDENCIA[t])} title={t ? { melhor: 'agora está melhor', pior: 'agora está pior', igual: 'igual' }[t] : undefined}>
       {t && t !== 'igual' && <span aria-hidden>{SETA[t]}</span>}
       {/* no celular, "antes" (o quadro é estreito e o número cortava) */}
-      <span className="sm:hidden">antes</span><span className="max-sm:hidden">{rotulo}</span>: {formatar(antes ?? null)}
+      <span className="sm:hidden">antes:</span><span className="max-sm:hidden">{rotulo}:</span> {formatar(antes ?? null)}
     </span>
   );
 }
@@ -375,6 +379,10 @@ function Sugestoes({ lista }: { lista: Sugestao[] }) {
 /** Relatório de 7 ou 30 dias: os mesmos quadros (em média por dia), a barra e a tabela dia a dia e as sugestões. */
 function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30; statusAtual?: EstadoTermometro | null; seletor: ReactNode }) {
   const { data: p, isPending, error } = useRelatorioPeriodo(dias);
+  // [NOVO] a tendência só com um clique (fechada não ocupa a tela) e a tabela de 30 dias curta; o navegador lembra
+  const [tendenciaAberta, setTendenciaAberta] = useAberto('relatorio-tendencia', false);
+  const [campoTendencia, setCampoTendencia] = useState<CampoDaTendencia>('oplSeg');
+  const [todosOsDias, setTodosOsDias] = useAberto(`relatorio-todos-${dias}`, false);
   const titulo = dias === 30 ? 'Relatório do mês' : 'Relatório da semana';
   const extra = (
     <>
@@ -406,6 +414,8 @@ function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30
   const porDia = (v: number | null) => (v == null ? '–' : `${virgula(v)}/dia`);
   const minPorDia = (v: number | null) => (v == null ? '–' : `${minutos(v)}/dia`);
   const coluna = colunaDoStatus(p.dias, statusAtual);
+  // [NOVO] com mais de 10 dias, só os mais recentes (o total embaixo é sempre do período todo)
+  const visiveis = diasVisiveis(p.dias.map((d, i) => ({ d, i })), todosOsDias, LIMITE_DE_DIAS);
   const maisOciosoDia = diaMaisOcioso(p.dias);
   const pior = [...p.dias].sort((a, b) => b.transbordos - a.transbordos)[0];
   return (
@@ -423,13 +433,28 @@ function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30
         <Numero rotulo="TPA" dica={DICAS.tpa} valor={minPorDia(ind.tpaMin)} nivel={nivelDoIndicador('tpaMin', ind.tpaMin)}
           nota={`${minutos(t.tpaMin)} no período`} comparar={comparativoDoPeriodo(rotuloAntes, ind.tpaMin, antes('tpaMin'), minPorDia)} />
         <Numero rotulo="Leads derivados" dica={DICAS.leads} valor={t.leadsDerivados} nota={`${virgula(t.leadsDia)}/dia`}
-          comparar={p.anterior ? <span className="truncate whitespace-nowrap"><span className="sm:hidden">antes</span><span className="max-sm:hidden">{rotuloAntes}</span>: {virgula(p.anterior.leadsDia)}/dia</span> : undefined} />
+          comparar={p.anterior ? <span className="truncate whitespace-nowrap"><span className="sm:hidden">antes:</span> <span className="max-sm:hidden">{rotuloAntes}:</span> {virgula(p.anterior.leadsDia)}/dia</span> : undefined} />
       </div>
+      {p.dias.length > 1 && (
+        <div className="mb-4">
+          <button type="button" onClick={() => setTendenciaAberta(!tendenciaAberta)} aria-expanded={tendenciaAberta}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-azul-700 hover:bg-azul-50 dark:text-azul-300 dark:hover:bg-noite-800">
+            <ChartLine className="size-4" aria-hidden />
+            {tendenciaAberta ? 'Esconder a tendência' : 'Ver tendência dia a dia'}
+            <ChevronDown className={clsx('size-4 transition-transform', tendenciaAberta && 'rotate-180')} aria-hidden />
+          </button>
+          {tendenciaAberta && (
+            <div className="mt-2 animate-entrar rounded-xl border border-slate-200 p-3 dark:border-noite-700">
+              <GraficoTendencia dias={p.dias} campo={campoTendencia} aoMudar={setCampoTendencia} />
+            </div>
+          )}
+        </div>
+      )}
       <Sugestoes lista={p.sugestoes} />
       <BarraPorDia p={p} />
       {p.dias.length ? (
         <div className="overflow-x-auto">
-          <table className="tabela whitespace-nowrap">
+          <table className="tabela tabela-cartoes sm:whitespace-nowrap">
             <thead><tr>
               <th>Dia</th>
               <th className="text-right"><abbr title={DICAS.leads} className="cursor-help no-underline">Leads derivados</abbr></th>
@@ -443,40 +468,46 @@ function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30
               <th className="text-right" title="Média de robôs ligados no expediente">Robôs</th>
               <th className="text-right"><abbr title={DICAS.transbordos} className="cursor-help no-underline">Transbordos</abbr></th>
             </tr></thead>
-            <tbody>{p.dias.map((d, i) => {
+            <tbody>{visiveis.map(({ d, i }) => {
               const maisOcioso = d.dia === maisOciosoDia;
               return (
                 <tr key={d.dia} className={clsx(maisOcioso && 'bg-amarelo-100/60 dark:bg-amber-950/30')}>
-                  <td className="numero whitespace-nowrap font-semibold">
+                  <td data-rotulo="Dia" className="numero whitespace-nowrap font-semibold">
                     {diaCurto(d.dia)}
                     {d.hoje && <span className="ml-2 rounded-md bg-azul-100 px-1.5 py-0.5 text-[11px] font-bold text-azul-800 dark:bg-noite-700 dark:text-azul-300" title="Hoje ainda não acabou">hoje</span>}
                     {maisOcioso && <span title="O dia com mais tempo livre por lead (OPL mais alto)" className="ml-2 cursor-help rounded-md bg-amarelo-500 px-1.5 py-0.5 text-[11px] font-bold text-marinho-950">mais ocioso</span>}
                   </td>
-                  <td className="numero text-right">{d.leadsDerivados}</td>
-                  <td className="numero text-right">{duracao(d.tmeSeg)}</td>
-                  <td className="numero text-right">{duracao(d.oplSeg)}</td>
-                  <td className="numero text-right">{minutos(d.torMin)}</td>
-                  <td className="numero text-right">{minutos(d.tpaMin)}</td>
-                  <td className="numero text-right">{minutos(coluna.porHora[i])}</td>
-                  <td className="numero text-right">{virgula(d.robosLigadosMedia)}</td>
-                  <td className={clsx('numero text-right', d.transbordos > 0 && 'font-bold text-red-700 dark:text-red-400')}>{d.transbordos}</td>
+                  <td data-rotulo="Leads derivados" className="numero text-right">{d.leadsDerivados}</td>
+                  <td data-rotulo="TME" className="numero text-right">{duracao(d.tmeSeg)}</td>
+                  <td data-rotulo="OPL" className="numero text-right">{duracao(d.oplSeg)}</td>
+                  <td data-rotulo="TOR" className="numero text-right">{minutos(d.torMin)}</td>
+                  <td data-rotulo="TPA" className="numero text-right">{minutos(d.tpaMin)}</td>
+                  <td data-rotulo={coluna.titulo} className="numero text-right">{minutos(coluna.porHora[i])}</td>
+                  <td data-rotulo="Robôs" className="numero text-right">{virgula(d.robosLigadosMedia)}</td>
+                  <td data-rotulo="Transbordos" className={clsx('numero text-right', d.transbordos > 0 && 'font-bold text-red-700 dark:text-red-400')}>{d.transbordos}</td>
                 </tr>
               );
             })}</tbody>
             <tfoot><tr className="border-t-2 border-slate-300 font-bold dark:border-noite-600">
-              <td className="numero whitespace-nowrap">Total</td>
-              <td className="numero text-right">{t.leadsDerivados}</td>
-              <td className="numero text-right">{duracao(t.tmeSeg)}</td>
-              <td className="numero text-right">{duracao(t.oplSeg)}</td>
-              <td className="numero text-right">{minutos(t.torMin)}</td>
-              <td className="numero text-right">{minutos(t.tpaMin)}</td>
-              <td className="numero text-right">{minutos(coluna.total)}</td>
-              <td className="numero text-right" />
-              <td className={clsx('numero text-right', t.transbordos > 0 && 'text-red-700 dark:text-red-400')}>{t.transbordos}</td>
+              <td data-rotulo="Dia" className="numero whitespace-nowrap">Total</td>
+              <td data-rotulo="Leads derivados" className="numero text-right">{t.leadsDerivados}</td>
+              <td data-rotulo="TME" className="numero text-right">{duracao(t.tmeSeg)}</td>
+              <td data-rotulo="OPL" className="numero text-right">{duracao(t.oplSeg)}</td>
+              <td data-rotulo="TOR" className="numero text-right">{minutos(t.torMin)}</td>
+              <td data-rotulo="TPA" className="numero text-right">{minutos(t.tpaMin)}</td>
+              <td data-rotulo={coluna.titulo} className="numero text-right">{minutos(coluna.total)}</td>
+              <td data-rotulo="Robôs" className="numero text-right" />
+              <td data-rotulo="Transbordos" className={clsx('numero text-right', t.transbordos > 0 && 'text-red-700 dark:text-red-400')}>{t.transbordos}</td>
             </tr></tfoot>
           </table>
         </div>
       ) : <Vazio>Ainda não há dias guardados neste período.</Vazio>}
+      {p.dias.length > LIMITE_DE_DIAS && (
+        <button type="button" onClick={() => setTodosOsDias(!todosOsDias)}
+          className="mt-2 w-full cursor-pointer rounded-lg py-1.5 text-sm font-medium text-azul-600 hover:bg-azul-50 dark:text-azul-300 dark:hover:bg-noite-800">
+          {todosOsDias ? `Mostrar só os ${LIMITE_DE_DIAS} mais recentes` : `Ver todos os ${p.dias.length} dias`}
+        </button>
+      )}
       <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
         Desde {diaCurto(p.desde)}. TOR, TPA e transbordos dos quadros em média por dia completo (a mesma régua de cores do dia); TME e OPL somando o período.
         Hoje entra nas somas, ainda parcial, mas não nas médias por dia. A comparação é com os {dias} dias anteriores.

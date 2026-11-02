@@ -116,6 +116,8 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'A configuração inclui o cálculo (taxa ou fixo), os robôs por livre, a espera alvo e, na calma, o "todos com N livres". Dia em que ela mudou no meio (reinício com outro .env) não entra.',
       'Se o OPL melhorou mas os transbordos subiram mais de 30%, a sugestão avisa e não aponta vencedor. Com 2 semanas de dados (das últimas 8), ela mostra também o dia da semana mais ocioso. As sugestões usam todo o histórico, não só os dias da aba.',
       'As sugestões só sugerem: quem muda os números é a supervisão, no .env. A "Planilha" da aba baixa por dia, os totais com o período anterior e por atendente.',
+      '"Ver tendência dia a dia" (logo abaixo dos quadros) abre um gráfico de um indicador por vez: OPL, transbordos, TME ou leads. A linha verde marca o fim da faixa verde. Fechado, não ocupa a tela; o navegador lembra se você deixou aberto.',
+      'Nos 30 dias, a tabela mostra os 10 dias mais recentes; "Ver todos" mostra o resto. O total é sempre do período inteiro. No celular, cada linha das tabelas do relatório vira um cartão.',
     ],
   },
   {

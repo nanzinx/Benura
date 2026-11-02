@@ -203,3 +203,21 @@ export function abasDoPeriodo(p: RelatorioDoPeriodo): Aba[] {
   }
   return abas;
 }
+
+/** [NOVO] Tabela do período: com mais de `limite` dias, os mais recentes (o "Ver todos" mostra o resto). */
+export function diasVisiveis<T>(dias: T[], todos: boolean, limite = 10): T[] {
+  return todos || dias.length <= limite ? dias : dias.slice(-limite);
+}
+
+/** [NOVO] Os indicadores do gráfico de tendência (um por vez: escalas diferentes não dividem eixo). */
+export type CampoDaTendencia = 'oplSeg' | 'transbordos' | 'tmeSeg' | 'leadsDerivados';
+
+/** Um ponto por dia do período, com hoje (parcial) marcado. */
+export function serieDaTendencia(dias: DiaDoPeriodo[], campo: CampoDaTendencia) {
+  return dias.map((d) => ({ dia: d.dia, rotulo: diaCurto(d.dia), valor: d[campo] ?? null, hoje: Boolean(d.hoje) }));
+}
+
+/** O fim da faixa verde de cada indicador (a linha de referência do gráfico); leads não tem. */
+export function limiteVerde(campo: CampoDaTendencia): number | null {
+  return campo === 'leadsDerivados' ? null : FAIXAS_DOS_QUADROS[campo].bom;
+}
