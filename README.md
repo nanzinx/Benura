@@ -595,13 +595,13 @@ Como funciona:
 - O componente desligado espera ao subir (PC reiniciado, `pm2 start all`), como na automação toda.
 - "Desligar automação" e a agenda mexem só no todo e mantêm as marcas: o "Religar" (e as 08:00) sobe só quem não foi desligado à mão.
 - O atualizador não sobe nem espera o `/health` de quem está desligado. O "Fora do ar" e os avisos ignoram esse componente, e uma faixa amarela no topo mostra quem desligou.
-- Com os três desligados, este PC solta a trava dos dois PCs.
+- Com os três desligados, este servidor solta a trava dos dois servidores.
 
 Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o caminho de emergência continua sendo `npx pm2 stop all` no PC do BenURA.
 
 **[NOVO] Agenda da automação:** de segunda a sexta, o painel desliga a automação sozinho às `AGENDA_DESLIGAR` (**18:00**) e religa às `AGENDA_RELIGAR` (**08:00**), como se alguém apertasse os botões. A noite e o fim de semana não entram no relatório do dia.
 - **Só na hora marcada** (até 5 min depois): quem religar à mão de noite, para hora extra, continua ligado.
-- **Às 08:00 só religa o que a agenda desligou:** desligada à mão (ou o PC reserva, que fica desligado) continua desligada.
+- **Às 08:00 só religa o que a agenda desligou:** desligada à mão (ou o servidor de reserva, que fica desligado) continua desligada.
 - **Fim de semana:** desliga na sexta às 18:00 e religa na segunda às 08:00.
 - No log: `Agenda: desligando a automação (18:00)` e `Agenda: religando a automação (08:00)`. Para não ter agenda, deixe as duas variáveis vazias no `.env`.
 
@@ -614,7 +614,7 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
   - `0` desliga cada alerta. O `/health` do rodízio mostra `indicadores: { opl15Seg, derivacoes15, tor60Min, coberturaMin }`.
 - Os avisos ficam sempre no log de hoje (`logs/notificacoes.jsonl`).
 - Com `NOTIFICADOR=webhook`, `NOTIFICACOES_WEBHOOK_URL` e `NOTIFICACOES_WEBHOOK_TOKEN`, também vão para o BenHub (ou qualquer webhook). É um `POST` em JSON `{ titulo, texto, nivel, origem: "BenURA", em }` com `Authorization: Bearer <token>`. Pedido ao BenHub: a rota `POST /api/notificacoes`.
-- Não avisam: o atualizador, a automação desligada ou mudando de estado, e o PC que não está agindo de verdade (o reserva ou a simulação). Assim os dois PCs não avisam em dobro.
+- Não avisam: o atualizador, a automação desligada ou mudando de estado, e o servidor que não está agindo de verdade (o de reserva ou a simulação). Assim os dois servidores não avisam em dobro.
 - **Testar envio** manda um aviso de teste e diz se chegou. A URL e o token não aparecem no painel nem nos logs.
 
 **[NOVO] Webhook de transferências para clientes:** um sistema cliente se cadastra por API e recebe `{ "codigo", "nome", "mensagem" }` a cada operador transferido entre a URA e o Ativo. O `codigo` é o `idUsuario` da Argus. O contrato completo, para passar ao cliente, está em [`docs/webhook-clientes.md`](docs/webhook-clientes.md).
@@ -822,7 +822,7 @@ A produção segue no **PM2 como serviço do Windows**, que tem o atualizador au
 - **Travas de instância única num `tmpfs`** (`/run/benura`). Num container novo os PIDs se repetem, e uma trava velha impediria a subida.
 - **Portas:** `3000` (webhooks da Argus), `3001` (webhook de venda) e `3010` (painel).
   - **Por padrão, só no próprio PC** (`127.0.0.1`). O painel chega pelo túnel (que roda dentro do container) e pelo navegador do PC.
-  - **Para abrir na rede da empresa** (outro PC, a reserva ou os webhooks da Argus), ponha no `.env` o IP do PC na rede: `BENURA_IP_PAINEL=192.168.0.20` e `BENURA_IP_WEBHOOKS=192.168.0.20`.
+  - **Para abrir na rede da empresa** (outro PC, o servidor de reserva ou os webhooks da Argus), ponha no `.env` o IP do PC na rede: `BENURA_IP_PAINEL=192.168.0.20` e `BENURA_IP_WEBHOOKS=192.168.0.20`.
 - **Configuração:** o mesmo `.env` do servidor (`env_file`).
 
 **Endurecido contra invasão** (se alguém achar uma falha no BenURA, fica preso e sem poder):
@@ -1014,7 +1014,7 @@ O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estã
 **Só os IPs da empresa** (o resto vê "Acesso só pela rede da Benconsig", com o próprio IP):
 1. **No Pages** (Settings → Variables and Secrets → Production): crie `BENURA_IPS_PERMITIDOS` com os endereços separados por vírgula, IPv4 ou IPv6, com ou sem `/prefixo`. Ex.: `201.93.163.133, 2804:1b3:a5e7:c3c7::/48`. Depois use **Retry deployment**.
    - **Onde vale:** quem barra é o `functions/_middleware.js`, antes da página e do `/api`, no domínio próprio e no `*.pages.dev`.
-   - **A trava:** o `/trava` fica de fora, porque já exige o `TRAVA_SEGREDO`. Assim os dois PCs não param se o IP da empresa mudar.
+   - **A trava:** o `/trava` fica de fora, porque já exige o `TRAVA_SEGREDO`. Assim os dois servidores não param se o IP da empresa mudar.
    - **Sem a variável, todo mundo entra** (a resposta leva o aviso `X-Benura-Aviso`).
 2. **Recomendado, também no WAF** (barra antes de chegar ao Pages). Em **Security → WAF → Custom rules → Create rule**, com a ação **Block** e a expressão:
    ```
@@ -1037,24 +1037,33 @@ O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estã
 - **Backend:** no servidor, rode `git pull` e `npx pm2 restart all`.
 - **Sem servidor:** se ele cair, a página mostra "Servidor do BenURA fora do ar".
 
-### 4. Dois PCs: servidor e reserva (ex.: o PC do chefe)
+<a id="dois-servidores"></a>
+### 4. Dois servidores: o de baixo (hoje) e o de cima
 
-O BenURA pode rodar em dois PCs da empresa. **Só um age de verdade na Argus por vez**; o outro pode simular à vontade (lê a Argus e mostra o que faria) e assume se o primeiro cair.
+**Hoje o BenURA roda no servidor de baixo.** O servidor de cima não precisa ter nada instalado. Tudo abaixo já está pronto no código, para quando for preciso:
+- **[A] Deixar o de cima de reserva:** ele fica ligado só simulando e assume se o de baixo cair. É opcional.
+- **[B] Mudar de vez para o de cima:** o roteiro está mais abaixo.
+
+Sem `TRAVA_URL` no `.env`, o BenURA funciona como hoje, num servidor só. A trava só é necessária no caminho A.
+
+#### A. O de cima de reserva (trava dos dois servidores)
+
+**Só um age de verdade na Argus por vez.** O outro pode simular à vontade (lê a Argus e mostra o que faria) e assume se o primeiro cair.
 
 **A regra:**
 - **Quem age de verdade segura a trava** (automação ligada e fora do Modo simulação). A trava fica na Cloudflare, vale 2 min e é renovada a cada 30 s.
-- **Soltar a trava** (para o outro PC agir): **Desligar automação** ou ligar o **Modo simulação** neste PC.
+- **Soltar a trava** (para o outro servidor agir): **Desligar automação** ou ligar o **Modo simulação** neste servidor.
 - **Pegar a trava:**
   - **Religar automação** e **Voltar a agir de verdade** pegam a trava.
-  - Com o outro PC agindo, os dois botões são recusados: "O PC pc-chefe está agindo de verdade desde 10:42…".
-- **Um PC caiu:** a trava vence em 2 min, e um administrador do outro clica em **Assumir** (aba Serviços → "Os dois PCs"). Quem volta fica esperando.
+  - Com o outro servidor agindo, os dois botões são recusados: "O PC servidor-baixo está agindo de verdade desde 10:42…".
+- **Um servidor caiu:** a trava vence em 2 min, e um administrador do outro clica em **Assumir** (aba Serviços → "Os dois PCs"). Quem volta fica esperando.
 - **Garantia nos serviços:**
-  - Roteador, rodízio e rotinas só agem com a posse recente que o painel grava a cada renovação.
+  - Roteador, rodízio, robôs e rotinas só agem com a posse recente que o painel grava a cada renovação.
   - Sem ela (painel caído, sem internet, trava com o outro), esperam sem mexer na Argus. Se já estavam rodando, encerram e o PM2 os sobe esperando.
   - Sem internet, quem agia para sozinho em 1 min, e os robôs parados desligam.
 - **Dados iguais:**
-  - Os usuários são copiados do outro PC a cada minuto, pela rede: o mesmo e-mail e senha nos dois.
-  - Ao pegar a trava, o PC traz o estado do dia (modo dos robôs, status da URA, retenção no Ativo e travas manuais) de quem esteve com ela por último.
+  - Os usuários são copiados do outro servidor a cada minuto, pela rede: o mesmo e-mail e senha nos dois.
+  - Ao pegar a trava, o servidor traz o estado do dia (modo dos robôs, status da URA, retenção no Ativo e travas manuais) de quem esteve com ela por último.
 
 **Na Cloudflare (uma vez, no plano grátis):**
 1. **Workers & Pages → D1 → Create database:** nome `benura-trava`. A tabela é criada sozinha no primeiro uso.
@@ -1064,33 +1073,71 @@ O BenURA pode rodar em dois PCs da empresa. **Só um age de verdade na Argus por
    - Publique de novo. A Function `functions/trava` já vai junto.
 3. **Com o Cloudflare Access na frente do site,** libere o caminho `/trava/*`:
    - uma aplicação do Access só para `benura.benconsig.com.br/trava` com a política **Bypass** (o `TRAVA_SEGREDO` protege),
-   - ou um service token nos dois PCs (`TRAVA_ACCESS_CLIENT_ID` e `TRAVA_ACCESS_CLIENT_SECRET`).
+   - ou um service token nos dois servidores (`TRAVA_ACCESS_CLIENT_ID` e `TRAVA_ACCESS_CLIENT_SECRET`).
 
-**Nos dois PCs (`.env`):**
+**Nos dois servidores (`.env`):**
 ```env
 TRAVA_URL=https://benura.benconsig.com.br/trava
 TRAVA_SEGREDO=<o mesmo do Pages>
-TRAVA_SEGREDO_LOCAL=<um segredo só dos dois PCs, o mesmo nos dois>
-# no servidor:
-BENURA_NOME_PC=servidor
-TRAVA_PARCEIRO_URL=http://<IP do PC do chefe>:3010
-# no PC do chefe:
-BENURA_NOME_PC=pc-chefe
-TRAVA_PARCEIRO_URL=http://<IP do servidor>:3010
+TRAVA_SEGREDO_LOCAL=<um segredo só dos dois servidores, o mesmo nos dois>
+# no servidor de baixo:
+BENURA_NOME_PC=servidor-baixo
+TRAVA_PARCEIRO_URL=http://<IP do servidor de cima>:3010
+# no servidor de cima:
+BENURA_NOME_PC=servidor-cima
+TRAVA_PARCEIRO_URL=http://<IP do servidor de baixo>:3010
 ```
-- **IPs fixos:** fixe os IPs dos dois PCs no roteador da empresa.
+- **IPs fixos:** fixe os IPs dos dois servidores no roteador da empresa.
 - **Firewall:** a porta 3010 precisa estar aberta só na rede local. A rota de cópia (`/api/interno/estado`) exige o segredo e nunca responde pelo túnel.
 
-**Instalar no PC do chefe:**
-1. Instale o Node.js 22 e o Git, rode `git clone` do repositório e `npm ci`.
-2. Copie o `.env` do servidor **em mãos** (pendrive ou pasta da rede: ele tem o token da Argus), troque `BENURA_NOME_PC` e `TRAVA_PARCEIRO_URL`.
-3. Rode `powershell -ExecutionPolicy Bypass -File scripts\windows\instalar-servico.ps1 -Reserva`. Ele sobe em Modo simulação, sem agir. Com a trava ligada, os usuários chegam do servidor em 1 min.
+**Instalar no servidor de cima:**
+1. Instale o Node.js 22 e o Git, rode `git clone` do repositório e `npm ci` (como na [parte 1](#1-instalar-no-servidor-windows)).
+2. Copie o `.env` do servidor de baixo **em mãos** (pendrive ou pasta da rede: ele tem o token da Argus). Troque `BENURA_NOME_PC` e `TRAVA_PARCEIRO_URL`.
+3. Rode `powershell -ExecutionPolicy Bypass -File scripts\windows\instalar-servico.ps1 -Reserva`. Ele sobe em Modo simulação, sem agir. Com a trava ligada, os usuários chegam do outro servidor em 1 min.
 4. `npm run servico:verificar` mostra quem está com a trava.
 
-**Para o chefe testar de verdade:**
-1. No painel do servidor, clique em **Desligar automação** (ou ligue o **Modo simulação**).
-2. No painel do PC do chefe, clique em **Voltar a agir de verdade**.
-3. Quando terminar, ele liga a simulação de novo, e você religa o servidor.
+**Para testar o de cima de verdade:**
+1. No painel do servidor de baixo, clique em **Desligar automação** (ou ligue o **Modo simulação**).
+2. No painel do servidor de cima, clique em **Voltar a agir de verdade**.
+3. Ao terminar, ligue a simulação no de cima de novo e religue o de baixo.
+
+#### B. Mudar de vez para o servidor de cima
+
+Faça fora do horário de pico.
+
+1. **Instalar no de cima:** Node.js 22, Git, `git clone https://github.com/nanzinx/Benura.git C:\BenURA\app` e `npm ci` (passos 1 e 2 da [parte 1](#1-instalar-no-servidor-windows)).
+2. **Copiar do de baixo, em mãos** (pendrive ou pasta da rede; nada disso vai para o git):
+   - o `.env`;
+   - o `painel-segredo.key`;
+   - o `perfis-segredo.key`, **junto com os `state-perfis-*.json`** (sem a chave, os perfis de clientes de risco se perdem);
+   - os outros `state*.json`.
+3. **Testar sem agir:**
+   1. no `.env` do de cima, ponha `DRY_RUN=1`;
+   2. rode `npm run pm2:iniciar` e abra `http://localhost:3010`;
+   3. confira os serviços (inclusive o `benura-robos`) e se a Argus responde. Em simulação ele só lê, então pode rodar junto com o de baixo.
+4. **Virada:**
+   1. **No de baixo:**
+      - `npx pm2 stop all`, `npx pm2 delete all` e `npx pm2 save --force`;
+      - `npm run servico:desinstalar`, para ele não voltar sozinho com o Windows;
+      - se usar o túnel da Cloudflare, `cloudflared service uninstall` (PowerShell como administrador).
+   2. **Copie para o de cima os `state*.json` do dia** (o relatório e o estado de hoje continuam).
+   3. **No de cima:**
+      - `DRY_RUN=0` no `.env`, depois `npx pm2 restart all`;
+      - `npm run servico:instalar` (PowerShell como administrador), que sobe com o Windows e salva a lista do PM2.
+5. **Trocar os endereços que apontam para o de baixo:**
+   - **Webhooks da Argus:** `http://<IP do servidor de cima>:3000/webhook?token=…`. Libere a porta 3000 no Firewall do Windows do de cima, se a Argus chama de fora da rede.
+   - **Webhook de venda**, se houver.
+   - **Docker** (se usar): `BENURA_IP_PAINEL` e `BENURA_IP_WEBHOOKS` com o IP do de cima.
+6. **Túnel:**
+   - **Cloudflare Tunnel (definitivo):** no de cima, rode `npm run tunel:instalar` com o **mesmo token** do túnel `benura` (Zero Trust → Networks → Tunnels). O endereço `benura-api.benconsig.com.br` não muda, então o Pages não precisa mudar.
+   - **Tailscale Funnel (temporário):** instale e rode `tailscale funnel --bg 3010` no de cima. O endereço `ts.net` muda, então troque o `BENURA_API_URL` no Pages e use **Retry deployment**.
+7. **Conferir:**
+   - `npm run servico:verificar` no de cima;
+   - o painel por `https://benura.benconsig.com.br`;
+   - na aba Serviços, os cinco serviços no ar e a Argus respondendo.
+
+- **Com o caminho A já ligado,** a virada fica sem parada: **Desligar automação** no de baixo e **Religar automação** no de cima. Os usuários e o estado do dia vão juntos, e depois é só fazer os passos 5 a 7.
+- **Para voltar ao de baixo:** o mesmo roteiro, trocando os papéis.
 
 ---
 
