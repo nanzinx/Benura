@@ -67,11 +67,15 @@ export function permitido(ip, faixas) {
 
 const escapar = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function bloqueado(ip) {
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>BenURA · acesso bloqueado</title>
+/** A página de bloqueio (o benura-painel também a usa, para quem entra pelo túnel direto). */
+export function paginaBloqueada(ip) {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>BenURA · acesso bloqueado</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;background:#0b1b3a;color:#e8eefc}main{max-width:420px;padding:32px 24px;text-align:center}h1{font-size:22px;margin:0 0 8px}p{color:#b9c6e4;line-height:1.5}code{background:#16295a;padding:2px 8px;border-radius:6px;color:#fff}</style></head>
 <body><main><h1>Acesso só pela rede da Benconsig</h1><p>O BenURA só abre dos endereços da empresa.</p><p>Seu endereço: <code>${escapar(ip || 'desconhecido')}</code></p><p>Precisa entrar daqui? Peça para incluir esse endereço.</p></main></body></html>`;
-  return new Response(html, { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+}
+
+function bloqueado(ip) {
+  return new Response(paginaBloqueada(ip), { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
 }
 
 export async function onRequest({ request, env, next }) {

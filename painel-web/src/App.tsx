@@ -15,18 +15,16 @@ import { Ajuda } from './abas/Ajuda';
 import { useTema } from './tema';
 import { conferirSessao, definirSessao, useSessao } from './sessao';
 import { BoasVindas } from './componentes/BoasVindas';
+import { abaDoEndereco, CAMINHOS, definirTitulo, irPara, ouvirTrocaDeAba } from './rotas';
 import { deveMostrarEntrada, diaDe, lerVistoEm, marcarVisto } from './boas-vindas';
 
-const abaDoEndereco = (): Aba => {
-  const a = location.hash.slice(1) as Aba;
-  return ABAS.some((x) => x.id === a) ? a : 'visao';
-};
+const abaAtual = (): Aba => abaDoEndereco(location.pathname, location.hash);
 
 export function App() {
   const { estado } = useSessao();
   const cliente = useQueryClient();
   const [tema, escuro, trocarTema] = useTema();
-  const [aba, setAba] = useState<Aba>(abaDoEndereco);
+  const [aba, setAba] = useState<Aba>(abaAtual);
   const [aoVivo, setAoVivo] = useState(true);
   // [NOVO] Entrada de boas-vindas: uma vez por dia e sempre logo depois do login; depois, os cartões em cascata.
   const [acabouDeEntrar, setAcabouDeEntrar] = useState(false);
@@ -51,11 +49,17 @@ export function App() {
     void conferirSessao();
   }, []);
 
+  // [NOVO] Endereço sem #: um link antigo (…/#servicos) vira …/servicos, sem entrar no histórico.
   useEffect(() => {
-    const ouvir = () => setAba(abaDoEndereco());
-    window.addEventListener('hashchange', ouvir);
-    return () => window.removeEventListener('hashchange', ouvir);
+    const inicial = abaAtual();
+    definirTitulo({ aba: inicial });
+    if (location.hash || location.pathname !== CAMINHOS[inicial]) history.replaceState(null, '', CAMINHOS[inicial] + location.search);
+    return ouvirTrocaDeAba(() => setAba(abaAtual()));
   }, []);
+
+  useEffect(() => {
+    definirTitulo({ aba });
+  }, [aba]);
 
   // Atalhos: 1–6 trocam de aba; P pausa ou retoma as atualizações.
   useEffect(() => {
@@ -63,7 +67,7 @@ export function App() {
       const alvo = e.target as HTMLElement;
       if (estado !== 'dentro' || e.ctrlKey || e.metaKey || e.altKey || /INPUT|TEXTAREA|SELECT/.test(alvo.tagName) || document.querySelector('dialog[open]')) return;
       const n = Number(e.key);
-      if (n >= 1 && n <= ABAS.length) location.hash = ABAS[n - 1]!.id;
+      if (n >= 1 && n <= ABAS.length) irPara(ABAS[n - 1]!.id);
       if (e.key.toLowerCase() === 'p') setAoVivo((v) => !v);
     };
     window.addEventListener('keydown', ouvir);

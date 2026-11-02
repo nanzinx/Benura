@@ -5,6 +5,7 @@ import { GraficoDegraus } from '../componentes/GraficoDegraus';
 import { Relatorio } from '../componentes/Relatorio';
 import { useDia, useMetricasHoje, useRoteador, useVisao } from '../dados';
 import { StatusUra } from '../componentes/StatusUra';
+import { SubiramPorVenda } from '../componentes/SubiramPorVenda';
 import { useFlip } from '../ui/flip';
 import { agoraEmSegundos, degraus, duracao, horaCurta, ordenarOperadores, reais, segundosDoDia } from '../formatos';
 import type { Callback, Classe, MetricasHoje, OperadorNaUra, SaudeRodizio, Vendedor } from '../tipos';
@@ -245,13 +246,12 @@ function Roteador() {
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         {mini('Na URA pelo roteador', s?.ura?.length ?? '–')}
         {mini('No Ativo', s?.ativo?.length ?? '–')}
-        {mini('Subiram por venda hoje', s ? subiram.length : '–')}
+        {mini('Subiram por venda hoje', s ? <span key={subiram.length} className="venda-pulo inline-block">{subiram.length}</span> : '–')}
         {mini(`Meta batida ${dia ? `em ${dia}` : 'ontem'}`, s ? metaOntem.length : '–')}
         <div className="col-span-2 md:col-span-1">{mini('Meta diária', s ? reais(s.meta) : '–')}</div>
       </div>
       <div className="grid gap-5 lg:grid-cols-2">
-        <TabelaVendedores titulo="Subiram por venda hoje" vendedores={subiram} rotuloValor="Venda que fez subir"
-          valor={(v) => v.vendaQueDisparou} vazio="Ninguém subiu por venda hoje ainda." />
+        <SubiramPorVenda s={s} />
         <TabelaVendedores titulo={`Meta batida ontem${dia ? ` (${dia})` : ''}`} vendedores={metaOntem} rotuloValor="Vendeu ontem"
           valor={(v) => v.vendaOntem} vazio={s?.cargaInicialFeita === false ? 'A carga do dia ainda não saiu.' : 'Ninguém passou da meta ontem.'} />
       </div>

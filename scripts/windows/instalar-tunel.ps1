@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
   Instala o túnel da Cloudflare (cloudflared) como serviço do Windows, com o token do
-  túnel "benura" criado no painel da Cloudflare. Liga https://benura-api.benconsig.com.br
+  túnel "benura" criado no painel da Cloudflare. Liga https://benura-api.benconsig.com
   ao painel deste servidor (http://localhost:3010) sem abrir porta no roteador.
 
 .DESCRIPTION
@@ -91,5 +91,5 @@ try {
 
 Passo 'Pronto'
 Write-Host 'No painel da Cloudflare (Zero Trust → Networks → Tunnels), o túnel "benura" deve ficar HEALTHY em até 1 min.'
-Write-Host 'Falta (README, parte 3): Public Hostname benura-api.benconsig.com.br → http://localhost:3010, o Access e o Pages.'
+Write-Host 'Falta (README, parte 3): Public Hostname benura-api.benconsig.com → http://localhost:3010, o Access e o Pages.'
 Write-Host 'Conferir depois: npm run servico:verificar'

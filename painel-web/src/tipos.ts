@@ -463,6 +463,8 @@ export interface Vendedor {
   fila?: string;
   promovidoNoDia?: boolean;
   vendaQueDisparou?: number;
+  /** [NOVO] Quando subiu para a URA por venda (ISO). */
+  promovidoEm?: string;
   /** Total vendido no dia anterior (carga do dia). */
   vendaOntem?: number | null;
   fixo?: boolean;

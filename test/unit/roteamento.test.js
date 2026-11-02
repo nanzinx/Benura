@@ -144,6 +144,10 @@ test('monitoramento promove quem está no Ativo e vendeu hoje, uma única vez', 
   assert.equal((await ctx.svc.monitorarVendas()).promovidos, 1);
   assert.deepEqual(ctx.movimentos, [['2', 'URA']]);
   assert.equal(ctx.svc.estado.vendedores['2'].promovidoNoDia, true);
+  // [NOVO] a hora em que subiu (o painel mostra "subiu às 10:42")
+  const subiuEm = ctx.svc.estado.vendedores['2'].promovidoEm;
+  assert.ok(Math.abs(Date.parse(subiuEm) - Date.now()) < 5000, `promovidoEm: ${subiuEm}`);
+  assert.equal(ctx.svc.resumo().ura.find((x) => x.ramal === '2').promovidoEm, subiuEm, 'vai no resumo');
 
   // Já está na URA: nova venda não gera nova transferência.
   ctx.vendas.hoje = [v('2', 5000)];

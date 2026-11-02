@@ -21,6 +21,9 @@ vendedores-ramais.json
 *.tsbuildinfo
 test
 functions
+# o painel usa a regra de IPs do Pages (BENURA_IPS_PERMITIDOS)
+!functions/_middleware.js
+!functions/package.json
 scripts/windows
 cloudflared
 *.md

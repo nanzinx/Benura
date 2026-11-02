@@ -8,15 +8,17 @@ import { Marca } from './Marca';
 import { BotaoDesligarAutomacao } from './DesligarAutomacao';
 import { TrocarSenha } from './Usuarios';
 
-export type Aba = 'visao' | 'receptivo' | 'ura' | 'esteira' | 'servicos' | 'ajuda';
+import { aoClicarNaAba, CAMINHOS, NOMES_DAS_ABAS, type Aba } from '../rotas';
+
+export type { Aba };
 /** `curto`: o rótulo nas telas até 1536 px (com 6 abas, o completo quebraria o topo em duas linhas). */
 export const ABAS: { id: Aba; texto: string; curto: string; Icone: ComponentType<{ className?: string }> }[] = [
-  { id: 'visao', texto: 'Visão geral', curto: 'Visão geral', Icone: LayoutDashboard },
-  { id: 'receptivo', texto: 'Receptivo URA', curto: 'Receptivo', Icone: Headset },
-  { id: 'ura', texto: 'URA e robôs', curto: 'Robôs', Icone: Activity },
-  { id: 'esteira', texto: 'Esteira manual', curto: 'Esteira', Icone: Upload },
-  { id: 'servicos', texto: 'Serviços', curto: 'Serviços', Icone: Server },
-  { id: 'ajuda', texto: 'Ajuda', curto: 'Ajuda', Icone: LifeBuoy },
+  { id: 'visao', texto: NOMES_DAS_ABAS.visao, curto: 'Visão geral', Icone: LayoutDashboard },
+  { id: 'receptivo', texto: NOMES_DAS_ABAS.receptivo, curto: 'Receptivo', Icone: Headset },
+  { id: 'ura', texto: NOMES_DAS_ABAS.ura, curto: 'Robôs', Icone: Activity },
+  { id: 'esteira', texto: NOMES_DAS_ABAS.esteira, curto: 'Esteira', Icone: Upload },
+  { id: 'servicos', texto: NOMES_DAS_ABAS.servicos, curto: 'Serviços', Icone: Server },
+  { id: 'ajuda', texto: NOMES_DAS_ABAS.ajuda, curto: 'Ajuda', Icone: LifeBuoy },
 ];
 
 const TEMAS: { id: Tema; texto: string; Icone: ComponentType<{ className?: string }> }[] = [
@@ -113,12 +115,13 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
   return (
     <header className="sticky top-0 z-30 border-b-[3px] border-amarelo-500 bg-gradient-to-b from-marinho-900 to-marinho-800 text-white">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 px-4 sm:px-6">
-        <a href="#visao" className="py-3.5" aria-label="BenURA, visão geral"><Marca /></a>
+        <a href={CAMINHOS.visao} onClick={aoClicarNaAba('visao')} className="py-3.5" aria-label="BenURA, visão geral"><Marca /></a>
         <nav aria-label="Seções" className="order-3 -mb-[3px] flex basis-full gap-1 overflow-x-auto [scrollbar-width:none] lg:order-none lg:basis-auto lg:flex-1">
           {ABAS.map(({ id, texto, curto, Icone }) => (
             <a
               key={id}
-              href={`#${id}`}
+              href={CAMINHOS[id]}
+              onClick={aoClicarNaAba(id)}
               aria-current={aba === id ? 'page' : undefined}
               className={clsx('flex items-center gap-2 whitespace-nowrap border-b-[3px] px-3 pt-3 pb-2.5 text-sm font-semibold transition-colors lg:py-5',
                 aba === id ? 'border-white text-white' : 'border-transparent text-azul-100/80 hover:text-white')}
@@ -128,7 +131,7 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-1.5 py-3 sm:gap-2">
-          {dryRun && <a href="#servicos" title="Modo simulação (DRY_RUN): o BenURA só mostra o que faria. Clique para ver ou desligar." className="rounded-full bg-amarelo-500 px-2 py-0.5 text-xs font-bold text-marinho-950 hover:bg-amarelo-400 sm:px-2.5">Simulação</a>}
+          {dryRun && <a href={CAMINHOS.servicos} onClick={aoClicarNaAba('servicos')} title="Modo simulação (DRY_RUN): o BenURA só mostra o que faria. Clique para ver ou desligar." className="rounded-full bg-amarelo-500 px-2 py-0.5 text-xs font-bold text-marinho-950 hover:bg-amarelo-400 sm:px-2.5">Simulação</a>}
           <button
             type="button"
             onClick={alternarAoVivo}

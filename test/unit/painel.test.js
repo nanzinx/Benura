@@ -212,6 +212,19 @@ test('painel: exige sessão, leva o token aos serviços e só passa os comandos 
   const pagina = await pedir('GET', '/');
   assert.equal(pagina.status, 200);
   assert.match(pagina.headers.get('content-security-policy'), /script-src 'self'/);
+  // [NOVO] Endereço de cada aba, sem #: a mesma página (o painel decide a aba pelo caminho).
+  const fs = require('fs');
+  const rotasDoPainel = fs.readFileSync(require('path').join(__dirname, '..', '..', 'painel-web', 'src', 'rotas.ts'), 'utf8');
+  const caminhos = [...rotasDoPainel.matchAll(/^\s+\w+: '(\/[a-z]*)',$/gm)].map((m) => m[1]);
+  assert.deepEqual(caminhos, ['/', '/receptivo', '/robos', '/esteira', '/servicos', '/ajuda'], 'os mesmos caminhos do painel-web/src/rotas.ts');
+  const html = await pagina.text();
+  for (const c of caminhos) {
+    const r = await pedir('GET', c);
+    assert.equal(r.status, 200, c);
+    assert.equal(await r.text(), html, `${c}: a mesma página`);
+  }
+  assert.equal((await pedir('GET', '/robos/')).status, 200, 'com barra no fim');
+  assert.equal((await pedir('GET', '/nao-existe')).status, 404, 'o resto continua 404');
   assert.equal((await pedir('GET', '/api/visao')).status, 401);
   assert.equal((await pedir('POST', '/api/rodizio/panico')).status, 401);
   assert.equal((await pedir('POST', '/api/automacao/desligar')).status, 401, 'sem sessão não desliga');
@@ -348,4 +361,26 @@ test('[NOVO] robôs no rodízio (ROBOS_SERVICO_PROPRIO=false): os comandos dos r
   const v = await (await pedir('GET', '/api/visao', { cookie })).json();
   assert.equal(v.servicos.robos, undefined);
   assert.equal(v.servicos.rodizio.nome, 'Rodízio e robôs');
+});
+
+test('[NOVO] só os IPs da empresa pelo túnel (BENURA_IPS_PERMITIDOS no painel); na rede da empresa, direto, entra', async (t) => {
+  const { servidor, pedir } = await subir({ ipsPermitidos: '201.93.163.133, 2804:1b3:a5e7:c3c7::/48' });
+  t.after(() => servidor.close());
+  const fora = await pedir('GET', '/', { extras: { 'CF-Connecting-IP': '187.10.20.30' } });
+  assert.equal(fora.status, 403);
+  assert.match(fora.headers.get('content-type'), /text\/html/);
+  assert.match(await fora.text(), /Acesso só pela rede da Benconsig[\s\S]*187\.10\.20\.30/);
+  assert.equal((await pedir('GET', '/receptivo', { extras: { 'CF-Connecting-IP': '187.10.20.30' } })).status, 403, 'as abas também');
+  const api = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, extras: { 'CF-Connecting-IP': '187.10.20.30' } });
+  assert.equal(api.status, 403, 'o /api também');
+  assert.match((await api.json()).erro, /187\.10\.20\.30/);
+  assert.equal((await pedir('GET', '/', { extras: { 'CF-Connecting-IP': '201.93.163.133' } })).status, 200, 'IP da empresa pelo túnel');
+  assert.equal((await pedir('GET', '/', { extras: { 'CF-Connecting-IP': '2804:1b3:a5e7:c3c7:9::1' } })).status, 200, 'IPv6 da empresa');
+  assert.equal((await pedir('GET', '/')).status, 200, 'direto (http://IP:3010, na rede da empresa)');
+});
+
+test('[NOVO] sem BENURA_IPS_PERMITIDOS no painel, o túnel continua como antes', async (t) => {
+  const { servidor, pedir } = await subir();
+  t.after(() => servidor.close());
+  assert.equal((await pedir('GET', '/', { extras: { 'CF-Connecting-IP': '187.10.20.30' } })).status, 200);
 });

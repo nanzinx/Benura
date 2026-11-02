@@ -81,7 +81,7 @@ export function useDia() {
 }
 
 export function useRoteador() {
-  return useQuery({ queryKey: ['roteador'], queryFn: api.roteador, refetchInterval: intervalo(30_000, useContext(AoVivo)) });
+  return useQuery({ queryKey: ['roteador'], queryFn: api.roteador, refetchInterval: intervalo(15_000, useContext(AoVivo)) });
 }
 
 export function useRisco() {

@@ -670,7 +670,7 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 - **Build:** vai para `src/painel/publico/` e entra no git, então o PC do BenURA não compila nada (o `git pull` de sempre basta). O CI confere que o build está em dia com o código.
 - **Mudar a interface:** `npm run painel:dev` abre em `http://localhost:5173` com o painel (3010) rodando por trás; `npm run painel:build` gera o build para o commit.
 
-**Ver de fora da empresa:** a página fica no Cloudflare Pages (`https://benura.benconsig.com.br`) e o backend continua no servidor. Passo a passo em [Servidor + Cloudflare Pages](#servidor).
+**Ver de fora da empresa:** a página fica no Cloudflare Pages (`https://benura.benconsig.com`) e o backend continua no servidor. Passo a passo em [Servidor + Cloudflare Pages](#servidor).
 
 ---
 
@@ -872,12 +872,12 @@ A produção segue no **PM2 como serviço do Windows**, que tem o atualizador au
 <a id="servidor"></a>
 ## 🏢 Servidor + Cloudflare Pages
 
-O backend inteiro (roteador, rodízio, rotinas e painel) roda **no servidor da empresa**. A página do painel fica no **Cloudflare Pages**, em `https://benura.benconsig.com.br` (no temporário, `https://benura.pages.dev`), e conversa com o servidor por um túnel: o **Cloudflare Tunnel** ou, no temporário, o **Tailscale Funnel**. Não é preciso abrir porta no roteador da empresa.
+O backend inteiro (roteador, rodízio, rotinas e painel) roda **no servidor da empresa**. A página do painel fica no **Cloudflare Pages**, em `https://benura.benconsig.com` (no temporário, `https://benura.pages.dev`), e conversa com o servidor por um túnel: o **Cloudflare Tunnel** ou, no temporário, o **Tailscale Funnel**. Não é preciso abrir porta no roteador da empresa.
 
 ```mermaid
 flowchart LR
-    N["Navegador<br/>(supervisão, de qualquer lugar)"] -->|"e-mail (Access)<br/>+ senha do painel"| P["Cloudflare Pages<br/>benura.benconsig.com.br<br/>página + functions/api"]
-    P -->|"/api/* com service token<br/>e PAINEL_PROXY_SEGREDO"| T["Túnel<br/>benura-api.benconsig.com.br<br/>(Access: só o service token)"]
+    N["Navegador<br/>(supervisão, de qualquer lugar)"] -->|"e-mail (Access)<br/>+ senha do painel"| P["Cloudflare Pages<br/>benura.benconsig.com<br/>página + functions/api"]
+    P -->|"/api/* com service token<br/>e PAINEL_PROXY_SEGREDO"| T["Túnel<br/>benura-api.benconsig.com<br/>(Access: só o service token)"]
     T --> S["Servidor<br/>benura-painel :3010"]
     S --> R["roteador · rodízio · rotinas<br/>(só localhost)"]
 ```
@@ -889,7 +889,7 @@ flowchart LR
 - **Bloqueio por senha errada:** continua contando por IP. Um erro não trava os outros que vêm pela Cloudflare.
 - **Dois caminhos para o servidor:**
   - **temporário e grátis:** sem domínio, pelo Tailscale Funnel (parte 2);
-  - **definitivo:** com o `benconsig.com.br`, pelo túnel da Cloudflare (parte 3).
+  - **definitivo:** com o `benconsig.com`, pelo túnel da Cloudflare (parte 3).
 
   A página e o código são os mesmos nos dois; muda só o `BENURA_API_URL`.
 
@@ -961,23 +961,23 @@ Depois rode `npx pm2 restart benura-painel`.
 - Ao ligar um interruptor, o log do painel (`logs/AAAA-MM-DD/painel.txt`) mostra o seu e-mail.
 - O endereço `ts.net` aberto direto responde 403, porque só a página entra.
 
-### 3. Definitivo: Cloudflare com o `benconsig.com.br`
+### 3. Definitivo: Cloudflare com o `benconsig.com`
 
 <a id="dominio-cloudflare"></a>
-**0. Pôr o `benconsig.com.br` na Cloudflare** (uma vez só; plano Free).
+**0. Pôr o `benconsig.com` na Cloudflare** (uma vez só; plano Free).
 
 O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estão**: a Cloudflare copia os registros que já existem.
 
 > [!WARNING]
 > Faça com quem cuida do site e do e-mail da Benconsig. Se um registro (principalmente **MX** e **TXT** do e-mail) ficar de fora na cópia, o e-mail para de chegar até alguém corrigir.
 
-1. **Antes de mexer**, tire um print ou anote os registros atuais. Onde fica o DNS hoje: no [Registro.br](https://registro.br), em **Domínios → benconsig.com.br → DNS**, ou no provedor que estiver lá.
+1. **Antes de mexer**, tire um print ou anote os registros atuais. Onde fica o DNS hoje: no [Registro.br](https://registro.br), em **Domínios → benconsig.com → DNS**, ou no provedor que estiver lá.
 2. **Na Cloudflare** ([dash.cloudflare.com](https://dash.cloudflare.com)):
-   1. Clique em **Add a domain**, digite `benconsig.com.br` e escolha **Quick scan for DNS records**. Depois escolha o plano **Free**.
+   1. Clique em **Add a domain**, digite `benconsig.com` e escolha **Quick scan for DNS records**. Depois escolha o plano **Free**.
    2. **Compare** a lista que a Cloudflare achou com o que você anotou:
       - adicione o que faltar;
       - deixe os registros de **e-mail** (MX, TXT/SPF, DKIM) em **DNS only** (nuvem cinza).
-3. **No Registro.br:** em **Domínios → benconsig.com.br → DNS → Alterar servidores DNS**, troque pelos **dois servidores que a Cloudflare mostrou** (algo como `xxx.ns.cloudflare.com`).
+3. **No Registro.br:** em **Domínios → benconsig.com → DNS → Alterar servidores DNS**, troque pelos **dois servidores que a Cloudflare mostrou** (algo como `xxx.ns.cloudflare.com`).
 4. **Espere** a Cloudflare mostrar o domínio como **Active**. Costuma levar menos de 1 hora; pode chegar a 24 h. A Cloudflare manda um e-mail quando terminar.
 5. **Confira** que o site e o e-mail continuam funcionando. Só depois siga para o túnel.
 
@@ -987,28 +987,28 @@ O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estã
      - O script instala o `cloudflared` (winget) e o serviço do Windows "cloudflared", que sobe sozinho com o PC.
      - Depois confere se o painel responde no `localhost:3010`.
      - Rodar de novo troca o token.
-   - Ainda no túnel, em **Public Hostname**, aponte `benura-api.benconsig.com.br` para `http://localhost:3010`. O túnel deve aparecer como **HEALTHY**.
+   - Ainda no túnel, em **Public Hostname**, aponte `benura-api.benconsig.com` para `http://localhost:3010`. O túnel deve aparecer como **HEALTHY**.
    - **No Docker:** em vez do script, ponha `TUNNEL_TOKEN=<token>` no `.env` e rode `docker compose --profile tunel up -d`. O `cloudflared` usa a rede do container, então o painel o vê pelo localhost, como no servidor.
    - O modelo por arquivo, para quem preferir, é `cloudflared/config.example.yml`.
 2. **Service token:** em **Zero Trust → Access → Service Auth → Create Service Token**, crie o `benura-pages`. Guarde o *Client ID* e o *Client Secret*: o Secret só aparece uma vez.
-3. **Fechar a API:** em **Access → Applications → Add (Self-hosted)**, use o domínio `benura-api.benconsig.com.br`, com uma política de ação **Service Auth** que inclui só o token `benura-pages`.
+3. **Fechar a API:** em **Access → Applications → Add (Self-hosted)**, use o domínio `benura-api.benconsig.com`, com uma política de ação **Service Auth** que inclui só o token `benura-pages`.
 4. **Pages:**
    - Em **Workers & Pages → Create → Pages → Connect to Git**, escolha `nanzinx/Benura`, branch `main`.
    - **Build:** framework *None*, build command vazio, **output directory `src/painel/publico`**, root directory `/`. O build já vai pronto no git e a Function vem da pasta `functions/`.
    - **Settings → Variables and Secrets → Production**, todas como *Secret*:
-     - `BENURA_API_URL` = `https://benura-api.benconsig.com.br`;
+     - `BENURA_API_URL` = `https://benura-api.benconsig.com`;
      - `CF_ACCESS_CLIENT_ID` e `CF_ACCESS_CLIENT_SECRET` (do passo 2);
      - `PAINEL_PROXY_SEGREDO` (o mesmo do `.env`, gerado com o comando do `.env.example`).
-   - **Custom domains:** `benura.benconsig.com.br`.
+   - **Custom domains:** `benura.benconsig.com`.
    - **Previews:** desligue as *preview deployments* (Settings → Builds) ou proteja `*.pages.dev` com Access.
-5. **Fechar a página:** em **Access → Applications → Add (Self-hosted)**, use o domínio `benura.benconsig.com.br`, com política *Allow* para os e-mails da supervisão (login por código no e-mail).
+5. **Fechar a página:** em **Access → Applications → Add (Self-hosted)**, use o domínio `benura.benconsig.com`, com política *Allow* para os e-mails da supervisão (login por código no e-mail).
 6. **No `.env` do servidor:**
    ```ini
-   PAINEL_ORIGENS_PERMITIDAS=https://benura.benconsig.com.br
+   PAINEL_ORIGENS_PERMITIDAS=https://benura.benconsig.com
    PAINEL_PROXY_SEGREDO=<o mesmo do Pages>
    ```
    Depois rode `npx pm2 restart benura-painel`.
-7. **Pronto:** `https://benura.benconsig.com.br` pede o e-mail (Cloudflare) e depois o seu e-mail e senha do BenURA.
+7. **Pronto:** `https://benura.benconsig.com` pede o e-mail (Cloudflare) e depois o seu e-mail e senha do BenURA.
 
 <a id="ips-permitidos"></a>
 **Só os IPs da empresa** (o resto vê "Acesso só pela rede da Benconsig", com o próprio IP):
@@ -1016,21 +1016,24 @@ O domínio passa a ter o DNS na Cloudflare. **Site e e-mail continuam onde estã
    - **Onde vale:** quem barra é o `functions/_middleware.js`, antes da página e do `/api`, no domínio próprio e no `*.pages.dev`.
    - **A trava:** o `/trava` fica de fora, porque já exige o `TRAVA_SEGREDO`. Assim os dois servidores não param se o IP da empresa mudar.
    - **Sem a variável, todo mundo entra** (a resposta leva o aviso `X-Benura-Aviso`).
+   - **Também no servidor:** ponha a mesma lista em `BENURA_IPS_PERMITIDOS` no `.env` e rode `npx pm2 restart benura-painel`. Assim o bloqueio vale mesmo se o endereço for pelo túnel direto ao painel, sem passar pelo Pages. Na rede da empresa (`http://<IP do servidor>:3010`), sem túnel, entra sempre.
+   - **O `_routes.json`** (em `painel-web/public`) tem de ter `"include": ["/*"]`: com só `/api/*`, a página abre sem passar pelo bloqueio. Um teste confere isso.
+   - **Conferir:** fora da empresa (ex.: no 4G do celular), abra o endereço. Tem de aparecer "Acesso só pela rede da Benconsig". Se o painel abrir, veja no navegador (F12 → Rede → o primeiro pedido → Cabeçalhos): com `X-Benura-Aviso`, a variável não chegou a esse deploy (crie em **Production** e use **Retry deployment**).
 2. **Recomendado, também no WAF** (barra antes de chegar ao Pages). Em **Security → WAF → Custom rules → Create rule**, com a ação **Block** e a expressão:
    ```
-   (http.host eq "benura.benconsig.com.br" and not starts_with(http.request.uri.path, "/trava") and not ip.src in {201.93.163.133 201.93.159.169 2804:431:80f7:7700::/48 2804:1b3:a5e7:c3c7::/48 2804:1b3:a5e7:2c83::/48 2804:1b3:a5e7:8e38::/48})
+   (http.host eq "benura.benconsig.com" and not starts_with(http.request.uri.path, "/trava") and not ip.src in {201.93.163.133 201.93.159.169 2804:431:80f7:7700::/48 2804:1b3:a5e7:c3c7::/48 2804:1b3:a5e7:2c83::/48 2804:1b3:a5e7:8e38::/48})
    ```
 
 > [!WARNING]
 > **Se o IP da empresa mudar** (o IPv4 da internet pode mudar), ninguém entra pela internet até atualizar a variável e a regra no painel da Cloudflare. Na rede da empresa, `http://<IP do servidor>:3010` continua funcionando. Para saber o IP novo, abra o BenURA: a página de bloqueio mostra o endereço.
 
 **Conferir o caminho todo:** `npm run servico:verificar` mostra o serviço "cloudflared" rodando. Depois:
-- `https://benura-api.benconsig.com.br/health`, aberto direto no navegador, é barrado pelo Access. Isso é o certo: só a página entra.
-- `https://benura.benconsig.com.br` pede o e-mail e depois a senha do painel.
+- `https://benura-api.benconsig.com/health`, aberto direto no navegador, é barrado pelo Access. Isso é o certo: só a página entra.
+- `https://benura.benconsig.com` pede o e-mail e depois a senha do painel.
 
 **Desligar o Tailscale** (quando o definitivo estiver no ar):
 1. No servidor, `tailscale funnel --https=443 off`.
-2. No Pages, troque o `BENURA_API_URL` para `https://benura-api.benconsig.com.br` e use **Retry deployment**.
+2. No Pages, troque o `BENURA_API_URL` para `https://benura-api.benconsig.com` e use **Retry deployment**.
 
 **Atualizações:**
 - **Página:** cada merge no `main` publica a página sozinho, porque o Pages lê o build do git.
@@ -1072,12 +1075,12 @@ Sem `TRAVA_URL` no `.env`, o BenURA funciona como hoje, num servidor só. A trav
    - **Variables and Secrets:** `TRAVA_SEGREDO` como Secret, gerado com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
    - Publique de novo. A Function `functions/trava` já vai junto.
 3. **Com o Cloudflare Access na frente do site,** libere o caminho `/trava/*`:
-   - uma aplicação do Access só para `benura.benconsig.com.br/trava` com a política **Bypass** (o `TRAVA_SEGREDO` protege),
+   - uma aplicação do Access só para `benura.benconsig.com/trava` com a política **Bypass** (o `TRAVA_SEGREDO` protege),
    - ou um service token nos dois servidores (`TRAVA_ACCESS_CLIENT_ID` e `TRAVA_ACCESS_CLIENT_SECRET`).
 
 **Nos dois servidores (`.env`):**
 ```env
-TRAVA_URL=https://benura.benconsig.com.br/trava
+TRAVA_URL=https://benura.benconsig.com/trava
 TRAVA_SEGREDO=<o mesmo do Pages>
 TRAVA_SEGREDO_LOCAL=<um segredo só dos dois servidores, o mesmo nos dois>
 # no servidor de baixo:
@@ -1129,11 +1132,11 @@ Faça fora do horário de pico.
    - **Webhook de venda**, se houver.
    - **Docker** (se usar): `BENURA_IP_PAINEL` e `BENURA_IP_WEBHOOKS` com o IP do de cima.
 6. **Túnel:**
-   - **Cloudflare Tunnel (definitivo):** no de cima, rode `npm run tunel:instalar` com o **mesmo token** do túnel `benura` (Zero Trust → Networks → Tunnels). O endereço `benura-api.benconsig.com.br` não muda, então o Pages não precisa mudar.
+   - **Cloudflare Tunnel (definitivo):** no de cima, rode `npm run tunel:instalar` com o **mesmo token** do túnel `benura` (Zero Trust → Networks → Tunnels). O endereço `benura-api.benconsig.com` não muda, então o Pages não precisa mudar.
    - **Tailscale Funnel (temporário):** instale e rode `tailscale funnel --bg 3010` no de cima. O endereço `ts.net` muda, então troque o `BENURA_API_URL` no Pages e use **Retry deployment**.
 7. **Conferir:**
    - `npm run servico:verificar` no de cima;
-   - o painel por `https://benura.benconsig.com.br`;
+   - o painel por `https://benura.benconsig.com`;
    - na aba Serviços, os cinco serviços no ar e a Argus respondendo.
 
 - **Com o caminho A já ligado,** a virada fica sem parada: **Desligar automação** no de baixo e **Religar automação** no de cima. Os usuários e o estado do dia vão juntos, e depois é só fazer os passos 5 a 7.
