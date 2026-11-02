@@ -19,8 +19,12 @@ const { AcaoRecusada } = require('./acoes-operador');
  * @param {import('./acoes-operador').AcoesOperador} [deps.acoes] - [NOVO] ações por atendente (aba Receptivo)
  * @param {object} deps.logger
  */
-function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null, ciclos, logger, webhooksClientes = null }) {
+function criarRotasDoRodizio({
+  rodizio, retornoFila, risco = null, acoes = null, ciclos, logger, webhooksClientes = null, papel = 'tudo', repassarAosRobos = null,
+}) {
   async function health() {
+    // [NOVO] o benura-robos mostra só o que é dele
+    if (papel === 'robos') return { status: 200, corpo: { lastLoopUra: ciclos.ultimoCicloUra(), uptime: process.uptime(), ...rodizio.resumoDosRobos() } };
     return {
       status: 200,
       corpo: {
@@ -141,6 +145,13 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     return { status: 200, corpo: rodizio.metricasHoje() };
   }
 
+  /** [NOVO] GET /relatorio/periodo?dias=7|30 — relatório da semana ou do mês, com as sugestões (outro valor vira 7). */
+  async function relatorioPeriodo({ req }) {
+    if (!rodizio.estatisticas) return { status: 404, corpo: { erro: 'relatório indisponível' } };
+    const dias = Number(new URL(req?.url ?? '/', 'http://x').searchParams.get('dias'));
+    return { status: 200, corpo: rodizio.estatisticas.periodo(dias === 30 ? 30 : 7) };
+  }
+
   /** [NOVO] POST /operadores/transferir-ura-ativo { por? } — humanos da URA, menos os fixos, para o Ativo. */
   async function transferirUraAtivo({ corpo }) {
     return { status: 200, corpo: await rodizio.transferirUraParaAtivo(quem(corpo)) };
@@ -242,7 +253,12 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     return { status: r.ok ? 200 : r.erro === 'Cliente não encontrado.' ? 404 : 502, corpo: r };
   });
 
-  return [
+  /** [NOVO] POST /interno/ura — o retrato da URA do benura-rodizio (só no benura-robos; separacao.js). */
+  async function receberRetrato({ corpo }) {
+    return { status: 200, corpo: rodizio.receberRetrato(corpo ?? {}) };
+  }
+
+  const rotas = [
     { metodo: 'GET', caminho: '/health', handler: health },
     { metodo: 'POST', caminho: '/webhooks/clientes', handler: cadastrarCliente, protegida: true },
     { metodo: 'GET', caminho: '/webhooks/clientes', handler: listarClientes, protegida: true },
@@ -260,6 +276,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     { metodo: 'DELETE', caminho: '/ura/passiva', handler: desligarUraPassiva, protegida: true },
     { metodo: 'PUT', caminho: '/ura/status', handler: definirStatusUra, protegida: true },
     { metodo: 'GET', caminho: '/metricas/hoje', handler: metricasHoje },
+    { metodo: 'GET', caminho: '/relatorio/periodo', handler: relatorioPeriodo },
     { metodo: 'POST', caminho: '/operadores/transferir-ura-ativo', handler: transferirUraAtivo, protegida: true },
     { metodo: 'POST', caminho: '/operadores/retomar-rodizio', handler: retomarRodizio, protegida: true },
     { metodo: 'POST', caminho: '/operadores/pausas', handler: pausasDisponiveis, protegida: true },
@@ -278,6 +295,27 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     { metodo: 'POST', caminho: '/robos/automatico', handler: robosAutomatico, protegida: true },
     { metodo: 'POST', caminho: '/robos/por-livre', handler: robosPorLivre, protegida: true },
   ];
+  return rotasDoPapel(rotas, { papel, repassarAosRobos, receberRetrato });
+}
+
+/** [NOVO] As rotas que são dos robôs (no de pessoas, repassadas ao benura-robos). */
+const DOS_ROBOS = new Set(['/panico', '/robos/manual', '/robos/modo', '/robos/automatico', '/robos/por-livre', '/risco/desligar', '/perfis/risco', '/alertas']);
+
+/**
+ * [NOVO] tudo: todas. robos: só as dos robôs, o encerrar da automação e o /interno/ura. pessoas: todas,
+ * menos que as dos robôs vão ao benura-robos (a página /ura e quem chama o :3000 seguem funcionando).
+ */
+function rotasDoPapel(rotas, { papel, repassarAosRobos, receberRetrato }) {
+  if (papel === 'robos') {
+    return [
+      ...rotas.filter((r) => r.caminho === '/health' || r.caminho === '/automacao/encerrar-robos' || DOS_ROBOS.has(r.caminho)),
+      { metodo: 'POST', caminho: '/interno/ura', handler: receberRetrato, protegida: true, limiteCorpoBytes: 4 * 1024 * 1024 },
+    ];
+  }
+  if (papel === 'pessoas' && repassarAosRobos) {
+    return rotas.map((r) => (DOS_ROBOS.has(r.caminho) ? { ...r, handler: repassarAosRobos } : r));
+  }
+  return rotas;
 }
 
 module.exports = { criarRotasDoRodizio };

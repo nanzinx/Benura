@@ -30,7 +30,7 @@ test('automação: sem arquivo está ligada; desligada espera (sem tocar em nada
 });
 
 /** Painel com rodízio e PM2 falsos. */
-function montarControle({ ligadosPorChamada = [2, 1, 0], rodizioFora = false, esperaRobosMs = 60_000, dryRunPeloEnv = false } = {}) {
+function montarControle({ ligadosPorChamada = [2, 1, 0], rodizioFora = false, esperaRobosMs = 60_000, dryRunPeloEnv = false, separado = false } = {}) {
   const arquivo = arquivoTemp();
   const arquivoSimulacao = path.join(path.dirname(arquivo), 'state-simulacao.json');
   const chamadas = [];
@@ -43,6 +43,8 @@ function montarControle({ ligadosPorChamada = [2, 1, 0], rodizioFora = false, es
       const ligados = JSON.parse(corpo).derrubar ? 0 : ligadosPorChamada[Math.min(n++, ligadosPorChamada.length - 1)];
       return { status: 200, corpo: { ligados } };
     },
+    // [NOVO] robôs no benura-robos
+    ...(separado ? { robosSeparados: () => true } : {}),
   };
   const executar = async (comando, args) => { chamadas.push(`$ ${comando} ${args.join(' ')}`); return { ok: true, saida: '' }; };
   const controle = new ControleAutomacao({
@@ -264,4 +266,31 @@ test('componente: rodízio já desligado à mão, desligar tudo não chama o rod
   await terminar();
   assert.deepEqual(chamadas, ['$ npx pm2 stop benura-roteador benura-rodizio benura-rotinas']);
   assert.equal(controle.estado().aviso, null, 'sem o aviso de "rodízio sem resposta"');
+});
+
+test('[NOVO] robôs separados: desligar os robôs encerra pelo benura-robos; desligar o rodízio de pessoas não mexe nos robôs', async () => {
+  const robos = montarControle({ ligadosPorChamada: [0], separado: true });
+  assert.deepEqual(robos.controle.desligarComponente('benura-robos', 'ana@e.com'), { iniciado: true });
+  await robos.terminar();
+  assert.deepEqual(robos.chamadas, ['robos /automacao/encerrar-robos {"derrubar":false}', '$ npx pm2 stop benura-robos']);
+
+  const pessoas = montarControle({ ligadosPorChamada: [0], separado: true });
+  pessoas.controle.desligarComponente('benura-rodizio', 'x');
+  await pessoas.terminar();
+  assert.deepEqual(pessoas.chamadas, ['$ npx pm2 stop benura-rodizio'], 'as pessoas ficam onde estão; os robôs seguem sozinhos');
+
+  const tudo = montarControle({ separado: true });
+  tudo.controle.desligar('x');
+  await tudo.terminar();
+  assert.equal(tudo.chamadas[0], 'rodizio /automacao/encerrar-robos {"derrubar":false}', 'para de mover as pessoas primeiro');
+  assert.ok(tudo.chamadas.includes('robos /automacao/encerrar-robos {"derrubar":false}'));
+  assert.equal(tudo.chamadas.at(-1), '$ npx pm2 stop benura-roteador benura-rodizio benura-robos benura-rotinas');
+
+  const religar = montarControle({ separado: true });
+  religar.controle.desligar('x');
+  await religar.terminar();
+  religar.chamadas.length = 0;
+  religar.controle.religar('x');
+  await religar.terminar();
+  assert.deepEqual(religar.chamadas, ['$ npx pm2 startOrRestart ecosystem.config.js --only benura-roteador,benura-rodizio,benura-robos,benura-rotinas']);
 });

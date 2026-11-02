@@ -90,18 +90,24 @@ test('painel: lê os logs do dia aos poucos e recomeça na virada do dia', () =>
 });
 
 /** Painel de verdade (porta aleatória) com os serviços respondendo por um fetch falso. */
-async function subir(cfgExtra = {}, usuarios = semUsuarios()) {
+async function subir(cfgExtra = {}, usuarios = semUsuarios(), { robos = false } = {}) {
   const chamadas = [];
   const fetchFalso = async (url, opcoes) => {
     chamadas.push({ url, metodo: opcoes.method, auth: opcoes.headers.Authorization, corpo: opcoes.body });
     if (url.startsWith('http://rotinas')) throw new TypeError('fetch failed');
-    const corpo = url.endsWith('/health') ? { uptime: 10, lastLoopUra: new Date().toISOString() } : { ligado: opcoes.method === 'POST', mudou: true };
+    // [NOVO] o benura-robos responde só o que é dele
+    if (url === 'http://robos/health') {
+      return { status: 200, text: async () => JSON.stringify({ papel: 'robos', robos: { ligados: 5, modo: 'automatico' }, panico: { ligado: true, tipo: 'saindo' }, ajusteRobos: { atual: 9 }, ultimoLivreSaindo: null }) };
+    }
+    const corpo = url.endsWith('/health') ? { uptime: 10, lastLoopUra: new Date().toISOString(), robos: { ligados: 1 }, panico: { ligado: false } } : { ligado: opcoes.method === 'POST', mudou: true };
     return { status: 200, text: async () => JSON.stringify(corpo) };
   };
   const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'painel-'));
   const servidor = criarServidorDoPainel({
     sessoes: new Sessoes({ senha: SENHA, segredo: 's', horas: 1, usuarios }),
-    servicos: new Servicos({ cfg: { servicos: { rodizio: 'http://rodizio', roteador: 'http://roteador', rotinas: 'http://rotinas' }, timeoutMs: 1000 }, token: 'tok', fetch: fetchFalso }),
+    servicos: new Servicos({
+      cfg: { servicos: { rodizio: 'http://rodizio', roteador: 'http://roteador', rotinas: 'http://rotinas', ...(robos ? { robos: 'http://robos' } : {}) }, timeoutMs: 1000 }, token: 'tok', fetch: fetchFalso,
+    }),
     dados: new DadosDoDia({ pasta, fuso: 'America/Sao_Paulo' }),
     automacao: {
       estado: () => ({ estado: chamadas.some((c) => c.url === 'desligar') ? 'desligando' : 'ligada' }),
@@ -276,6 +282,11 @@ test('painel [NOVO]: PUT /api/ura/status e "alocar todos no Ativo" levam quem pe
 
   assert.equal((await pedir('GET', '/api/metricas/hoje', { cookie, origem: PAGES, extras: pelaPagina })).status, 200);
   assert.ok(chamadas.some((c) => c.url === 'http://rodizio/metricas/hoje' && c.metodo === 'GET'));
+  // [NOVO] relatório de 7 e 30 dias
+  assert.equal((await pedir('GET', '/api/relatorio/semana', { cookie, origem: PAGES, extras: pelaPagina })).status, 200);
+  assert.equal((await pedir('GET', '/api/relatorio/mes', { cookie, origem: PAGES, extras: pelaPagina })).status, 200);
+  assert.ok(chamadas.some((c) => c.url === 'http://rodizio/relatorio/periodo?dias=7' && c.metodo === 'GET'));
+  assert.ok(chamadas.some((c) => c.url === 'http://rodizio/relatorio/periodo?dias=30' && c.metodo === 'GET'));
   assert.equal((await pedir('PUT', '/api/ura/status', { cookie, origem: PAGES, extras: pelaPagina, corpo: [1] })).status, 400);
 });
 
@@ -301,4 +312,40 @@ test('painel [NOVO]: ações por atendente levam o ramal e quem pediu; a lista d
   await pedir('PUT', '/api/robos/modo', { cookie, origem: PAGES, extras: pelaPagina, corpo: { modo: 'desligados' } });
   const modo = chamadas.find((c) => c.url === 'http://rodizio/robos/modo');
   assert.deepEqual([modo.metodo, JSON.parse(modo.corpo)], ['PUT', { modo: 'desligados', por: 'ana@empresa.com (200.1.2.3)' }]);
+});
+
+test('[NOVO] robôs separados: os comandos dos robôs vão ao benura-robos, e a visão junta o que é dele no rodízio', async (t) => {
+  const { servidor, chamadas, pedir } = await subir({}, semUsuarios(), { robos: true });
+  t.after(() => servidor.close());
+  const cookie = (await pedir('POST', '/api/entrar', { corpo: { senha: SENHA } })).headers.get('set-cookie').split(';')[0];
+  assert.equal((await pedir('POST', '/api/rodizio/panico', { cookie })).status, 200);
+  assert.equal((await pedir('PUT', '/api/robos/modo', { cookie, corpo: { modo: 'panico' } })).status, 200);
+  assert.equal((await pedir('POST', '/api/rodizio/risco/desligar', { cookie })).status, 200);
+  assert.ok(chamadas.some((c) => c.url === 'http://robos/panico' && c.metodo === 'POST'));
+  assert.ok(chamadas.some((c) => c.url === 'http://robos/robos/modo' && c.metodo === 'PUT'));
+  assert.ok(chamadas.some((c) => c.url === 'http://robos/risco/desligar'));
+  assert.ok(!chamadas.some((c) => c.url === 'http://rodizio/panico'));
+  // as pessoas continuam no rodízio
+  await pedir('PUT', '/api/ura/status', { cookie, corpo: { status: 'calma', modo: 'manual' } });
+  assert.ok(chamadas.some((c) => c.url === 'http://rodizio/ura/status'));
+
+  const v = await (await pedir('GET', '/api/visao', { cookie })).json();
+  assert.equal(v.servicos.robos.online, true);
+  assert.equal(v.servicos.robos.nome, 'Robôs da URA');
+  assert.equal(v.servicos.rodizio.nome, 'Rodízio de pessoas');
+  assert.equal(v.servicos.rodizio.dados.robos.ligados, 5, 'o que vale é o do benura-robos');
+  assert.equal(v.servicos.rodizio.dados.panico.tipo, 'saindo');
+  assert.equal(v.servicos.rodizio.dados.ajusteRobos.atual, 9);
+  assert.ok(chamadas.some((c) => c.url === 'http://robos/alertas'), 'os alertas de cliente de risco vêm do benura-robos');
+});
+
+test('[NOVO] robôs no rodízio (ROBOS_SERVICO_PROPRIO=false): os comandos dos robôs vão ao rodízio, como antes', async (t) => {
+  const { servidor, chamadas, pedir } = await subir();
+  t.after(() => servidor.close());
+  const cookie = (await pedir('POST', '/api/entrar', { corpo: { senha: SENHA } })).headers.get('set-cookie').split(';')[0];
+  await pedir('POST', '/api/rodizio/panico', { cookie });
+  assert.ok(chamadas.some((c) => c.url === 'http://rodizio/panico'));
+  const v = await (await pedir('GET', '/api/visao', { cookie })).json();
+  assert.equal(v.servicos.robos, undefined);
+  assert.equal(v.servicos.rodizio.nome, 'Rodízio e robôs');
 });

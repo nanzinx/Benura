@@ -69,6 +69,19 @@
   .tabela td { @apply border-b border-slate-100 px-3 py-2.5 align-middle dark:border-noite-800; }
   .tabela tr:last-child td { @apply border-b-0; }
   .numero { @apply tabular-nums; }
+  /* [NOVO] No celular, cada linha vira um cartão ("rótulo · valor", o rótulo vem de data-rotulo); o cabeçalho
+     fica só para leitor de tela. A primeira célula é o título do cartão; o total vem destacado. */
+  @media (width < 40rem) {
+    .tabela-cartoes thead { @apply sr-only; }
+    .tabela-cartoes, .tabela-cartoes tbody, .tabela-cartoes tfoot { @apply block w-full; }
+    .tabela-cartoes tr { @apply mb-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-xl border border-slate-200 p-3 dark:border-noite-700; }
+    .tabela-cartoes td { @apply flex items-baseline justify-between gap-2 border-0 p-0 text-right; }
+    .tabela-cartoes td::before { content: attr(data-rotulo); @apply text-left text-xs font-normal text-slate-500 dark:text-slate-400; }
+    .tabela-cartoes td:first-child { @apply col-span-2 justify-start text-left text-base; }
+    .tabela-cartoes td:first-child::before { content: none; }
+    .tabela-cartoes td:empty { @apply hidden; }
+    .tabela-cartoes tfoot tr { @apply border-azul-100 bg-azul-50 dark:border-noite-600 dark:bg-noite-800; }
+  }
 }
 
 /* [NOVO] Entrada do painel (componentes/BoasVindas.tsx) e os cartões entrando em cascata depois dela. */

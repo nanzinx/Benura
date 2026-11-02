@@ -21,7 +21,7 @@ function esteiraInvalidaComo422(e) {
  * @param {number} [deps.metaDiaria]
  * @param {object} deps.logger
  */
-function criarControllers({ roteamento, esteira, relogio, metaDiaria, logger }) {
+function criarControllers({ roteamento, esteira, relogio, metaDiaria, logger, saudeArgus = null }) {
   /** Guarda a esteira e devolve o que ela vai decidir hoje. */
   async function guardarEsteira(texto) {
     const hoje = relogio.hoje();
@@ -59,6 +59,8 @@ function criarControllers({ roteamento, esteira, relogio, metaDiaria, logger }) 
           uptime: Math.round(process.uptime()),
           cargaInicialFeita: roteamento.cargaInicialFeitaHoje(),
           ultimoMonitoramento: roteamento.ultimoMonitoramento,
+          // [NOVO] chamadas, erros, lentidão e 429 dos últimos 15 min
+          saudeArgus: saudeArgus?.() ?? null,
         },
       };
     },

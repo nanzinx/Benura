@@ -13,6 +13,8 @@ import { alertasRecentes, avisarClientesNovos, proximoFimDeAviso, registrarAlert
 
 const MAX_FAIXAS_RISCO = 3;
 import { situacaoDosPcs } from './DoisPcs';
+import { faixaDosRobos } from '../faixa-robos';
+import { problemaNaArgus, saudeDaArgus } from '../saude-argus';
 
 /** Automação desligada (ou desligando/religando): a faixa mais importante, com o botão de religar. */
 function FaixaAutomacao({ a }: { a: EstadoAutomacao }) {
@@ -80,7 +82,10 @@ export function Faixas() {
   const r = v.servicos.rodizio.dados;
   // [NOVO] desligado à mão (o cartão dele, aba Serviços) não é "fora do ar"
   const aMao = v.automacao?.componentes ?? {};
-  const fora = Object.entries(v.servicos).filter(([nome, s]) => s && !s.online && nome !== 'atualizador' && !aMao[`benura-${nome}` as Componente]).map(([, s]) => s!.nome);
+  // [NOVO] o serviço dos robôs tem a faixa dele (vermelha), não entra no "fora do ar"
+  const robosCaidos = faixaDosRobos(v);
+  const fora = Object.entries(v.servicos).filter(([nome, s]) => s && !s.online && nome !== 'atualizador' && !(nome === 'robos' && robosCaidos)
+    && !aMao[`benura-${nome}` as Componente]).map(([, s]) => s!.nome);
   const faixas: ReactNode[] = [];
   const automacao = v.automacao;
   const reiniciando = automacao?.estado === 'reiniciando';
@@ -130,6 +135,7 @@ export function Faixas() {
       titulo={`Rodízio pausado: todos no Ativo desde ${horaCurta(ret.desde)}${ret.por ? ` (${ret.por})` : ''}`}
       detalhe='Ninguém sobe para a URA (nem quem vender) até "Retomar rodízio da URA", na aba Receptivo. Os fixos continuam na URA.' />);
   }
+  if (robosCaidos) faixas.push(<Faixa key="robos-caidos" tom="perigo" icone={<ShieldAlert className="size-5" />} titulo={robosCaidos.titulo} detalhe={robosCaidos.detalhe} />);
   if (r?.panico?.ativoAgora) {
     const titulo = r.panico.tipo === 'fixo' ? 'Pânico ativo: o BenURA está reduzindo os robôs à metade' : 'Pânico ativo: o BenURA está desligando os robôs';
     faixas.push(<Faixa key="panico" tom="perigo" icone={<ShieldAlert className="size-5" />} titulo={titulo} detalhe={motivoLegivel(r.panico.motivo)} />);
@@ -143,6 +149,10 @@ export function Faixas() {
       detalhe="Atualize ARGUS_TOKEN no .env (Configurações → Desenvolvedor → Acesso API) e reinicie: npx pm2 restart all." />);
   } else if (!automacaoParada && v.servicos.rodizio.online && !v.argus.respondendo) {
     faixas.push(<Faixa key="argus" tom="alerta" icone={<CircleAlert className="size-5" />} titulo={`O rodízio não fala com a Argus há ${duracao(v.argus.cicloUraHaSeg)}`} detalhe="Veja os avisos na aba Serviços." />);
+  } else if (!automacaoParada) {
+    // [NOVO] a Argus pediu para desacelerar (429) ou está falhando muito: o problema é dela
+    const problema = problemaNaArgus(saudeDaArgus(v));
+    if (problema) faixas.push(<Faixa key="argus-saude" tom="alerta" icone={<CircleAlert className="size-5" />} titulo={problema.titulo} detalhe={problema.detalhe} />);
   }
   if (!faixas.length) return null;
   return <div className="mx-auto max-w-7xl px-4 sm:px-6" aria-live="polite">{faixas}</div>;

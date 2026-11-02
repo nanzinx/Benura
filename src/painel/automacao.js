@@ -29,7 +29,7 @@
 const { COMPONENTES, componenteAtivo, lerAutomacao, gravarAutomacao, lerSimulacao } = require('../utils/automacao');
 
 const APPS = COMPONENTES;
-const NOMES = { 'benura-roteador': 'roteador', 'benura-rodizio': 'rodízio', 'benura-rotinas': 'rotinas' };
+const NOMES = { 'benura-roteador': 'roteador', 'benura-rodizio': 'rodízio', 'benura-robos': 'serviço dos robôs', 'benura-rotinas': 'rotinas' };
 const REPETIR_ROBOS_MS = 5000;
 const esperarMs = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
@@ -59,15 +59,33 @@ class ControleAutomacao {
     return { estado: gravado.desligada ? 'desligada' : 'ligada', etapa: null, desde: gravado.desde, por: gravado.por, aviso: this.ultimoAviso, simulacao, componentes };
   }
 
+  /** [NOVO] Os componentes deste PC: o benura-robos só com os robôs num serviço próprio. */
+  apps() {
+    return this.robosSeparados() ? APPS : APPS.filter((app) => app !== 'benura-robos');
+  }
+
+  robosSeparados() {
+    return Boolean(this.servicos.robosSeparados?.());
+  }
+
+  /** [NOVO] Quem desliga os robôs: o benura-robos (separado) ou o rodízio. */
+  servicoDosRobos() {
+    return this.robosSeparados() ? 'robos' : 'rodizio';
+  }
+
+  appDosRobos() {
+    return this.robosSeparados() ? 'benura-robos' : 'benura-rodizio';
+  }
+
   /** [NOVO] Este PC deve agir de verdade agora? (automação ligada, algum componente ligado, fora da simulação) */
   agindoDeVerdade() {
     const gravado = lerAutomacao(this.cfg.arquivo);
-    return APPS.some((app) => componenteAtivo(gravado, app)) && !this.cfg.dryRunPeloEnv && !lerSimulacao(this.cfg.arquivoSimulacao).ligada;
+    return this.apps().some((app) => componenteAtivo(gravado, app)) && !this.cfg.dryRunPeloEnv && !lerSimulacao(this.cfg.arquivoSimulacao).ligada;
   }
 
   /** [NOVO] Os apps que devem rodar agora (a automação ligada e não desligados à mão). */
   appsAtivos(gravado = lerAutomacao(this.cfg.arquivo)) {
-    return APPS.filter((app) => !gravado.componentes[app]?.desligado);
+    return this.apps().filter((app) => !gravado.componentes[app]?.desligado);
   }
 
   /** Grava a automação toda sem perder as marcas de cada componente (e vice-versa). */
@@ -93,8 +111,8 @@ class ControleAutomacao {
 
   /** [NOVO] Perdeu a trava: os robôs parados desligam já (os serviços param sozinhos sem a posse). */
   async pararPelaTrava(motivo) {
-    const r = await this.servicos.chamar('rodizio', '/automacao/encerrar-robos', { metodo: 'POST', corpo: JSON.stringify({ derrubar: false }), timeoutMs: 30_000 });
-    if (r.status !== 200) this.log.aviso(`Painel: rodízio sem resposta ao perder a trava (${motivo}): confira os robôs no painel da Argus.`);
+    const r = await this.servicos.chamar(this.servicoDosRobos(), '/automacao/encerrar-robos', { metodo: 'POST', corpo: JSON.stringify({ derrubar: false }), timeoutMs: 30_000 });
+    if (r.status !== 200) this.log.aviso(`Painel: robôs sem resposta ao perder a trava (${motivo}): confira os robôs no painel da Argus.`);
   }
 
   /**
@@ -146,11 +164,13 @@ class ControleAutomacao {
 
   async executarDesligamento(por) {
     this.log.aviso(`Painel: automação sendo DESLIGADA (${por}).`);
-    const rodizioJaParado = Boolean(lerAutomacao(this.cfg.arquivo).componentes['benura-rodizio']);
+    const robosJaParados = Boolean(lerAutomacao(this.cfg.arquivo).componentes[this.appDosRobos()]);
     await this.gravar({ desligada: true, desde: new Date(this.agora()).toISOString(), por });
-    if (!rodizioJaParado) await this.desligarRobos(); // desligado à mão, os robôs já saíram antes
+    // [NOVO] Separados: o rodízio de pessoas para de mover gente enquanto os robôs terminam as ligações.
+    if (this.robosSeparados()) await this.servicos.chamar('rodizio', '/automacao/encerrar-robos', { metodo: 'POST', corpo: JSON.stringify({ derrubar: false }), timeoutMs: 10_000 });
+    if (!robosJaParados) await this.desligarRobos(); // desligados à mão, os robôs já saíram antes
     this.andamento.etapa = 'parando roteador, rodízio e rotinas';
-    const r = await this.executar('npx', ['pm2', 'stop', ...APPS], { timeoutMs: 60_000 });
+    const r = await this.executar('npx', ['pm2', 'stop', ...this.apps()], { timeoutMs: 60_000 });
     if (!r.ok) this.avisar(`Não foi possível parar os serviços pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npx pm2 stop all.`);
     this.log.aviso(`Painel: automação DESLIGADA (${por}).${this.andamento.aviso ? ` Atenção: ${this.andamento.aviso}` : ''}`);
     await this.trava?.soltar();
@@ -162,9 +182,9 @@ class ControleAutomacao {
     const inicio = this.agora();
     for (;;) {
       const derrubar = this.agora() - inicio >= this.cfg.esperaRobosMs;
-      const r = await this.servicos.chamar('rodizio', '/automacao/encerrar-robos', { metodo: 'POST', corpo: JSON.stringify({ derrubar }), timeoutMs: 30_000 });
+      const r = await this.servicos.chamar(this.servicoDosRobos(), '/automacao/encerrar-robos', { metodo: 'POST', corpo: JSON.stringify({ derrubar }), timeoutMs: 30_000 });
       if (r.status !== 200) {
-        this.avisar(`Rodízio sem resposta (${r.corpo?.erro ?? `HTTP ${r.status}`}): desligue os robôs pelo painel da Argus.`);
+        this.avisar(`${this.robosSeparados() ? 'Serviço dos robôs' : 'Rodízio'} sem resposta (${r.corpo?.erro ?? `HTTP ${r.status}`}): desligue os robôs pelo painel da Argus.`);
         return;
       }
       const ligados = r.corpo?.ligados;
@@ -183,7 +203,7 @@ class ControleAutomacao {
     const apps = this.appsAtivos();
     const r = apps.length ? await this.executar('npx', ['pm2', 'startOrRestart', 'ecosystem.config.js', '--only', apps.join(',')], { timeoutMs: 60_000 }) : { ok: true };
     if (!r.ok) this.avisar(`Não foi possível subir os serviços pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npm run pm2:iniciar.`);
-    const parados = APPS.filter((app) => !apps.includes(app)).map((app) => NOMES[app]);
+    const parados = this.apps().filter((app) => !apps.includes(app)).map((app) => NOMES[app]);
     this.log.aviso(`Painel: automação RELIGADA (${por}).${parados.length ? ` Continuam desligados à mão: ${parados.join(', ')}.` : ''} Os robôs continuam desligados: quem liga é a supervisão, pela Argus.`);
     this.concluir();
   }
@@ -194,7 +214,7 @@ class ControleAutomacao {
    * @returns {{ iniciado: boolean, motivo?: string }}
    */
   desligarComponente(app, por) {
-    if (!APPS.includes(app)) return { iniciado: false, motivo: `Componente desconhecido: ${app}.` };
+    if (!this.apps().includes(app)) return { iniciado: false, motivo: `Componente desconhecido: ${app}.` };
     if (this.andamento) return { iniciado: false, motivo: 'Espere terminar o que está em andamento.' };
     if (lerAutomacao(this.cfg.arquivo).componentes[app]) return { iniciado: false, motivo: `O ${NOMES[app]} já está desligado.` };
     this.andamento = { estado: 'reiniciando', etapa: `desligando o ${NOMES[app]}`, aviso: null };
@@ -208,8 +228,9 @@ class ControleAutomacao {
     const antes = lerAutomacao(this.cfg.arquivo);
     await this.gravar({ componentes: { ...antes.componentes, [app]: { desligado: true, desde: new Date(this.agora()).toISOString(), por } } });
     if (!antes.desligada) {
-      // Sem o rodízio, ninguém desliga os robôs: desliga antes.
-      if (app === 'benura-rodizio') await this.desligarRobos();
+      // Sem ele, ninguém desliga os robôs: desliga antes. [NOVO] Separados, é o benura-robos; o de pessoas
+      // para sem mexer nos robôs (eles seguem, lendo a URA sozinhos).
+      if (app === this.appDosRobos()) await this.desligarRobos();
       this.andamento.etapa = `parando o ${NOMES[app]}`;
       const r = await this.executar('npx', ['pm2', 'stop', app], { timeoutMs: 60_000 });
       if (!r.ok) this.avisar(`Não foi possível parar o ${NOMES[app]} pelo PM2 (${ultimaLinha(r.saida)}). No PC do BenURA: npx pm2 stop ${app}.`);
@@ -221,7 +242,7 @@ class ControleAutomacao {
 
   /** [NOVO] Liga de novo um componente desligado à mão. @returns {{ iniciado: boolean, motivo?: string }} */
   religarComponente(app, por) {
-    if (!APPS.includes(app)) return { iniciado: false, motivo: `Componente desconhecido: ${app}.` };
+    if (!this.apps().includes(app)) return { iniciado: false, motivo: `Componente desconhecido: ${app}.` };
     if (this.andamento) return { iniciado: false, motivo: 'Espere terminar o que está em andamento.' };
     if (!lerAutomacao(this.cfg.arquivo).componentes[app]) return { iniciado: false, motivo: `O ${NOMES[app]} já está ligado.` };
     this.andamento = { estado: 'reiniciando', etapa: `ligando o ${NOMES[app]}`, aviso: null };

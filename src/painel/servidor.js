@@ -22,6 +22,7 @@
  *   *    /api/rodizio/...   comandos da lista ACOES (servicos.js), levados com o token
  *   PUT  /api/ura/status                      [NOVO] status da URA (manual/automático)
  *   GET  /api/metricas/hoje                   [NOVO] leads derivados e transbordos do dia
+ *   GET  /api/relatorio/semana | /mes         [NOVO] relatório de 7 ou 30 dias, com sugestões
  *   POST /api/operadores/transferir-ura-ativo [NOVO] "Alocar Todos no Ativo"
  *   *    /api/roteador/...
  *
@@ -269,7 +270,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
   }
 
   async function visao() {
-    const [saude, alertas] = await Promise.all([servicos.saude(), servicos.chamar('rodizio', '/alertas')]);
+    const [saude, alertas] = await Promise.all([servicos.saude(), servicos.chamar('robos', '/alertas')]);
     const { avisos } = dados.atualizar();
     const rodizio = saude.rodizio.dados;
     const agora = new Date();

@@ -21,7 +21,8 @@ const { dataLocal } = require('./datas');
 const { posseValida } = require('./posse');
 
 /** Os componentes que o painel desliga sozinhos (o app do PM2 de cada serviço). */
-const COMPONENTES = ['benura-roteador', 'benura-rodizio', 'benura-rotinas'];
+// [NOVO] benura-robos: os robôs num serviço próprio (com ROBOS_SERVICO_PROPRIO=false, fica parado)
+const COMPONENTES = ['benura-roteador', 'benura-rodizio', 'benura-robos', 'benura-rotinas'];
 
 /** Só os desligados, com quando e quem. */
 function lerComponentes(dados) {

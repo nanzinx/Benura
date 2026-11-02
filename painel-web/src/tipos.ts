@@ -119,7 +119,38 @@ export interface CalculoRobos {
   roboMinutos30: number;
 }
 
+/** [NOVO] A Argus vista por um serviço nos últimos 15 min (src/integrations/argus/saude-argus.js). */
+export interface SaudeArgus {
+  janelaMin: number;
+  chamadas: number;
+  erros: number;
+  /** pedidos de desacelerar (HTTP 429) */
+  limites: number;
+  /** não saíram por causa da pausa */
+  seguradas: number;
+  lentas: number;
+  msMedio: number | null;
+  ultimoErro: { em: string; texto: string } | null;
+  ultimoLimiteEm: string | null;
+  pausaAte: string | null;
+}
+
+/** [NOVO] /health do benura-robos (os robôs num serviço próprio). */
+export interface SaudeRobos {
+  papel?: 'robos' | 'desativado';
+  uptime?: number;
+  lastLoopUra?: string;
+  robos?: SaudeRodizio['robos'];
+  retratoDaUra?: { fresco: boolean; haMs: number | null; lendoSozinho: boolean };
+  saudeArgus?: SaudeArgus | null;
+}
+
 export interface SaudeRodizio {
+  /** [NOVO] tudo (robôs aqui) ou pessoas (robôs no benura-robos) */
+  papel?: 'tudo' | 'pessoas';
+  /** [NOVO] no de pessoas: o benura-robos respondendo, e se a rede de segurança agiu */
+  servicoDosRobos?: { respondendo: boolean; respondeuEm: string | null; emergencia: boolean } | null;
+  saudeArgus?: SaudeArgus | null;
   lastLoopUra?: string;
   uptime?: number;
   dryRun?: boolean;
@@ -205,6 +236,75 @@ export interface RelatorioDoDia {
   horas: HoraDoRelatorio[];
 }
 
+/** [NOVO] Relatório de 7 ou 30 dias (GET /api/relatorio/semana | /mes): um item por dia com dados, hoje incluído. */
+export interface DiaDoPeriodo {
+  dia: string;
+  hoje?: boolean;
+  transbordos: number;
+  leadsDerivados: number;
+  derivacoes: number;
+  tmeSeg: number | null;
+  oplSeg: number | null;
+  livresMin: number;
+  torMin: number;
+  tpaMin: number;
+  calmaMin: number;
+  normalMin: number;
+  agressivaMin: number;
+  medindoMin: number;
+  robosLigadosMedia: number | null;
+}
+
+/** [NOVO] Somas do período; TME e OPL pelas somas; TOR, TPA, transbordos e leads também por dia. */
+export interface TotaisDoPeriodo {
+  dias: number;
+  /** dias sem hoje: as médias por dia usam só estes */
+  diasCompletos?: number;
+  transbordos: number;
+  leadsDerivados: number;
+  derivacoes: number;
+  livresMin: number;
+  torMin: number;
+  tpaMin: number;
+  torMinDia: number;
+  tpaMinDia: number;
+  transbordosDia: number;
+  leadsDia: number;
+  calmaMin: number;
+  normalMin: number;
+  agressivaMin: number;
+  medindoMin: number;
+  tmeSeg: number | null;
+  oplSeg: number | null;
+}
+
+export interface AtendenteDoPeriodo {
+  ramal: string;
+  nome: string | null;
+  dias: number;
+  atendimentos: number;
+  livreMin: number;
+  atendimentoMin: number;
+  pausaMin: number;
+}
+
+/** [NOVO] Sugestões de ajuste (src/domain/sugestoes.js): só sugerem, nunca mudam nada. */
+export interface Sugestao {
+  tipo: 'comparacao' | 'aviso' | 'progresso' | 'semana';
+  texto: string;
+}
+
+export interface RelatorioDoPeriodo {
+  tamanho: 7 | 30;
+  desde: string;
+  dias: DiaDoPeriodo[];
+  totais: TotaisDoPeriodo;
+  /** o período anterior, do mesmo tamanho (null sem dados) */
+  anterior: TotaisDoPeriodo | null;
+  porAtendente: AtendenteDoPeriodo[];
+  sugestoes: Sugestao[];
+}
+
 /** [NOVO] Os totais de um dia passado (histórico do relatório). */
 export interface TotaisDoDia {
   dia: string;
@@ -253,7 +353,7 @@ export interface ResultadoTransferencia {
   uraCheiaDesligada: boolean;
 }
 
-export interface SaudeRoteador { uptime?: number; cargaInicialFeita?: boolean; ultimoMonitoramento?: string | null }
+export interface SaudeRoteador { uptime?: number; cargaInicialFeita?: boolean; ultimoMonitoramento?: string | null; saudeArgus?: SaudeArgus | null }
 export interface SaudeRotinas { uptime?: number; ultimaExecucao?: string | null }
 
 export interface Servico<T extends { uptime?: number } = { uptime?: number }> {
@@ -294,13 +394,15 @@ export interface EstadoAutomacao {
 }
 
 /** [NOVO] Os componentes que o painel liga e desliga sozinhos (o app do PM2). */
-export type Componente = 'benura-roteador' | 'benura-rodizio' | 'benura-rotinas';
+export type Componente = 'benura-roteador' | 'benura-rodizio' | 'benura-robos' | 'benura-rotinas';
 
 export interface Visao {
   agora: string;
   servicos: {
     roteador: Servico<SaudeRoteador>;
     rodizio: Servico<SaudeRodizio>;
+    /** [NOVO] só com ROBOS_SERVICO_PROPRIO=true */
+    robos?: Servico<SaudeRobos>;
     rotinas: Servico<SaudeRotinas>;
     atualizador?: Servico;
   };

@@ -25,6 +25,7 @@
     "servico:desinstalar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/desinstalar-servico.ps1",
     "tunel:instalar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/instalar-tunel.ps1",
     "test:cenarios": "node test/rodizio/cenarios.js",
+    "test:cenarios:separado": "node -e \"process.env.CENARIOS_SEPARADO='1'; require('./test/rodizio/cenarios.js')\"",
     "atualizador:iniciar": "pm2 start ecosystem.atualizador.config.js",
     "atualizador:parar": "pm2 delete ecosystem.atualizador.config.js",
     "atualizador:agora": "node atualizador.js --uma-vez",

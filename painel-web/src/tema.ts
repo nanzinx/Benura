@@ -49,3 +49,11 @@ export function useTema(): [Tema, boolean, (t: Tema) => void] {
 export const coresDoGrafico = (escuro: boolean) => (escuro
   ? { serie: '#6b9af3', area: 'rgba(107,154,243,0.16)', grade: '#1c2a46', eixo: '#8592a9', callback: '#ff6b61', cursor: '#8592a9' }
   : { serie: '#1a4fb8', area: 'rgba(26,79,184,0.10)', grade: '#e8edf4', eixo: '#6b778a', callback: '#c62828', cursor: '#94a3b8' });
+
+/**
+ * [NOVO] Gráfico de tendência do relatório (uma série): validadas com o dataviz/validate_palette.js
+ * (claro #1a4fb8 sobre o cartão claro; escuro #4f86f0 sobre o cartão escuro, dentro da faixa de brilho).
+ */
+export const coresDaTendencia = (escuro: boolean) => (escuro
+  ? { serie: '#4f86f0', anel: '#111c33', grade: '#1c2a46', eixo: '#8592a9', cursor: '#8592a9', referencia: '#34d399' }
+  : { serie: '#1a4fb8', anel: '#ffffff', grade: '#e8edf4', eixo: '#6b778a', cursor: '#94a3b8', referencia: '#059669' });

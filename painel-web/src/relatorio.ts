@@ -4,7 +4,7 @@
  */
 
 import type { Aba } from './planilha';
-import type { EstadoTermometro, RelatorioDoDia } from './tipos';
+import type { DiaDoPeriodo, EstadoTermometro, RelatorioDoDia, RelatorioDoPeriodo, TotaisDoPeriodo } from './tipos';
 
 export function totaisDoRelatorio(r: RelatorioDoDia) {
   const soma = (f: (h: RelatorioDoDia['horas'][number]) => number) => Math.round(r.horas.reduce((s, h) => s + f(h), 0) * 10) / 10;
@@ -116,23 +116,108 @@ export function statusPorHora(horas: RelatorioDoDia['horas']) {
 const TITULOS_DO_STATUS: Record<EstadoTermometro, string> = { calma: 'Calma', normal: 'Normal', agressiva: 'Agressiva', medindo: 'Medindo' };
 const CAMPO_DO_STATUS = { calma: 'calmaMin', normal: 'normalMin', agressiva: 'agressivaMin', medindo: 'medindoMin' } as const;
 
-/** [NOVO] A coluna da tabela por hora segue o status da URA de agora: título, minutos de cada hora e o total. */
-export function colunaDoStatus(horas: RelatorioDoDia['horas'], status: EstadoTermometro | null | undefined) {
+type MinutosDosStatus = Partial<Record<(typeof CAMPO_DO_STATUS)[EstadoTermometro], number>>;
+
+/**
+ * [NOVO] A coluna da tabela segue o status da URA de agora: título, minutos de cada linha (hora ou,
+ * no relatório de 7 e 30 dias, dia) e o total.
+ */
+export function colunaDoStatus(horas: MinutosDosStatus[], status: EstadoTermometro | null | undefined) {
   const s: EstadoTermometro = status ?? 'calma';
   const porHora = horas.map((h) => h[CAMPO_DO_STATUS[s]] ?? 0);
   return { titulo: TITULOS_DO_STATUS[s], status: s, porHora, total: Math.round(porHora.reduce((t, m) => t + m, 0) * 10) / 10 };
 }
 
 /**
- * [NOVO] A hora "mais ociosa" da tabela: a de OPL mais alto (tempo livre por lead). Hora com gente
- * livre e nenhum lead conta todo o tempo livre. Só marca se passar da faixa verde do OPL.
+ * [NOVO] A linha "mais ociosa" da tabela (hora ou dia): a de OPL mais alto (tempo livre por lead).
+ * Linha com gente livre e nenhum lead conta todo o tempo livre. Só marca se passar da faixa verde do OPL.
  */
-export function horaMaisOciosa(horas: RelatorioDoDia['horas']): string | null {
-  const opl = (h: RelatorioDoDia['horas'][number]) => h.esperaPorDerivacaoSeg ?? (h.livresMin > 0 ? h.livresMin * 60 : null);
-  let pior: { hora: string; seg: number } | null = null;
-  for (const h of horas) {
-    const seg = opl(h);
-    if (seg != null && (!pior || seg > pior.seg)) pior = { hora: h.hora, seg };
+function maisOcioso<T>(linhas: T[], chave: (x: T) => string, opl: (x: T) => number | null): string | null {
+  let pior: { chave: string; seg: number } | null = null;
+  for (const x of linhas) {
+    const seg = opl(x);
+    if (seg != null && (!pior || seg > pior.seg)) pior = { chave: chave(x), seg };
   }
-  return pior && pior.seg > FAIXAS_DOS_QUADROS.oplSeg.bom ? pior.hora : null;
+  return pior && pior.seg > FAIXAS_DOS_QUADROS.oplSeg.bom ? pior.chave : null;
+}
+
+export function horaMaisOciosa(horas: RelatorioDoDia['horas']): string | null {
+  return maisOcioso(horas, (h) => h.hora, (h) => h.esperaPorDerivacaoSeg ?? (h.livresMin > 0 ? h.livresMin * 60 : null));
+}
+
+// ───────────── [NOVO] Relatório de 7 e 30 dias ─────────────
+
+/** O dia mais ocioso do período (hoje ainda não acabou: não entra). */
+export function diaMaisOcioso(dias: DiaDoPeriodo[]): string | null {
+  return maisOcioso(dias.filter((d) => !d.hoje), (d) => d.dia, (d) => d.oplSeg ?? (d.livresMin > 0 ? d.livresMin * 60 : null));
+}
+
+/**
+ * Os números dos quadros do período, na régua das faixas (que é de um dia): transbordos, TOR e TPA
+ * pela média por dia; TME e OPL pelas somas do período.
+ */
+export function indicadoresDoPeriodo(t: TotaisDoPeriodo | null | undefined): Record<CampoDoQuadro, number | null> | null {
+  if (!t) return null;
+  return { transbordos: t.transbordosDia, torMin: t.torMinDia, tpaMin: t.tpaMinDia, tmeSeg: t.tmeSeg, oplSeg: t.oplSeg };
+}
+
+/** Minutos de cada status da URA em cada dia (a barra dia a dia). */
+export function statusPorDia(dias: DiaDoPeriodo[]) {
+  return dias.map((d) => {
+    const m = { calma: d.calmaMin ?? 0, normal: d.normalMin ?? 0, agressiva: d.agressivaMin ?? 0, medindo: d.medindoMin ?? 0 };
+    return { dia: d.dia, ...m, total: Math.round((m.calma + m.normal + m.agressiva + m.medindo) * 10) / 10 };
+  });
+}
+
+/** A planilha do período: por dia (com o total), os totais com o período anterior e por atendente. */
+export function abasDoPeriodo(p: RelatorioDoPeriodo): Aba[] {
+  const t = p.totais;
+  const a = p.anterior;
+  const abas: Aba[] = [{
+    nome: 'Por dia',
+    linhas: [
+      ['Dia', 'Leads derivados', 'TME (s)', 'OPL (s)', 'TOR (min)', 'TPA (min)', 'Calma (min)', 'Normal (min)', 'Agressiva (min)', 'Robôs ligados (média)', 'Transbordos'],
+      ...p.dias.map((d) => [`${diaCurto(d.dia)}${d.hoje ? ' (hoje)' : ''}`, d.leadsDerivados, d.tmeSeg, d.oplSeg, d.torMin, d.tpaMin, d.calmaMin, d.normalMin, d.agressivaMin, d.robosLigadosMedia, d.transbordos]),
+      ['Total', t.leadsDerivados, t.tmeSeg, t.oplSeg, t.torMin, t.tpaMin, t.calmaMin, t.normalMin, t.agressivaMin, null, t.transbordos],
+    ],
+  }, {
+    nome: 'Totais',
+    linhas: [
+      ['Indicador', `Últimos ${p.tamanho} dias`, `${p.tamanho} dias antes`],
+      ...([
+        ['Dias com dados', 'dias'], ['Transbordos', 'transbordos'], ['Transbordos por dia', 'transbordosDia'],
+        ['Leads derivados', 'leadsDerivados'], ['Leads por dia', 'leadsDia'], ['TME (s)', 'tmeSeg'], ['OPL (s)', 'oplSeg'],
+        ['TOR (min)', 'torMin'], ['TOR por dia (min)', 'torMinDia'], ['TPA (min)', 'tpaMin'], ['TPA por dia (min)', 'tpaMinDia'],
+        ['Calma (min)', 'calmaMin'], ['Normal (min)', 'normalMin'], ['Agressiva (min)', 'agressivaMin'],
+      ] as const).map(([rotulo, campo]) => [rotulo, t[campo], a ? a[campo] : null]),
+    ],
+  }];
+  if (p.porAtendente.length) {
+    abas.push({
+      nome: 'Por atendente',
+      linhas: [
+        ['Nome', 'Ramal', 'Dias', 'Atendimentos', 'Livre (min)', 'Em atendimento (min)', 'Em pausa (min)'],
+        ...p.porAtendente.map((x) => [x.nome ?? '', x.ramal, x.dias, x.atendimentos, x.livreMin, x.atendimentoMin, x.pausaMin]),
+      ],
+    });
+  }
+  return abas;
+}
+
+/** [NOVO] Tabela do período: com mais de `limite` dias, os mais recentes (o "Ver todos" mostra o resto). */
+export function diasVisiveis<T>(dias: T[], todos: boolean, limite = 10): T[] {
+  return todos || dias.length <= limite ? dias : dias.slice(-limite);
+}
+
+/** [NOVO] Os indicadores do gráfico de tendência (um por vez: escalas diferentes não dividem eixo). */
+export type CampoDaTendencia = 'oplSeg' | 'transbordos' | 'tmeSeg' | 'leadsDerivados';
+
+/** Um ponto por dia do período, com hoje (parcial) marcado. */
+export function serieDaTendencia(dias: DiaDoPeriodo[], campo: CampoDaTendencia) {
+  return dias.map((d) => ({ dia: d.dia, rotulo: diaCurto(d.dia), valor: d[campo] ?? null, hoje: Boolean(d.hoje) }));
+}
+
+/** O fim da faixa verde de cada indicador (a linha de referência do gráfico); leads não tem. */
+export function limiteVerde(campo: CampoDaTendencia): number | null {
+  return campo === 'leadsDerivados' ? null : FAIXAS_DOS_QUADROS[campo].bom;
 }

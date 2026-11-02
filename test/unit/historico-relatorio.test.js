@@ -39,8 +39,8 @@ test('histórico: o rodízio parado à noite (agenda) não perde o dia: arquiva 
   assert.deepEqual(historico.dados.dias.map((d) => [d.dia, d.transbordos]), [['2026-10-26', 2]]);
 });
 
-test('histórico: o mesmo dia não entra duas vezes e guarda só os últimos 60', () => {
-  const dias = Array.from({ length: 70 }, (_, i) => ({ dia: new Date(Date.UTC(2026, 6, 1 + i)).toISOString().slice(0, 10), transbordos: i }));
+test('histórico: o mesmo dia não entra duas vezes e guarda só os últimos 120', () => {
+  const dias = Array.from({ length: 130 }, (_, i) => ({ dia: new Date(Date.UTC(2026, 5, 1 + i)).toISOString().slice(0, 10), transbordos: i }));
   const historico = memoria({ dias });
   const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE, historico });
   diaCom(e, '2026-10-26', { transbordos: 1 });
@@ -49,7 +49,7 @@ test('histórico: o mesmo dia não entra duas vezes e guarda só os últimos 60'
   e.estado.dia = '2026-10-26'; // reinício estranho: o mesmo dia de novo
   e.virarDia(em('2026-10-27', '09:00'));
   const lista = historico.dados.dias;
-  assert.equal(lista.length, 60);
+  assert.equal(lista.length, 120);
   assert.equal(lista.filter((d) => d.dia === '2026-10-26').length, 1);
   assert.equal(lista.at(-1).dia, '2026-10-26');
 });

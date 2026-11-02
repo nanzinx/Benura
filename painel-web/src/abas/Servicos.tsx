@@ -1,7 +1,7 @@
 import { clsx } from 'clsx';
 import { Power, PowerOff, Search } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { EFEITO_DESLIGADO, NOMES_DOS_COMPONENTES, useComponente, useDia, useSimulacao, useVisao } from '../dados';
+import { EFEITO_DESLIGADO, EFEITO_DESLIGADO_PESSOAS, NOMES_DOS_COMPONENTES, useComponente, useDia, useSimulacao, useVisao } from '../dados';
 import { FlaskConical } from 'lucide-react';
 import { Botao } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
@@ -14,6 +14,7 @@ import { AvisosBenhub } from '../componentes/AvisosBenhub';
 import { ClientesWebhook } from '../componentes/ClientesWebhook';
 import { CartaoDoisPcs } from '../componentes/DoisPcs';
 import { semAcesso, usePode } from '../sessao';
+import { saudeDaArgus } from '../saude-argus';
 
 /** [NOVO] Ligar ou desligar só este componente (administrador), com o efeito na confirmação. */
 function LigaDesliga({ v, app }: { v: Visao; app: Componente }) {
@@ -22,12 +23,14 @@ function LigaDesliga({ v, app }: { v: Visao; app: Componente }) {
   const { confirmar } = useRetorno();
   const a = v.automacao;
   const desligado = Boolean(a?.componentes?.[app]);
-  const nome = NOMES_DOS_COMPONENTES[app];
+  const separado = Boolean(v.servicos.robos);
+  const nome = app === 'benura-rodizio' && separado ? 'rodízio de pessoas' : NOMES_DOS_COMPONENTES[app];
+  const efeito = app === 'benura-rodizio' && separado ? EFEITO_DESLIGADO_PESSOAS : EFEITO_DESLIGADO[app];
   const ocupado = mutacao.isPending || !['ligada', 'desligada'].includes(a?.estado ?? 'ligada');
   const trocar = async () => {
     const ok = await confirmar(desligado
       ? { titulo: `Ligar o ${nome}?`, texto: a?.estado === 'desligada' ? `A automação está desligada: o ${nome} sobe quando ela for religada.` : `O ${nome} volta a funcionar em alguns segundos.`, confirmar: `Ligar o ${nome}` }
-      : { titulo: `Desligar só o ${nome}?`, texto: `${EFEITO_DESLIGADO[app]} Fica desligado (mesmo se o PC reiniciar ou a agenda religar) até alguém clicar em "Ligar".`, confirmar: `Desligar o ${nome}`, perigo: true });
+      : { titulo: `Desligar só o ${nome}?`, texto: `${efeito} Fica desligado (mesmo se o PC reiniciar ou a agenda religar) até alguém clicar em "Ligar".`, confirmar: `Desligar o ${nome}`, perigo: true });
     if (ok) mutacao.mutate({ app, ligar: desligado });
   };
   return (
@@ -65,18 +68,30 @@ function CartaoServico({ s, linhas, opcional, parado, desligadoAMao, acao }: {
 }
 
 function Cartoes({ v }: { v: Visao }) {
-  const { roteador, rodizio, rotinas, atualizador } = v.servicos;
+  const { roteador, rodizio, robos, rotinas, atualizador } = v.servicos;
   const r = rodizio.dados;
+  const modoDosRobos = r?.robos?.modo === 'panico' ? 'pânico' : r?.robos?.modo === 'desligados' ? 'desligados' : 'automático';
+  // [NOVO] robôs num serviço próprio: o rodízio de pessoas diz se o benura-robos responde; o cartão dele diz de onde vê a URA
+  const conversa = r?.servicoDosRobos ? (r.servicoDosRobos.emergencia ? 'parou os robôs' : r.servicoDosRobos.respondendo ? 'respondendo' : 'sem resposta') : '–';
+  const retrato = robos?.dados?.retratoDaUra;
+  const deOndeVe = !retrato ? '–' : retrato.fresco ? 'pelo rodízio de pessoas' : 'lendo a Argus sozinho';
   const argusOk = v.argus.respondendo && !v.argus.tokenRecusado;
   const ultimoCiclo = v.argus.cicloUraHaSeg == null ? '–' : `${duracao(v.argus.cicloUraHaSeg)} atrás`;
   const parado = v.automacao?.estado === 'desligada';
   const comp = v.automacao?.componentes ?? {};
+  const argus = saudeDaArgus(v);
   return (
     <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <CartaoServico parado={parado} desligadoAMao={comp['benura-roteador']} acao={<LigaDesliga v={v} app="benura-roteador" />} s={roteador}
         linhas={[['Carga do dia', roteador.dados?.cargaInicialFeita ? 'feita' : 'pendente'], ['Última leitura de vendas', horaCurta(roteador.dados?.ultimoMonitoramento)]]} />
       <CartaoServico parado={parado} desligadoAMao={comp['benura-rodizio']} acao={<LigaDesliga v={v} app="benura-rodizio" />} s={rodizio}
-        linhas={[['Último ciclo da URA', ultimoCiclo], ['Modo dos robôs', r?.robos?.modo === 'panico' ? 'pânico' : 'automático'], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]} />
+        linhas={robos
+          ? [['Último ciclo da URA', ultimoCiclo], ['Serviço dos robôs', conversa], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]
+          : [['Último ciclo da URA', ultimoCiclo], ['Modo dos robôs', modoDosRobos], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]} />
+      {robos && (
+        <CartaoServico parado={parado} desligadoAMao={comp['benura-robos']} acao={<LigaDesliga v={v} app="benura-robos" />} s={robos}
+          linhas={[['Vê a URA', deOndeVe], ['Modo dos robôs', modoDosRobos], ['Robôs ligados', robos.dados?.robos?.ligados != null ? String(robos.dados.robos.ligados) : '–']]} />
+      )}
       <CartaoServico parado={parado} desligadoAMao={comp['benura-rotinas']} acao={<LigaDesliga v={v} app="benura-rotinas" />} s={rotinas}
         linhas={[['Última execução', horaCurta(rotinas.dados?.ultimaExecucao)]]} />
       {atualizador && <CartaoServico s={atualizador} linhas={[]} opcional />}
@@ -90,7 +105,27 @@ function Cartoes({ v }: { v: Visao }) {
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-slate-500 dark:text-slate-400">Último ciclo</dt><dd className="text-right tabular-nums">{ultimoCiclo}</dd>
           <dt className="text-slate-500 dark:text-slate-400">Fixos na URA</dt><dd className="text-right tabular-nums">{r ? (r.fixosPermanentes ?? []).length : '–'}</dd>
+          {/* [NOVO] o que roteador, rodízio e robôs viram da Argus nos últimos 15 min */}
+          {argus && <>
+            <dt className="text-slate-500 dark:text-slate-400" title="Chamadas à Argus de todos os serviços nos últimos 15 min">Chamadas (15 min)</dt>
+            <dd className="text-right tabular-nums">{argus.chamadas}</dd>
+            <dt className="text-slate-500 dark:text-slate-400">Com erro</dt>
+            <dd className={clsx('text-right tabular-nums', argus.erros > 0 && 'font-semibold text-red-700 dark:text-red-300')}>
+              {argus.erros}{argus.chamadas ? ` (${Math.round((argus.erros / argus.chamadas) * 100)}%)` : ''}
+            </dd>
+            <dt className="text-slate-500 dark:text-slate-400">Tempo médio</dt>
+            <dd className="text-right tabular-nums">{argus.msMedio != null ? `${argus.msMedio} ms` : '–'}{argus.lentas ? ` · ${argus.lentas} lenta(s)` : ''}</dd>
+            <dt className="text-slate-500 dark:text-slate-400" title="HTTP 429: a Argus pediu para desacelerar; o BenURA espera um pouco (só desligar robôs segue)">Pedidos para desacelerar</dt>
+            <dd className={clsx('text-right tabular-nums', argus.limites > 0 && 'font-semibold text-amber-800 dark:text-amber-200')}>
+              {argus.limites}{argus.seguradas ? ` · ${argus.seguradas} segurada(s)` : ''}
+            </dd>
+          </>}
         </dl>
+        {argus?.ultimoErro && (
+          <p className="truncate text-xs text-slate-500 dark:text-slate-400" title={argus.ultimoErro.texto}>
+            Último erro às {horaCurta(argus.ultimoErro.em)}: {argus.ultimoErro.texto}
+          </p>
+        )}
       </div>
     </div>
   );

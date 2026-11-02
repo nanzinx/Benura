@@ -268,6 +268,19 @@ function carregarConfig(overrides = {}) {
       arquivoTrava: env('RODIZIO_LOCK_FILE', path.join(DADOS, 'argus.lock')),
       // URA cheia (GET /ura): ligada pela supervisão, vale até desligar ou virar o dia.
       arquivoUraCheia: env('RODIZIO_URA_CHEIA_FILE', path.join(DADOS, 'state-ura-cheia.json')),
+      // [NOVO] O serviço dos robôs sem responder por isso: o de pessoas para os robôs parados (rede de segurança).
+      robosSemRespostaMs: envNum('ROBOS_SEM_RESPOSTA_S', 30) * 1000,
+    },
+
+    // --- [NOVO] Robôs da URA num serviço próprio (robos.js / benura-robos) ---
+    // O benura-rodizio cuida das pessoas e manda o retrato da URA para cá a cada ciclo; este cuida dos
+    // robôs (pânico, modo, ajuste, cliente de risco, vigia de callbacks). false: tudo no benura-rodizio.
+    robos: {
+      servicoProprio: envBool('ROBOS_SERVICO_PROPRIO', true),
+      porta: envNum('ROBOS_PORT', 3004),
+      url: semBarraFinal(env('ROBOS_URL', `http://127.0.0.1:${envNum('ROBOS_PORT', 3004)}`)),
+      arquivoTrava: env('ROBOS_LOCK_FILE', path.join(DADOS, 'robos.lock')),
+      timeoutMs: envNum('ROBOS_TIMEOUT_MS', 2000),
     },
 
     // --- Regras de negócio ---
@@ -335,13 +348,14 @@ function carregarConfig(overrides = {}) {
     diretorio: RAIZ,
     branch: env('ATUALIZADOR_BRANCH', 'main'),
     intervaloMs: envNum('ATUALIZADOR_INTERVALO_MS', 60_000),
-    apps: envLista('ATUALIZADOR_APPS', 'benura-roteador,benura-rodizio,benura-rotinas,benura-painel'),
-    healthUrls: envLista('ATUALIZADOR_HEALTH_URLS', [cfg.http.porta, cfg.rodizio.porta, envNum('ROTINAS_PORT', 3003)]
+    apps: envLista('ATUALIZADOR_APPS', `benura-roteador,benura-rodizio,${cfg.robos.servicoProprio ? 'benura-robos,' : ''}benura-rotinas,benura-painel`),
+    healthUrls: envLista('ATUALIZADOR_HEALTH_URLS', [cfg.http.porta, cfg.rodizio.porta, ...(cfg.robos.servicoProprio ? [cfg.robos.porta] : []), envNum('ROTINAS_PORT', 3003)]
       .map((p) => `http://localhost:${p}/health`).join(',')),
     // [NOVO] o /health de cada app: com o componente desligado à mão, o deploy não espera por ele
     saudePorApp: {
       'benura-roteador': `http://localhost:${cfg.http.porta}/health`,
       'benura-rodizio': `http://localhost:${cfg.rodizio.porta}/health`,
+      'benura-robos': `http://localhost:${cfg.robos.porta}/health`,
       'benura-rotinas': `http://localhost:${envNum('ROTINAS_PORT', 3003)}/health`,
     },
     healthTimeoutMs: envNum('ATUALIZADOR_HEALTH_TIMEOUT_MS', 30_000),
@@ -406,6 +420,8 @@ function carregarConfig(overrides = {}) {
     servicos: {
       roteador: semBarraFinal(env('PAINEL_ROTEADOR_URL', local(cfg.http.porta))),
       rodizio: semBarraFinal(env('PAINEL_RODIZIO_URL', local(cfg.rodizio.porta))),
+      // [NOVO] com ROBOS_SERVICO_PROPRIO=false, os comandos dos robôs vão ao rodízio
+      ...(cfg.robos.servicoProprio ? { robos: semBarraFinal(env('PAINEL_ROBOS_URL', local(cfg.robos.porta))) } : {}),
       rotinas: semBarraFinal(env('PAINEL_ROTINAS_URL', local(cfg.rotinas.porta))),
       atualizador: semBarraFinal(env('PAINEL_ATUALIZADOR_URL', local(cfg.atualizador.porta))),
     },
@@ -490,7 +506,7 @@ function mesclarProfundo(base, extra) {
  * Problemas fatais impedem a inicialização; avisos apenas são logados.
  *
  * @param {object} cfg
- * @param {{ escopo?: 'roteador'|'rodizio'|'rotinas'|'atualizador'|'painel' }} [opcoes] - qual serviço está subindo
+ * @param {{ escopo?: 'roteador'|'rodizio'|'robos'|'rotinas'|'atualizador'|'painel' }} [opcoes] - qual serviço está subindo
  * @returns {{ fatais: string[], avisos: string[] }}
  */
 function validarConfig(cfg, { escopo = 'roteador' } = {}) {
@@ -517,7 +533,7 @@ function validarConfig(cfg, { escopo = 'roteador' } = {}) {
     fatais.push(`FUSO_HORARIO inválido: "${cfg.agenda.fusoHorario}".`);
   }
 
-  if (escopo === 'rodizio') return validarRodizio(cfg);
+  if (escopo === 'rodizio' || escopo === 'robos') return validarRodizio(cfg); // [NOVO] o de robôs usa a mesma config
   if (escopo === 'atualizador') return validarAtualizador(cfg, fatais);
   if (escopo === 'rotinas') return validarRotinas(cfg, fatais);
   if (escopo === 'painel') return validarPainel(cfg);
