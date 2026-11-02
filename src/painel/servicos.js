@@ -17,6 +17,9 @@ const ACOES = Object.freeze([
   // [NOVO] status da URA (manual ou automático), métricas do dia e "Alocar Todos no Ativo"
   { metodo: 'PUT', caminho: '/api/ura/status', servico: 'rodizio', destino: '/ura/status', nome: 'mudar o status da URA', comQuem: true, limiteBytes: 1024 },
   { metodo: 'GET', caminho: '/api/metricas/hoje', servico: 'rodizio', destino: '/metricas/hoje' },
+  // [NOVO] relatório de 7 e 30 dias, com as sugestões de ajuste (só leitura)
+  { metodo: 'GET', caminho: '/api/relatorio/semana', servico: 'rodizio', destino: '/relatorio/periodo?dias=7' },
+  { metodo: 'GET', caminho: '/api/relatorio/mes', servico: 'rodizio', destino: '/relatorio/periodo?dias=30' },
   // [NOVO] modo dos robôs: automático, só pânico ou desligados
   { metodo: 'PUT', caminho: '/api/robos/modo', servico: 'rodizio', destino: '/robos/modo', nome: 'mudar o modo dos robôs', comQuem: true, limiteBytes: 1024 },
   {

@@ -1,7 +1,7 @@
 /** Cliente da API do benura-painel. Escrita leva o cabeçalho X-Painel (o servidor exige). */
 
 import type {
-  ClienteDeRisco, ClienteWebhook, Componente, ConfiguracaoEmUso, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, ResultadoAcao, ResultadoEsteira, ResultadoRetomada, ResultadoTesteAviso,
+  ClienteDeRisco, ClienteWebhook, Componente, ConfiguracaoEmUso, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, RelatorioDoPeriodo, ResultadoAcao, ResultadoEsteira, ResultadoRetomada, ResultadoTesteAviso,
   ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao,
 } from './tipos';
 import type { Papel, UsuarioDaSessao } from './sessao';
@@ -69,6 +69,7 @@ export const api = {
   assumir: () => pedir<{ ok: true }>('POST', '/api/trava/assumir'),
   // [NOVO]
   metricasHoje: () => pedir<MetricasHoje>('GET', '/api/metricas/hoje'),
+  relatorioPeriodo: (dias: 7 | 30) => pedir<RelatorioDoPeriodo>('GET', dias === 30 ? '/api/relatorio/mes' : '/api/relatorio/semana'),
   statusUra: (pedido: { status?: StatusDaUra; modo: 'manual' | 'automatico' }) => pedir<StatusUra & { mudou: boolean }>('PUT', '/api/ura/status', pedido),
   transferirUraAtivo: () => pedir<ResultadoTransferencia>('POST', '/api/operadores/transferir-ura-ativo', {}),
   retomarRodizio: () => pedir<ResultadoRetomada>('POST', '/api/operadores/retomar-rodizio', {}),

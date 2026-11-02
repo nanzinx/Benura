@@ -32,6 +32,19 @@ const { TravasManuais } = require('./travas-manuais');
 const { ModoRobos } = require('./modo-robos');
 const { AcoesOperador } = require('./acoes-operador');
 const { EstatisticasDia } = require('./estatisticas-dia');
+
+/** [NOVO] O que muda o resultado da URA e dos robôs, do .env (sem nenhum segredo): vai para o histórico do relatório. */
+function fotoDaConfig(r) {
+  const porStatus = Object.fromEntries(Object.entries(r.robosTaxa?.porStatus ?? {}).map(([s, { esperaS, min, max }]) => [s, { esperaS, min, max }]));
+  return {
+    calculo: r.robosCalculo,
+    porLivre: r.robosPorLivre,
+    porStatus,
+    todosComLivresCalma: r.robosTaxa?.porStatus?.calma?.todosComLivres ?? 0,
+    tempoMin: r.tempoNaUraMs / 60_000,
+    cheiaLivres: { min: r.cheiaLivresMin, max: r.cheiaLivresMax },
+  };
+}
 const { AjusteRobos } = require('./ajuste-robos');
 const { VigiaCallbacks } = require('./vigia-callbacks');
 const { VigiaRisco } = require('./vigia-risco');
@@ -108,6 +121,8 @@ function montarRodizio(overrides) {
       historico: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoHistorico, logger: log.filho('estado') }),
       // [NOVO] O relatório é do expediente: o mesmo horário da agenda da automação (08:00 às 18:00).
       expediente: { inicio: cfg.automacao.agenda.religarAs, fim: cfg.automacao.agenda.desligarAs },
+      // [NOVO] a configuração dos robôs e da URA guardada em cada dia: as sugestões do relatório comparam por ela
+      fotoDaConfig: () => fotoDaConfig(cfgRodizio),
     }),
   });
   const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
@@ -271,4 +286,4 @@ async function iniciarRodizio() {
   return { ...app, ciclos, servidor };
 }
 
-module.exports = { montarRodizio, iniciarRodizio };
+module.exports = { montarRodizio, iniciarRodizio, fotoDaConfig };

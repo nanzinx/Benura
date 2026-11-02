@@ -308,8 +308,18 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
        - **TPA** (Tempo de Pânico Ativo);
        - o **status da URA**: o quadrado mostra o de agora e, aberto, o tempo em cada um hoje;
        - **pausas por tipo**;
-       - [NOVO] **comparação** embaixo de cada quadro (Transbordos, TOR, TME, OPL, TPA): o **dia anterior** com dados (segunda compara com sexta) e a **média dos últimos 7 dias**. TME e OPL da semana saem das somas, não da média das médias. Hoje ainda não acabou: compare com calma. Os totais de cada dia ficam em `RODIZIO_HISTORICO_FILE` (últimos 60). O dia vai para lá na virada, ou quando o rodízio sobe no dia seguinte (à noite ele fica parado pela agenda);
+       - [NOVO] **comparação** embaixo de cada quadro (Transbordos, TOR, TME, OPL, TPA): o **dia anterior** com dados (segunda compara com sexta) e a **média dos últimos 7 dias**. TME e OPL da semana saem das somas, não da média das médias. Hoje ainda não acabou: compare com calma. Os totais de cada dia ficam em `RODIZIO_HISTORICO_FILE` (últimos 120). O dia vai para lá na virada, ou quando o rodízio sobe no dia seguinte (à noite ele fica parado pela agenda);
        - [NOVO] botão **Planilha**: baixa o relatório de hoje em Excel (`.xlsx`), com as abas **hora a hora** (com o total), **Comparação** e **Por atendente**. Tempos em minutos ou segundos, como números, para fazer contas no Excel.
+       - [NOVO] abas **Hoje | 7 dias | 30 dias** (`GET /relatorio/periodo?dias=7|30`; no painel, `/api/relatorio/semana` e `/api/relatorio/mes`, buscados só com a aba aberta e guardados por 5 min):
+         - um dia por linha (hoje entra parcial), com os mesmos indicadores, a média de robôs ligados e a coluna do status da URA de agora; "mais ocioso" marca o dia de OPL mais alto;
+         - os quadros mostram TOR, TPA e transbordos **em média por dia** (a mesma régua de cores do dia) e TME e OPL pelas somas, com ▼▲ em relação aos **N dias anteriores**;
+         - a barra mostra o status da URA dia a dia; a **Planilha** baixa **Por dia**, **Totais** (com o período anterior) e **Por atendente**;
+         - cada dia do histórico guarda também os minutos em normal, agressiva e medindo, a média de robôs ligados, o resumo por atendente e uma **foto da configuração** (robôs por livre de cada status, "todos com N livres" da calma, `TEMPO_MIN` e os livres da URA cheia; nenhum segredo).
+       - [NOVO] **Sugestões** (`src/domain/sugestoes.js`), só sugerem, nunca mudam nada:
+         - por status (calma, normal, agressiva), comparam a configuração atual com a anterior pelo **OPL** e pelos **transbordos por dia**, contando só dias completos com **2 h ou mais** naquele status e só com **3 dias ou mais** de cada lado;
+         - se o lado de OPL melhor teve **mais de 30%** de transbordos, avisam em vez de apontar um vencedor;
+         - sem dados suficientes, mostram o progresso ("Juntando dados: 2 de 3 dias…"); a foto da configuração começa a ser guardada a partir desta versão;
+         - com 2 semanas ou mais, apontam o **dia da semana com o OPL mais alto**.
      - **Leads derivados e transbordos** (`GET /metricas/hoje`): "derivou" é lead derivado; transbordo é o **"Gerou Callback" da Argus** (abandonou a fila ou time-out na fila). O "sem agente" vem do discador e não conta. Vêm de duas fontes, e cada ligação conta uma vez só (pelo `idLigacao`):
        - os webhooks da Argus **tipo 4** (robô com o cliente pedindo humano) e **tipo 5** (encerramento da URA receptiva), na hora;
        - **[NOVO] o relatório de ligações** que o vigia de callbacks já lê a cada minuto (`ATENDIMENTO` = lead; `ABANDONO EM FILA` = transbordo). Funciona sem webhook configurado, com até 1 min de atraso. Ao subir (e na virada do dia), o BenURA lê o dia desde 00:00.

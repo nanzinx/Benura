@@ -205,6 +205,73 @@ export interface RelatorioDoDia {
   horas: HoraDoRelatorio[];
 }
 
+/** [NOVO] Relatório de 7 ou 30 dias (GET /api/relatorio/semana | /mes): um item por dia com dados, hoje incluído. */
+export interface DiaDoPeriodo {
+  dia: string;
+  hoje?: boolean;
+  transbordos: number;
+  leadsDerivados: number;
+  derivacoes: number;
+  tmeSeg: number | null;
+  oplSeg: number | null;
+  livresMin: number;
+  torMin: number;
+  tpaMin: number;
+  calmaMin: number;
+  normalMin: number;
+  agressivaMin: number;
+  medindoMin: number;
+  robosLigadosMedia: number | null;
+}
+
+/** [NOVO] Somas do período; TME e OPL pelas somas; TOR, TPA, transbordos e leads também por dia. */
+export interface TotaisDoPeriodo {
+  dias: number;
+  transbordos: number;
+  leadsDerivados: number;
+  derivacoes: number;
+  livresMin: number;
+  torMin: number;
+  tpaMin: number;
+  torMinDia: number;
+  tpaMinDia: number;
+  transbordosDia: number;
+  leadsDia: number;
+  calmaMin: number;
+  normalMin: number;
+  agressivaMin: number;
+  medindoMin: number;
+  tmeSeg: number | null;
+  oplSeg: number | null;
+}
+
+export interface AtendenteDoPeriodo {
+  ramal: string;
+  nome: string | null;
+  dias: number;
+  atendimentos: number;
+  livreMin: number;
+  atendimentoMin: number;
+  pausaMin: number;
+}
+
+/** [NOVO] Sugestões de ajuste (src/domain/sugestoes.js): só sugerem, nunca mudam nada. */
+export interface Sugestao {
+  tipo: 'comparacao' | 'aviso' | 'progresso' | 'semana';
+  texto: string;
+}
+
+export interface RelatorioDoPeriodo {
+  tamanho: 7 | 30;
+  desde: string;
+  dias: DiaDoPeriodo[];
+  totais: TotaisDoPeriodo;
+  /** o período anterior, do mesmo tamanho (null sem dados) */
+  anterior: TotaisDoPeriodo | null;
+  porAtendente: AtendenteDoPeriodo[];
+  sugestoes: Sugestao[];
+}
+
 /** [NOVO] Os totais de um dia passado (histórico do relatório). */
 export interface TotaisDoDia {
   dia: string;

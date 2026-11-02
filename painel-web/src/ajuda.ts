@@ -106,6 +106,18 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     ],
   },
   {
+    id: 'periodo',
+    titulo: 'Relatório de 7 e 30 dias e as sugestões',
+    onde: 'Visão geral → Relatório → abas 7 dias e 30 dias',
+    itens: [
+      'As abas 7 dias e 30 dias mostram um dia por linha, com hoje ainda parcial. A coluna de status segue o status da URA de agora, e "mais ocioso" marca o dia com o OPL mais alto.',
+      'Nos quadros, TOR, TPA e transbordos aparecem em média por dia, para usar as mesmas cores do relatório do dia. TME e OPL somam o período. Embaixo, a comparação com os 7 (ou 30) dias anteriores.',
+      'Sugestões: comparam a configuração atual dos robôs com a anterior, em cada status da URA, pelo OPL e pelos transbordos. Só contam dias completos com 2 h ou mais naquele status, e só com 3 dias ou mais de cada configuração.',
+      'Se o OPL melhorou mas os transbordos subiram mais de 30%, a sugestão avisa e não aponta vencedor. Com 2 semanas de dados, ela mostra também o dia da semana mais ocioso.',
+      'As sugestões só sugerem: quem muda os números é a supervisão, no .env. A "Planilha" da aba baixa por dia, os totais com o período anterior e por atendente.',
+    ],
+  },
+  {
     id: 'faixas',
     titulo: 'As faixas do topo',
     onde: 'Topo, em qualquer aba',

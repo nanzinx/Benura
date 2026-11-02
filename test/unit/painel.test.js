@@ -276,6 +276,11 @@ test('painel [NOVO]: PUT /api/ura/status e "alocar todos no Ativo" levam quem pe
 
   assert.equal((await pedir('GET', '/api/metricas/hoje', { cookie, origem: PAGES, extras: pelaPagina })).status, 200);
   assert.ok(chamadas.some((c) => c.url === 'http://rodizio/metricas/hoje' && c.metodo === 'GET'));
+  // [NOVO] relatório de 7 e 30 dias
+  assert.equal((await pedir('GET', '/api/relatorio/semana', { cookie, origem: PAGES, extras: pelaPagina })).status, 200);
+  assert.equal((await pedir('GET', '/api/relatorio/mes', { cookie, origem: PAGES, extras: pelaPagina })).status, 200);
+  assert.ok(chamadas.some((c) => c.url === 'http://rodizio/relatorio/periodo?dias=7' && c.metodo === 'GET'));
+  assert.ok(chamadas.some((c) => c.url === 'http://rodizio/relatorio/periodo?dias=30' && c.metodo === 'GET'));
   assert.equal((await pedir('PUT', '/api/ura/status', { cookie, origem: PAGES, extras: pelaPagina, corpo: [1] })).status, 400);
 });
 

@@ -141,6 +141,13 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     return { status: 200, corpo: rodizio.metricasHoje() };
   }
 
+  /** [NOVO] GET /relatorio/periodo?dias=7|30 — relatório da semana ou do mês, com as sugestões (outro valor vira 7). */
+  async function relatorioPeriodo({ req }) {
+    if (!rodizio.estatisticas) return { status: 404, corpo: { erro: 'relatório indisponível' } };
+    const dias = Number(new URL(req?.url ?? '/', 'http://x').searchParams.get('dias'));
+    return { status: 200, corpo: rodizio.estatisticas.periodo(dias === 30 ? 30 : 7) };
+  }
+
   /** [NOVO] POST /operadores/transferir-ura-ativo { por? } — humanos da URA, menos os fixos, para o Ativo. */
   async function transferirUraAtivo({ corpo }) {
     return { status: 200, corpo: await rodizio.transferirUraParaAtivo(quem(corpo)) };
@@ -260,6 +267,7 @@ function criarRotasDoRodizio({ rodizio, retornoFila, risco = null, acoes = null,
     { metodo: 'DELETE', caminho: '/ura/passiva', handler: desligarUraPassiva, protegida: true },
     { metodo: 'PUT', caminho: '/ura/status', handler: definirStatusUra, protegida: true },
     { metodo: 'GET', caminho: '/metricas/hoje', handler: metricasHoje },
+    { metodo: 'GET', caminho: '/relatorio/periodo', handler: relatorioPeriodo },
     { metodo: 'POST', caminho: '/operadores/transferir-ura-ativo', handler: transferirUraAtivo, protegida: true },
     { metodo: 'POST', caminho: '/operadores/retomar-rodizio', handler: retomarRodizio, protegida: true },
     { metodo: 'POST', caminho: '/operadores/pausas', handler: pausasDisponiveis, protegida: true },

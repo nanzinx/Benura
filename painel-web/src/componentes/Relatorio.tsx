@@ -1,15 +1,16 @@
 import { clsx } from 'clsx';
-import { Check, ChevronDown, Download, Lock, Wand2 } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, Download, Hourglass, Lightbulb, Lock, TriangleAlert, Wand2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { duracao, minutos } from '../formatos';
 import { baixarXlsx } from '../planilha';
 import {
-  abasDoRelatorio, colunaDoStatus, diaCurto, horaMaisOciosa, nivelDoIndicador, statusPorHora, tendencia, totaisDoRelatorio, type CampoDoQuadro, type Nivel, type Tendencia,
+  abasDoPeriodo, abasDoRelatorio, colunaDoStatus, diaCurto, diaMaisOcioso, horaMaisOciosa, indicadoresDoPeriodo, nivelDoIndicador, statusPorDia, statusPorHora, tendencia,
+  totaisDoRelatorio, type CampoDoQuadro, type Nivel, type Tendencia,
 } from '../relatorio';
-import { useStatusUra, useVisao } from '../dados';
+import { useRelatorioPeriodo, useStatusUra, useVisao } from '../dados';
 import { semAcesso, usePode } from '../sessao';
-import type { EstadoTermometro, RelatorioDoDia, StatusDaUra } from '../tipos';
-import { Botao, Cartao, Vazio } from '../ui/base';
+import type { EstadoTermometro, RelatorioDoDia, RelatorioDoPeriodo, StatusDaUra, Sugestao } from '../tipos';
+import { Botao, Cartao, Esqueleto, Segmentado, Vazio } from '../ui/base';
 import { CORES_DA_URA, NOMES_DA_URA } from './StatusUra';
 
 const CORES_TERMOMETRO: Record<EstadoTermometro, string> = {
@@ -178,10 +179,24 @@ function BarraTermometro({ r }: { r: RelatorioDoDia }) {
   );
 }
 
-/** Relatório do dia: transbordos, TOR, TME, OPL, TPA e o status da URA, também por hora. */
+type AbaDoRelatorio = 'hoje' | '7' | '30';
+const ABAS_DO_RELATORIO: { valor: AbaDoRelatorio; texto: string }[] = [{ valor: 'hoje', texto: 'Hoje' }, { valor: '7', texto: '7 dias' }, { valor: '30', texto: '30 dias' }];
+
+/**
+ * Relatório: [NOVO] abas Hoje | 7 dias | 30 dias. Hoje é o relatório do dia, hora a hora; as outras
+ * mostram um dia por linha, comparam com o período anterior e trazem as sugestões de ajuste.
+ */
 export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undefined; statusAtual?: EstadoTermometro | null }) {
+  const [aba, setAba] = useState<AbaDoRelatorio>('hoje');
+  const seletor = <Segmentado rotulo="Período do relatório" opcoes={ABAS_DO_RELATORIO} valor={aba} aoMudar={setAba} />;
+  if (aba !== 'hoje') return <RelatorioDoPeriodoCartao dias={aba === '30' ? 30 : 7} statusAtual={statusAtual} seletor={seletor} />;
+  return <RelatorioDeHoje r={r} statusAtual={statusAtual} seletor={seletor} />;
+}
+
+/** Relatório do dia: transbordos, TOR, TME, OPL, TPA e o status da URA, também por hora. */
+function RelatorioDeHoje({ r, statusAtual, seletor }: { r: RelatorioDoDia | null | undefined; statusAtual?: EstadoTermometro | null; seletor: ReactNode }) {
   if (!r) {
-    return <Cartao titulo="Relatório do dia" className="mb-5"><Vazio>O relatório aparece quando o rodízio estiver rodando.</Vazio></Cartao>;
+    return <Cartao titulo="Relatório do dia" className="mb-5" extra={seletor}><Vazio>O relatório aparece quando o rodízio estiver rodando.</Vazio></Cartao>;
   }
   const horas = r.horas;
   // [NOVO] A hora mais ociosa é a de OPL mais alto (tempo livre por lead).
@@ -204,7 +219,8 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
   return (
     <Cartao titulo="Relatório do dia" className="mb-5" extra={(
       <>
-        <span>hoje, no expediente, hora a hora</span>
+        {seletor}
+        <span className="hidden sm:inline">no expediente, hora a hora</span>
         <Botao variante="secundario" className="min-h-8 px-3 py-1" icone={<Download className="size-4" aria-hidden />}
           title="Baixa o relatório de hoje (hora a hora, comparação e por atendente) para abrir no Excel"
           onClick={() => baixarXlsx(`relatorio-benura-${r.dia}.xlsx`, abasDoRelatorio(r))}>
@@ -273,6 +289,195 @@ export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undef
       ) : <Vazio>Nada medido ainda hoje.</Vazio>}
       <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
         <b>TOR</b>: Tempo Ocioso sem Robô · <b>TME</b>: Tempo Médio de Espera · <b>OPL</b>: Ociosidade Por Lead · <b>TPA</b>: Tempo de Pânico Ativo · <b>Transbordos</b>: os callbacks ("Gerou Callback" da Argus).
+      </p>
+    </Cartao>
+  );
+}
+
+// ───────────── [NOVO] Relatório de 7 e 30 dias ─────────────
+
+const virgula = (v: number | null | undefined) => (v == null ? '–' : String(Math.round(v * 10) / 10).replace('.', ','));
+
+/** "7 dias antes: 1,3/dia", verde com ▼ quando o período atual está melhor (menor), vermelho com ▲ quando pior. */
+function comparativoDoPeriodo(rotulo: string, atual: number | null, antes: number | null | undefined, formatar: (v: number | null) => string): ReactNode {
+  if (antes === undefined) return undefined;
+  const t = tendencia(atual, antes);
+  return (
+    <span className={clsx('flex items-center gap-1 truncate whitespace-nowrap', t && COR_DA_TENDENCIA[t])} title={t ? { melhor: 'agora está melhor', pior: 'agora está pior', igual: 'igual' }[t] : undefined}>
+      {t && t !== 'igual' && <span aria-hidden>{SETA[t]}</span>}
+      {rotulo}: {formatar(antes ?? null)}
+    </span>
+  );
+}
+
+/** O status da URA dia a dia: cada dia uma barra com a proporção de calma, normal, agressiva e medindo. */
+function BarraPorDia({ p }: { p: RelatorioDoPeriodo }) {
+  const ordem: EstadoTermometro[] = ['agressiva', 'normal', 'calma', 'medindo'];
+  const dias = statusPorDia(p.dias);
+  if (!dias.some((d) => d.total > 0)) return null;
+  const rotulo = (dia: string) => (p.tamanho === 30 ? dia.slice(8) : diaCurto(dia).slice(0, 6));
+  const t = p.totais;
+  const totalDo: Record<EstadoTermometro, number> = { calma: t.calmaMin, normal: t.normalMin, agressiva: t.agressivaMin, medindo: t.medindoMin };
+  const resumo = (d: (typeof dias)[number]) => ordem.filter((e) => d[e] > 0).map((e) => `${e} ${minutos(d[e])}`).join(' · ') || 'sem medida';
+  return (
+    <div className="mb-4 grid gap-1.5">
+      <div className={clsx('flex', p.tamanho === 30 ? 'gap-0.5' : 'gap-1')} role="img"
+        aria-label={`Status da URA por dia: ${dias.map((d) => `${diaCurto(d.dia)} ${resumo(d)}`).join('; ')}`}>
+        {dias.map((d, i) => (
+          <div key={d.dia} className="grid min-w-0 flex-1 gap-1" title={`${diaCurto(d.dia)}${p.dias[i]?.hoje ? ' (hoje)' : ''}: ${resumo(d)}`}>
+            <div className="flex h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-noite-800">
+              {ordem.map((e) => d[e] > 0 && <span key={e} className={CORES_TERMOMETRO[e]} style={{ width: `${(d[e] / d.total) * 100}%` }} />)}
+            </div>
+            <span className={clsx('truncate text-center text-[11px] tabular-nums', p.dias[i]?.hoje ? 'font-bold text-azul-700 dark:text-azul-300' : 'text-slate-500 dark:text-slate-400',
+              p.tamanho === 30 && i % 2 === 1 && 'max-sm:invisible')}>{rotulo(d.dia)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+        {ordem.map((e) => (
+          <span key={e} className="inline-flex items-center gap-1.5"><span className={clsx('size-2.5 rounded-sm', CORES_TERMOMETRO[e])} aria-hidden />{e} {minutos(totalDo[e])}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const ESTILO_DA_SUGESTAO: Record<Sugestao['tipo'], { icone: ReactNode; caixa: string }> = {
+  comparacao: { icone: <Lightbulb className="size-4 text-emerald-600 dark:text-emerald-300" aria-hidden />, caixa: 'bg-emerald-50 dark:bg-emerald-950/40' },
+  aviso: { icone: <TriangleAlert className="size-4 text-amber-600 dark:text-amber-300" aria-hidden />, caixa: 'bg-amarelo-100 dark:bg-amber-950/50' },
+  semana: { icone: <CalendarDays className="size-4 text-azul-600 dark:text-azul-300" aria-hidden />, caixa: 'bg-azul-50 dark:bg-noite-800' },
+  progresso: { icone: <Hourglass className="size-4 text-slate-400" aria-hidden />, caixa: 'bg-slate-50 dark:bg-noite-800/60' },
+};
+
+/** As sugestões de ajuste: tiradas do histórico, só sugerem (quem muda é o .env, à mão). */
+function Sugestoes({ lista }: { lista: Sugestao[] }) {
+  if (!lista.length) return null;
+  return (
+    <div className="mb-4 grid gap-2 rounded-xl border border-slate-200 p-3 dark:border-noite-700">
+      <h3 className="flex items-center gap-2 text-sm font-semibold"><Lightbulb className="size-4 text-amarelo-500" aria-hidden />Sugestões</h3>
+      <ul className="grid gap-1.5">
+        {lista.map((s) => (
+          <li key={s.texto} className={clsx('flex items-start gap-2 rounded-lg px-2.5 py-2 text-sm leading-snug', ESTILO_DA_SUGESTAO[s.tipo].caixa)}>
+            <span className="mt-0.5 shrink-0">{ESTILO_DA_SUGESTAO[s.tipo].icone}</span>
+            <span>{s.texto}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Comparam só dias completos com 2 h ou mais no status, e só com 3 dias ou mais de cada configuração. O BenURA não muda nada sozinho.
+      </p>
+    </div>
+  );
+}
+
+/** Relatório de 7 ou 30 dias: os mesmos quadros (em média por dia), a barra e a tabela dia a dia e as sugestões. */
+function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30; statusAtual?: EstadoTermometro | null; seletor: ReactNode }) {
+  const { data: p, isPending, error } = useRelatorioPeriodo(dias);
+  const titulo = dias === 30 ? 'Relatório do mês' : 'Relatório da semana';
+  const extra = (
+    <>
+      {seletor}
+      <span className="hidden sm:inline">últimos {dias} dias, um por linha</span>
+      <Botao variante="secundario" className="min-h-8 px-3 py-1" icone={<Download className="size-4" aria-hidden />} disabled={!p}
+        title={`Baixa os últimos ${dias} dias (por dia, totais com o período anterior e por atendente) para abrir no Excel`}
+        onClick={() => p && baixarXlsx(`relatorio-benura-${dias}-dias-${p.dias.at(-1)?.dia ?? p.desde}.xlsx`, abasDoPeriodo(p))}>
+        Planilha
+      </Botao>
+    </>
+  );
+  if (isPending) {
+    return (
+      <Cartao titulo={titulo} className="mb-5" extra={extra}>
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">{Array.from({ length: 6 }, (_, i) => <Esqueleto key={i} className="h-20" />)}</div>
+        <Esqueleto className="h-40" />
+      </Cartao>
+    );
+  }
+  if (error || !p) {
+    return <Cartao titulo={titulo} className="mb-5" extra={extra}><Vazio>Não foi possível carregar o relatório{error ? `: ${error.message}` : ''}.</Vazio></Cartao>;
+  }
+  const t = p.totais;
+  const ind = indicadoresDoPeriodo(t)!;
+  const ant = indicadoresDoPeriodo(p.anterior);
+  const rotuloAntes = `${dias} dias antes`;
+  const antes = (campo: CampoDoQuadro) => (ant ? ant[campo] : undefined);
+  const porDia = (v: number | null) => (v == null ? '–' : `${virgula(v)}/dia`);
+  const minPorDia = (v: number | null) => (v == null ? '–' : `${minutos(v)}/dia`);
+  const coluna = colunaDoStatus(p.dias, statusAtual);
+  const maisOciosoDia = diaMaisOcioso(p.dias);
+  const pior = [...p.dias].sort((a, b) => b.transbordos - a.transbordos)[0];
+  return (
+    <Cartao titulo={titulo} className="mb-5" extra={extra}>
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <Numero rotulo="Transbordos" dica={DICAS.transbordos} valor={t.transbordos} nivel={nivelDoIndicador('transbordos', ind.transbordos)}
+          nota={pior?.transbordos ? `${virgula(t.transbordosDia)}/dia · pior ${diaCurto(pior.dia)}` : 'nenhum no período'}
+          comparar={comparativoDoPeriodo(rotuloAntes, ind.transbordos, antes('transbordos'), porDia)} />
+        <Numero rotulo="TOR" dica={DICAS.tor} valor={minPorDia(ind.torMin)} nivel={nivelDoIndicador('torMin', ind.torMin)}
+          nota={`${minutos(t.torMin)} no período`} comparar={comparativoDoPeriodo(rotuloAntes, ind.torMin, antes('torMin'), minPorDia)} />
+        <Numero rotulo="TME" dica={DICAS.tme} valor={duracao(ind.tmeSeg)} nivel={nivelDoIndicador('tmeSeg', ind.tmeSeg)} nota={`${t.dias} dia(s) com dados`}
+          comparar={comparativoDoPeriodo(rotuloAntes, ind.tmeSeg, antes('tmeSeg'), duracao)} />
+        <Numero rotulo="OPL" dica={DICAS.opl} valor={duracao(ind.oplSeg)} nivel={nivelDoIndicador('oplSeg', ind.oplSeg)} nota={`${minutos(t.livresMin)} livres`}
+          comparar={comparativoDoPeriodo(rotuloAntes, ind.oplSeg, antes('oplSeg'), duracao)} />
+        <Numero rotulo="TPA" dica={DICAS.tpa} valor={minPorDia(ind.tpaMin)} nivel={nivelDoIndicador('tpaMin', ind.tpaMin)}
+          nota={`${minutos(t.tpaMin)} no período`} comparar={comparativoDoPeriodo(rotuloAntes, ind.tpaMin, antes('tpaMin'), minPorDia)} />
+        <Numero rotulo="Leads derivados" dica={DICAS.leads} valor={t.leadsDerivados} nota={`${virgula(t.leadsDia)}/dia`}
+          comparar={p.anterior ? <span className="truncate whitespace-nowrap">{rotuloAntes}: {virgula(p.anterior.leadsDia)}/dia</span> : undefined} />
+      </div>
+      <Sugestoes lista={p.sugestoes} />
+      <BarraPorDia p={p} />
+      {p.dias.length ? (
+        <div className="overflow-x-auto">
+          <table className="tabela whitespace-nowrap">
+            <thead><tr>
+              <th>Dia</th>
+              <th className="text-right"><abbr title={DICAS.leads} className="cursor-help no-underline">Leads derivados</abbr></th>
+              <th className="text-right"><abbr title={DICAS.tme} className="cursor-help no-underline">TME</abbr></th>
+              <th className="text-right"><abbr title={DICAS.opl} className="cursor-help no-underline">OPL</abbr></th>
+              <th className="text-right"><abbr title={DICAS.tor} className="cursor-help no-underline">TOR</abbr></th>
+              <th className="text-right"><abbr title={DICAS.tpa} className="cursor-help no-underline">TPA</abbr></th>
+              <th className="text-right" title={`Minutos em ${coluna.titulo.toLowerCase()} em cada dia (segue o status da URA)`}>
+                <span className="inline-flex items-center gap-1.5"><span className={clsx('size-2 rounded-full', CORES_TERMOMETRO[coluna.status])} aria-hidden />{coluna.titulo}</span>
+              </th>
+              <th className="text-right" title="Média de robôs ligados no expediente">Robôs</th>
+              <th className="text-right"><abbr title={DICAS.transbordos} className="cursor-help no-underline">Transbordos</abbr></th>
+            </tr></thead>
+            <tbody>{p.dias.map((d, i) => {
+              const maisOcioso = d.dia === maisOciosoDia;
+              return (
+                <tr key={d.dia} className={clsx(maisOcioso && 'bg-amarelo-100/60 dark:bg-amber-950/30')}>
+                  <td className="numero whitespace-nowrap font-semibold">
+                    {diaCurto(d.dia)}
+                    {d.hoje && <span className="ml-2 rounded-md bg-azul-100 px-1.5 py-0.5 text-[11px] font-bold text-azul-800 dark:bg-noite-700 dark:text-azul-300" title="Hoje ainda não acabou">hoje</span>}
+                    {maisOcioso && <span title="O dia com mais tempo livre por lead (OPL mais alto)" className="ml-2 cursor-help rounded-md bg-amarelo-500 px-1.5 py-0.5 text-[11px] font-bold text-marinho-950">mais ocioso</span>}
+                  </td>
+                  <td className="numero text-right">{d.leadsDerivados}</td>
+                  <td className="numero text-right">{duracao(d.tmeSeg)}</td>
+                  <td className="numero text-right">{duracao(d.oplSeg)}</td>
+                  <td className="numero text-right">{minutos(d.torMin)}</td>
+                  <td className="numero text-right">{minutos(d.tpaMin)}</td>
+                  <td className="numero text-right">{minutos(coluna.porHora[i])}</td>
+                  <td className="numero text-right">{virgula(d.robosLigadosMedia)}</td>
+                  <td className={clsx('numero text-right', d.transbordos > 0 && 'font-bold text-red-700 dark:text-red-400')}>{d.transbordos}</td>
+                </tr>
+              );
+            })}</tbody>
+            <tfoot><tr className="border-t-2 border-slate-300 font-bold dark:border-noite-600">
+              <td className="numero whitespace-nowrap">Total</td>
+              <td className="numero text-right">{t.leadsDerivados}</td>
+              <td className="numero text-right">{duracao(t.tmeSeg)}</td>
+              <td className="numero text-right">{duracao(t.oplSeg)}</td>
+              <td className="numero text-right">{minutos(t.torMin)}</td>
+              <td className="numero text-right">{minutos(t.tpaMin)}</td>
+              <td className="numero text-right">{minutos(coluna.total)}</td>
+              <td className="numero text-right" />
+              <td className={clsx('numero text-right', t.transbordos > 0 && 'text-red-700 dark:text-red-400')}>{t.transbordos}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      ) : <Vazio>Ainda não há dias guardados neste período.</Vazio>}
+      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+        Desde {diaCurto(p.desde)}. TOR, TPA e transbordos dos quadros em média por dia (a mesma régua de cores do dia); TME e OPL somando o período.
+        Hoje entra parcial. A comparação é com os {dias} dias anteriores.
       </p>
     </Cartao>
   );

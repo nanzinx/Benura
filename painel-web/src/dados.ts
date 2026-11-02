@@ -107,6 +107,20 @@ export function useMetricasHoje() {
   return useQuery({ queryKey: ['metricas'], queryFn: api.metricasHoje, refetchInterval: intervalo(10_000, useContext(AoVivo)) });
 }
 
+/**
+ * [NOVO] Relatório de 7 ou 30 dias: só busca com a aba aberta (null = aba Hoje) e guarda por 5 min,
+ * para não pesar no servidor (o histórico muda uma vez por dia; hoje, devagar).
+ */
+export function useRelatorioPeriodo(dias: 7 | 30 | null) {
+  return useQuery({
+    queryKey: ['relatorio-periodo', dias],
+    queryFn: () => api.relatorioPeriodo(dias ?? 7),
+    enabled: dias != null,
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+}
+
 const NOMES_STATUS: Record<StatusDaUra, string> = { calma: 'URA CALMA', normal: 'URA NORMAL', agressiva: 'URA AGRESSIVA' };
 
 /** [NOVO] Status da URA: manual (calma, normal, agressiva) ou de volta ao automático. Vale para todos. */
