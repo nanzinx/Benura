@@ -83,7 +83,8 @@ test('a tela de bloqueio: o IP, o motivo, o que fazer; o script só com o nonce 
   assert.match(html, /Tentar de novo/);
   const scripts = [...html.matchAll(/<script([^>]*)>/g)].map((m) => m[1]);
   assert.ok(scripts.length >= 1);
-  for (const s of scripts) assert.match(s, new RegExp(`nonce="${nonce}"`), 'todo script com o nonce');
+  // o nonce é base64 (pode ter + e /): comparar como texto, não como expressão regular
+  for (const s of scripts) assert.ok(s.includes(`nonce="${nonce}"`), `todo script com o nonce: ${s}`);
   assert.doesNotMatch(html, /(src|href)="https?:/, 'sem fonte, imagem ou script de fora');
   assert.match(html, /prefers-reduced-motion/);
   // outra resposta, outro nonce
