@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chegaram, diaCurto, haQuanto, iniciais, metaBatidaOntem, recente, somaDasVendas, subiramHoje, tomDoAvatar } from './vendas';
+import { acimaDaMeta, chegaram, diaCurto, haQuanto, iniciais, metaBatidaOntem, recente, somaDasVendas, subiramHoje, tomDoAvatar } from './vendas';
 
 const status = {
   meta: 50000,
@@ -68,5 +68,12 @@ describe('vendas', () => {
     expect(tomDoAvatar('1004')).toBe(tomDoAvatar('1004'));
     expect(new Set(['1', '2', '3', '4', '5', '6', '7', '8'].map(tomDoAvatar)).size).toBeGreaterThan(3);
     for (const r of ['1', '22', '333']) expect(tomDoAvatar(r)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('meta batida ontem: quanto passou da meta (em % e em reais) e a barra em relação à maior venda', () => {
+    expect(acimaDaMeta(72500, 50000, 98100)).toEqual({ porcento: 145, sobra: 22500, barra: 74 });
+    expect(acimaDaMeta(98100, 50000, 98100)).toEqual({ porcento: 196, sobra: 48100, barra: 100 });
+    expect(acimaDaMeta(50001, 50000, 0)).toEqual({ porcento: 100, sobra: 1, barra: 100 });
+    expect(acimaDaMeta(null, undefined, 10)).toEqual({ porcento: null, sobra: null, barra: 0 });
   });
 });

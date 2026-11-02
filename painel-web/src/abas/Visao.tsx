@@ -5,10 +5,10 @@ import { GraficoDegraus } from '../componentes/GraficoDegraus';
 import { Relatorio } from '../componentes/Relatorio';
 import { useDia, useMetricasHoje, useRoteador, useVisao } from '../dados';
 import { StatusUra } from '../componentes/StatusUra';
-import { SubiramPorVenda } from '../componentes/SubiramPorVenda';
+import { MetaBatidaOntem, SubiramPorVenda } from '../componentes/SubiramPorVenda';
 import { useFlip } from '../ui/flip';
 import { agoraEmSegundos, degraus, duracao, horaCurta, ordenarOperadores, reais, segundosDoDia } from '../formatos';
-import type { Callback, Classe, MetricasHoje, OperadorNaUra, SaudeRodizio, Vendedor } from '../tipos';
+import type { Callback, Classe, MetricasHoje, OperadorNaUra, SaudeRodizio } from '../tipos';
 import { diaCurto, metaBatidaOntem, subiramHoje } from '../vendas';
 import { Cartao, Esqueleto, Segmentado, Selo, Vazio, type Tom } from '../ui/base';
 
@@ -207,31 +207,6 @@ function Graficos({ escuro }: { escuro: boolean }) {
   );
 }
 
-function TabelaVendedores({ titulo, vendedores, rotuloValor, valor, vazio }: {
-  titulo: ReactNode; vendedores: Vendedor[]; rotuloValor: string; valor: (v: Vendedor) => number | null | undefined; vazio: string;
-}) {
-  return (
-    <div className="min-w-0">
-      <h3 className="mb-2 flex items-baseline justify-between gap-2 text-sm font-semibold">{titulo}<span className="font-normal text-slate-500 dark:text-slate-400">{vendedores.length}</span></h3>
-      {vendedores.length ? (
-        <div className="overflow-x-auto">
-          <table className="tabela">
-            <thead><tr><th>Ramal</th><th>Vendedor</th><th className="hidden sm:table-cell">Equipe</th><th className="text-right">{rotuloValor}</th></tr></thead>
-            <tbody>{vendedores.map((v) => (
-              <tr key={v.ramal}>
-                <td className="numero">{v.ramal}</td>
-                <td>{v.nome ?? '—'}{v.fixo && <span className="ml-2 rounded-md bg-amarelo-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-950 dark:text-amber-200">fixo</span>}</td>
-                <td className="hidden sm:table-cell">{v.equipe ?? ''}</td>
-                <td className="numero whitespace-nowrap text-right">{reais(valor(v) ?? 0)}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      ) : <Vazio>{vazio}</Vazio>}
-    </div>
-  );
-}
-
 function Roteador() {
   const { data: s, isError } = useRoteador();
   const subiram = subiramHoje(s);
@@ -252,8 +227,7 @@ function Roteador() {
       </div>
       <div className="grid gap-5 lg:grid-cols-2">
         <SubiramPorVenda s={s} />
-        <TabelaVendedores titulo={`Meta batida ontem${dia ? ` (${dia})` : ''}`} vendedores={metaOntem} rotuloValor="Vendeu ontem"
-          valor={(v) => v.vendaOntem} vazio={s?.cargaInicialFeita === false ? 'A carga do dia ainda não saiu.' : 'Ninguém passou da meta ontem.'} />
+        <MetaBatidaOntem s={s} />
       </div>
     </Cartao>
   );

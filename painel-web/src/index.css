@@ -136,10 +136,11 @@
 .venda-confete { opacity: 0; animation: venda-confete 0.9s ease-out both; }
 .venda-pulo { animation: venda-pulo 0.45s ease-out; }
 .venda-ping { animation: venda-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite; }
+.venda-barra { transform-origin: left; animation: bv-encher 0.9s cubic-bezier(.2,.8,.2,1) 0.15s both; }
 @media (prefers-reduced-motion: reduce) {
   .venda-chegou { animation: bv-esmaecer 0.2s ease-out both; }
   .venda-confete { display: none; }
-  .venda-pulo, .venda-ping { animation: none; }
+  .venda-pulo, .venda-ping, .venda-barra { animation: none; }
   .venda-item { transition: none; }
   .venda-item:hover { transform: none; }
 }

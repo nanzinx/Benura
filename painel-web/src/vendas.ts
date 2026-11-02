@@ -60,3 +60,14 @@ export function tomDoAvatar(ramal: string): number {
 
 /** "20/10/2026" → "20/10". */
 export const diaCurto = (dia: string | null | undefined) => (dia ? dia.split('/').slice(0, 2).join('/') : null);
+
+/**
+ * [NOVO] "Meta batida ontem": quanto passou da meta (145%, R$ 22.500 a mais) e o tamanho da
+ * barra em relação à maior venda da lista (a maior = 100).
+ */
+export function acimaDaMeta(venda: number | null | undefined, meta: number | null | undefined, maior: number) {
+  const v = venda ?? 0;
+  const barra = !v ? 0 : maior > 0 ? Math.min(100, Math.round((v / maior) * 100)) : 100;
+  if (!meta || venda == null) return { porcento: null, sobra: null, barra };
+  return { porcento: Math.floor((v / meta) * 100), sobra: Math.round(v - meta), barra };
+}

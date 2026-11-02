@@ -2,17 +2,18 @@
  * [NOVO] "Subiram por venda hoje": quem saiu do Ativo para a URA porque vendeu. Cada um vira um
  * cartãozinho com as iniciais, a equipe, a venda e a hora. Quem chega com a tela aberta entra
  * deslizando, com um brilho e um confete rápido; quem subiu nos últimos 15 min leva o selo "novo".
- * A maior venda do dia ganha o troféu. "Reduzir movimento" do sistema: sem animação.
+ * A maior venda do dia ganha o troféu. "Meta batida ontem" usa o mesmo cartão (MetaBatidaOntem).
+ * "Reduzir movimento" do sistema: sem animação.
  */
 
 import { clsx } from 'clsx';
-import { ChevronDown, Sparkles, Trophy } from 'lucide-react';
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { ChevronDown, Sparkles, Target, Trophy } from 'lucide-react';
+import { useEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 import { horaCurta } from '../formatos';
 import type { StatusRoteador, Vendedor } from '../tipos';
 import { Segmentado, Vazio } from '../ui/base';
 import { useFlip } from '../ui/flip';
-import { chegaram, haQuanto, iniciais, recente, somaDasVendas, subiramHoje, tomDoAvatar } from '../vendas';
+import { acimaDaMeta, chegaram, diaCurto, haQuanto, iniciais, metaBatidaOntem, recente, somaDasVendas, subiramHoje, tomDoAvatar } from '../vendas';
 
 /** Fechado, mostra estes; o resto atrás do "ver todos". */
 const VISIVEIS = 6;
@@ -66,12 +67,14 @@ function useChegadas(lista: Vendedor[], carregado: boolean) {
   return chegados;
 }
 
-function Item({ v, agora, chegou, campeao }: { v: Vendedor; agora: number; chegou: boolean; campeao: boolean }) {
-  const novo = recente(v, agora);
-  const quando = haQuanto(v.promovidoEm, agora);
+/** O cartãozinho de um vendedor (as duas listas): iniciais, nome, equipe e ramal, o valor e o detalhe. */
+function CartaoVendedor({ v, valorEmReais, detalhe, tituloDetalhe, novo = false, chegou = false, campeao, barra }: {
+  v: Vendedor; valorEmReais: number | null | undefined; detalhe: ReactNode; tituloDetalhe?: string;
+  novo?: boolean; chegou?: boolean; campeao?: string | null; barra?: number;
+}) {
   return (
     <li data-flip={v.ramal}
-      className={clsx('venda-item group relative flex min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 transition-[box-shadow,transform,border-color] duration-200 hover:-translate-y-0.5 hover:shadow-md',
+      className={clsx('venda-item group relative flex min-w-0 items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 transition-[box-shadow,transform,border-color] duration-200 hover:-translate-y-0.5 hover:shadow-md',
         chegou ? 'venda-chegou border-amarelo-400 bg-amarelo-100/60 dark:border-amarelo-500/70 dark:bg-amber-500/10'
           : novo ? 'border-azul-100 bg-azul-50/70 dark:border-noite-600 dark:bg-noite-800/70'
             : 'border-slate-200 bg-white dark:border-noite-700 dark:bg-noite-900')}>
@@ -82,7 +85,7 @@ function Item({ v, agora, chegou, campeao }: { v: Vendedor; agora: number; chego
           {iniciais(v.nome, v.ramal)}
         </span>
         {campeao && (
-          <span className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-amarelo-500 text-marinho-950 shadow ring-2 ring-white dark:ring-noite-900" title="Maior venda que fez subir hoje">
+          <span className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-amarelo-500 text-marinho-950 shadow ring-2 ring-white dark:ring-noite-900" title={campeao}>
             <Trophy className="size-3" aria-hidden />
           </span>
         )}
@@ -107,12 +110,40 @@ function Item({ v, agora, chegou, campeao }: { v: Vendedor; agora: number; chego
         </span>
       </span>
       <span className="shrink-0 text-right">
-        <b className="block text-[15px] text-emerald-700 tabular-nums dark:text-emerald-300">{valor(v.vendaQueDisparou)}</b>
-        <span className="block text-xs whitespace-nowrap text-slate-500 dark:text-slate-400" title={v.promovidoEm ? new Date(v.promovidoEm).toLocaleString('pt-BR') : undefined}>
-          {v.promovidoEm ? <>subiu às {horaCurta(v.promovidoEm)}<span className="hidden sm:inline"> · {quando}</span></> : 'subiu hoje'}
-        </span>
+        <b className="block text-[15px] text-emerald-700 tabular-nums dark:text-emerald-300">{valor(valorEmReais)}</b>
+        <span className="block text-xs whitespace-nowrap text-slate-500 dark:text-slate-400" title={tituloDetalhe}>{detalhe}</span>
       </span>
+      {barra != null && (
+        <span className="absolute inset-x-0 bottom-0 h-[3px] bg-slate-100 dark:bg-noite-800" aria-hidden>
+          <span className="venda-barra block h-full rounded-r-full bg-gradient-to-r from-emerald-400 to-amarelo-400" style={{ width: `${barra}%` }} />
+        </span>
+      )}
     </li>
+  );
+}
+
+/** O topo das duas listas: ícone, título, o número e (opcional) o controle de ordem. */
+function TopoDaLista({ Icone, titulo, total, children }: { Icone: ComponentType<{ className?: string }>; titulo: ReactNode; total: number; children?: ReactNode }) {
+  return (
+    <div className="mb-3 flex min-h-8 flex-wrap items-center justify-between gap-2">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <Icone className="size-4 text-amarelo-500" aria-hidden />
+        {titulo}
+        <span key={total} className="venda-pulo rounded-full bg-azul-600 px-2 py-0.5 text-xs font-bold text-white tabular-nums dark:bg-azul-500">{total}</span>
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function VerTodos({ total, todos, alternar }: { total: number; todos: boolean; alternar: () => void }) {
+  if (total <= VISIVEIS) return null;
+  return (
+    <button type="button" onClick={alternar} aria-expanded={todos}
+      className="mt-2 inline-flex cursor-pointer items-center gap-1 text-sm font-semibold text-azul-600 hover:underline dark:text-azul-300">
+      {todos ? 'Mostrar menos' : `Ver todos (${total})`}
+      <ChevronDown className={clsx('size-4 transition-transform', todos && 'rotate-180')} aria-hidden />
+    </button>
   );
 }
 
@@ -131,17 +162,12 @@ export function SubiramPorVenda({ s }: { s: StatusRoteador | undefined }) {
 
   return (
     <div className="min-w-0">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 text-sm font-semibold">
-          <Sparkles className="size-4 text-amarelo-500" aria-hidden />
-          Subiram por venda hoje
-          <span key={lista.length} className="venda-pulo rounded-full bg-azul-600 px-2 py-0.5 text-xs font-bold text-white tabular-nums dark:bg-azul-500">{lista.length}</span>
-        </h3>
+      <TopoDaLista Icone={Sparkles} titulo="Subiram por venda hoje" total={lista.length}>
         {lista.length > 1 && (
           <Segmentado rotulo="Ordem de quem subiu" valor={ordem} aoMudar={setOrdem}
             opcoes={[{ valor: 'recentes', texto: 'Mais recentes' }, { valor: 'valor', texto: 'Maior venda' }]} />
         )}
-      </div>
+      </TopoDaLista>
       {lista.length ? (
         <>
           <p className="mb-2.5 text-xs text-slate-500 dark:text-slate-400">
@@ -149,18 +175,56 @@ export function SubiramPorVenda({ s }: { s: StatusRoteador | undefined }) {
             {ultimo?.promovidoEm && <> · o último às {horaCurta(ultimo.promovidoEm)}</>}
           </p>
           <ul ref={corpo} className="grid grid-cols-1 gap-2">
-            {visiveis.map((v) => <Item key={v.ramal} v={v} agora={agora} chegou={chegados.has(v.ramal)} campeao={lista.length > 1 && (v.vendaQueDisparou ?? 0) === maior && maior > 0} />)}
+            {visiveis.map((v) => (
+              <CartaoVendedor key={v.ramal} v={v} valorEmReais={v.vendaQueDisparou} novo={recente(v, agora)} chegou={chegados.has(v.ramal)}
+                campeao={lista.length > 1 && (v.vendaQueDisparou ?? 0) === maior && maior > 0 ? 'Maior venda que fez subir hoje' : null}
+                tituloDetalhe={v.promovidoEm ? new Date(v.promovidoEm).toLocaleString('pt-BR') : undefined}
+                detalhe={v.promovidoEm ? <>subiu às {horaCurta(v.promovidoEm)}<span className="hidden sm:inline"> · {haQuanto(v.promovidoEm, agora)}</span></> : 'subiu hoje'} />
+            ))}
           </ul>
-          {lista.length > VISIVEIS && (
-            <button type="button" onClick={() => setTodos((t) => !t)} aria-expanded={todos}
-              className="mt-2 inline-flex cursor-pointer items-center gap-1 text-sm font-semibold text-azul-600 hover:underline dark:text-azul-300">
-              {todos ? 'Mostrar menos' : `Ver todos (${lista.length})`}
-              <ChevronDown className={clsx('size-4 transition-transform', todos && 'rotate-180')} aria-hidden />
-            </button>
-          )}
+          <VerTodos total={lista.length} todos={todos} alternar={() => setTodos((t) => !t)} />
         </>
       ) : <Vazio>Ninguém subiu por venda hoje ainda.</Vazio>}
       <p className="sr-only" aria-live="polite">{anuncio}</p>
+    </div>
+  );
+}
+
+/**
+ * [NOVO] "Meta batida ontem", no mesmo visual: quem passou da meta no dia anterior (começou o dia
+ * na URA), do maior para o menor, com quanto passou da meta e a barra em relação ao primeiro.
+ */
+export function MetaBatidaOntem({ s }: { s: StatusRoteador | undefined }) {
+  const [todos, setTodos] = useState(false);
+  const lista = metaBatidaOntem(s);
+  const dia = diaCurto(s?.carga?.diaAnterior);
+  const maior = lista[0]?.vendaOntem ?? 0;
+  const visiveis = todos ? lista : lista.slice(0, VISIVEIS);
+  const soma = lista.reduce((t, v) => t + (v.vendaOntem ?? 0), 0);
+
+  return (
+    <div className="min-w-0">
+      <TopoDaLista Icone={Target} titulo={`Meta batida ontem${dia ? ` (${dia})` : ''}`} total={lista.length} />
+      {lista.length ? (
+        <>
+          <p className="mb-2.5 text-xs text-slate-500 dark:text-slate-400">
+            <b className="font-semibold text-slate-700 dark:text-slate-200">{valor(soma)}</b> somados
+            {s?.meta ? <> · meta de {valor(s.meta)} por dia</> : null}
+          </p>
+          <ul className="grid grid-cols-1 gap-2">
+            {visiveis.map((v, i) => {
+              const m = acimaDaMeta(v.vendaOntem, s?.meta, maior);
+              return (
+                <CartaoVendedor key={v.ramal} v={v} valorEmReais={v.vendaOntem} barra={m.barra}
+                  campeao={i === 0 && lista.length > 1 ? 'Maior venda de ontem' : null}
+                  tituloDetalhe={m.sobra != null ? `${valor(m.sobra)} acima da meta` : undefined}
+                  detalhe={m.porcento != null ? <>{m.porcento}% da meta<span className="hidden sm:inline"> · +{valor(m.sobra)}</span></> : 'vendeu ontem'} />
+              );
+            })}
+          </ul>
+          <VerTodos total={lista.length} todos={todos} alternar={() => setTodos((t) => !t)} />
+        </>
+      ) : <Vazio>{s?.cargaInicialFeita === false ? 'A carga do dia ainda não saiu.' : 'Ninguém passou da meta ontem.'}</Vazio>}
     </div>
   );
 }
