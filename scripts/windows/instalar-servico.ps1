@@ -18,7 +18,7 @@
   Só restaura ao ligar o PC (sem a conferência a cada 5 min).
 
 .PARAMETER Reserva
-  [NOVO] PC de reserva (ex.: o do chefe): sobe em Modo simulação, sem agir na Argus.
+  [NOVO] Servidor de reserva (ex.: o servidor de cima, com o de baixo agindo): sobe em Modo simulação, sem agir na Argus.
   Para agir de verdade, use o painel: ele pega a trava dos dois PCs (README).
 
 .EXAMPLE
