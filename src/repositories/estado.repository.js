@@ -16,6 +16,7 @@
  *       fila: "URA" | "ATIVO",          // fila decidida pelo roteador
  *       promovidoNoDia: boolean,        // subiu para a URA por venda hoje
  *       vendaQueDisparou: number|null,
+ *       promovidoEm?: ISOString,       // quando subiu por venda
  *       sincronizado: boolean,          // false = transferência pendente na Argus
  *       ultimoResultado: string,        // resultado da última ação na discadora
  *       grupoAtivoAnterior?: number,    // grupo de onde saiu ao ir para a URA (volta do rodízio)

@@ -41,6 +41,7 @@ const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const { ACOES } = require('./servicos');
 const { ErroUsuarios, NOMES_PAPEIS, podeFazer } = require('./usuarios');
 const { tokenRecusadoRecentemente, segundosDoDia } = require('../domain/painel');
@@ -48,6 +49,14 @@ const { COMPONENTES } = require('../utils/automacao');
 
 /** A página (build do painel-web/, já no git): servida pelo nome exato, sem varrer pastas. */
 const PUBLICO = path.join(__dirname, 'publico');
+/**
+ * [NOVO] Só os IPs da empresa pelo túnel (BENURA_IPS_PERMITIDOS no .env do painel): a mesma regra e a
+ * mesma página do functions/_middleware.js do Pages. Vale quando o endereço da internet chega aqui pelo
+ * Cloudflare Tunnel sem passar pelo Pages. Na rede da empresa (http://IP:3010, sem túnel), entra.
+ */
+const regraDeIps = import(pathToFileURL(path.join(__dirname, '..', '..', 'functions', '_middleware.js')).href).catch(() => null);
+/** [NOVO] O endereço de cada aba (sem #) entrega a mesma página. Os mesmos de painel-web/src/rotas.ts (um teste confere). */
+const ROTAS_DA_PAGINA = new Set(['/receptivo', '/robos', '/esteira', '/servicos', '/ajuda']);
 const TIPOS = Object.freeze({
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -307,11 +316,35 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     return { status: r.status, corpo: r.corpo };
   }
 
+  const listaDeIps = String(cfg.ipsPermitidos || '').trim();
+  let faixasDeIps = null;
+  /** Pelo túnel (ou pela Function), de um IP fora da lista: a página de bloqueio (ou 403 no /api). */
+  async function barrarIp(req, pathname) {
+    if (!listaDeIps || !(viaTunel(req) || pelaFunction(req, segredoProxy))) return null;
+    const ip = enderecoDe(req);
+    const regra = await regraDeIps;
+    if (regra) {
+      faixasDeIps ??= regra.lerLista(listaDeIps);
+      if (regra.permitido(ip, faixasDeIps)) return null;
+    }
+    if (pathname.startsWith('/api/') || req.method !== 'GET') throw new ErroPainel(403, `Acesso só pela rede da Benconsig (seu IP: ${ip})`);
+    return {
+      status: 403,
+      bruto: regra ? (() => {
+        const nonce = regra.novoNonce();
+        const { 'Content-Type': tipo, ...cabecalhos } = regra.cabecalhosDoBloqueio(nonce);
+        return { tipo, conteudo: regra.paginaBloqueada(ip, nonce), cabecalhos };
+      })() : { tipo: 'text/plain; charset=utf-8', conteudo: 'Acesso só pela rede da Benconsig.' },
+    };
+  }
+
   async function atender(req) {
     const { pathname } = new URL(req.url, 'http://localhost');
+    const bloqueio = await barrarIp(req, pathname);
+    if (bloqueio) return bloqueio;
     // Com a página no Pages, pelo túnel só entra a Function (segunda trava, além do Cloudflare Access).
     if (segredoProxy && viaTunel(req) && !pelaFunction(req, segredoProxy)) throw new ErroPainel(403, 'Acesso só pelo painel');
-    const estatico = req.method === 'GET' && estaticos[pathname];
+    const estatico = req.method === 'GET' && (estaticos[pathname] ?? (ROTAS_DA_PAGINA.has(pathname.replace(/\/+$/, '').toLowerCase()) && estaticos['/']));
     if (estatico) return { status: 200, bruto: estatico };
     if (req.method === 'GET' && pathname === '/health') return { status: 200, corpo: { status: 'ok', uptime: Math.round(process.uptime()), senhaConfigurada: sessoes.configurada } };
     if (req.method === 'POST' && pathname === '/api/entrar') return entrar(req);
@@ -421,7 +454,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
   function responder(res, { status, corpo, bruto, cookie }) {
     const headers = { ...SEGURANCA, ...(cookie ? { 'Set-Cookie': cookie } : {}) };
     if (bruto) {
-      res.writeHead(status, { ...headers, 'Content-Type': bruto.tipo });
+      res.writeHead(status, { ...headers, ...bruto.cabecalhos, 'Content-Type': bruto.tipo });
       return res.end(bruto.conteudo);
     }
     res.writeHead(status, { ...headers, 'Content-Type': 'application/json; charset=utf-8' });

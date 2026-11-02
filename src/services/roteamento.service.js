@@ -361,7 +361,7 @@ class RoteamentoService {
 
     this.log.info(`Gatilho: ${registro.nome} (ramal ${ramal}) vendeu ${formatarReais(vendaHoje)} hoje [${origem}]. Ativo → URA.`);
     Object.assign(registro, {
-      fila: Fila.URA, promovidoNoDia: true, vendaQueDisparou: vendaHoje, fonteDaVenda: origem, sincronizado: false, tentativasSync: 0,
+      fila: Fila.URA, promovidoNoDia: true, promovidoEm: new Date().toISOString(), vendaQueDisparou: vendaHoje, fonteDaVenda: origem, sincronizado: false, tentativasSync: 0,
     });
     await this.sincronizar(ramal, registro, `venda hoje (${formatarReais(vendaHoje)})`);
     return true;

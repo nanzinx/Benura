@@ -427,9 +427,11 @@ function carregarConfig(overrides = {}) {
     },
     timeoutMs: envNum('PAINEL_TIMEOUT_MS', 4000),
     // Página no Cloudflare Pages (functions/api repassa o /api para cá pelo túnel): o endereço
-    // dela (ex.: https://benura.benconsig.com.br) e o segredo combinado com a Function.
+    // dela (ex.: https://benura.benconsig.com) e o segredo combinado com a Function.
     origensPermitidas: envLista('PAINEL_ORIGENS_PERMITIDAS', '').map(semBarraFinal),
     proxySegredo: env('PAINEL_PROXY_SEGREDO', ''),
+    // [NOVO] Só estes IPs entram pelo túnel (a mesma lista do Pages). Vazio = sem bloqueio aqui.
+    ipsPermitidos: env('BENURA_IPS_PERMITIDOS', ''),
   };
 
   // --- [NOVO] Dois PCs (servidor e reserva): só um age de verdade na Argus ---
@@ -551,7 +553,7 @@ function validarPainel(cfg) {
   if (n.tipo === 'webhook' && !n.webhook.url) avisos.push('NOTIFICADOR=webhook sem NOTIFICACOES_WEBHOOK_URL: os avisos ficam só no log.');
   if (n.webhook.url && !/^https:\/\//.test(n.webhook.url)) avisos.push('NOTIFICACOES_WEBHOOK_URL sem https: o token iria aberto pela rede.');
   if (n.webhook.url && n.tipo !== 'webhook') avisos.push('NOTIFICACOES_WEBHOOK_URL preenchida, mas NOTIFICADOR não é "webhook": os avisos ficam só no log.');
-  if (t.url && !/^https:\/\//.test(t.url)) avisos.push('TRAVA_URL: use o endereço https do Pages, ex.: https://benura.benconsig.com.br/trava');
+  if (t.url && !/^https:\/\//.test(t.url)) avisos.push('TRAVA_URL: use o endereço https do Pages, ex.: https://benura.benconsig.com/trava');
   if (t.parceiroUrl && !t.segredoLocal) avisos.push('TRAVA_PARCEIRO_URL sem TRAVA_SEGREDO_LOCAL: os usuários e o estado do dia não são copiados do outro PC.');
   if (t.segredoLocal && t.segredoLocal.length < 32) avisos.push('TRAVA_SEGREDO_LOCAL curto demais: use 32 caracteres ou mais.');
   if (t.url && t.renovarMs * 2 >= t.validadeMs) avisos.push('TRAVA_RENOVAR_MS precisa ser menos da metade de TRAVA_VALIDADE_MS.');
@@ -561,7 +563,7 @@ function validarPainel(cfg) {
   if (origensPermitidas.length && !proxySegredo) avisos.push('PAINEL_ORIGENS_PERMITIDAS sem PAINEL_PROXY_SEGREDO: a página no Cloudflare Pages não consegue entrar (o túnel exige o segredo da Function).');
   if (proxySegredo && !origensPermitidas.length) avisos.push('PAINEL_PROXY_SEGREDO sem PAINEL_ORIGENS_PERMITIDAS: pela página no Cloudflare Pages, os comandos serão recusados (origem não permitida).');
   if (proxySegredo && proxySegredo.length < 32) avisos.push('PAINEL_PROXY_SEGREDO curto demais: use 32 caracteres ou mais (veja o .env.example).');
-  if (origensPermitidas.some((o) => !/^https:\/\/[^/]+$/.test(o))) avisos.push('PAINEL_ORIGENS_PERMITIDAS: use endereços https sem caminho, ex.: https://benura.benconsig.com.br (os outros nunca batem com a página).');
+  if (origensPermitidas.some((o) => !/^https:\/\/[^/]+$/.test(o))) avisos.push('PAINEL_ORIGENS_PERMITIDAS: use endereços https sem caminho, ex.: https://benura.benconsig.com (os outros nunca batem com a página).');
   return { fatais, avisos };
 }
 

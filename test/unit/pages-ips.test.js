@@ -44,3 +44,51 @@ test('middleware: IP de fora → 403 com o IP; da empresa passa; /trava passa; s
   assert.match(sem.headers.get('x-benura-aviso'), /não configurado/);
   assert.match(await (await pedir('https://x/', '<script>', { BENURA_IPS_PERMITIDOS: LISTA })).text(), /&lt;script&gt;/, 'o IP vai escapado na página');
 });
+
+test('_routes.json: o middleware roda em tudo (a página, o /api e a /trava), não só no /api', () => {
+  const fs = require('fs');
+  for (const arquivo of ['painel-web/public/_routes.json', 'src/painel/publico/_routes.json']) {
+    const rotas = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', arquivo), 'utf8'));
+    assert.deepEqual(rotas.include, ['/*'], `${arquivo}: só com /* a página passa pelo bloqueio de IP`);
+    assert.deepEqual(rotas.exclude ?? [], [], `${arquivo}: nada fica de fora do bloqueio`);
+  }
+});
+
+test('a imagem Docker leva a regra de IPs (o benura-painel a usa) sem o resto das Functions', () => {
+  const fs = require('fs');
+  const linhas = fs.readFileSync(path.join(__dirname, '..', '..', '.dockerignore'), 'utf8').split(/\r?\n/).map((l) => l.trim());
+  assert.ok(linhas.includes('functions'));
+  assert.ok(linhas.includes('!functions/_middleware.js'));
+  assert.ok(linhas.includes('!functions/package.json'), 'o "type": "module" que deixa o Node ler o export');
+});
+
+test('a tela de bloqueio: o IP, o motivo, o que fazer; o script só com o nonce da resposta; nada de fora', async () => {
+  const { onRequest, paginaBloqueada, cabecalhosDoBloqueio } = await import(MIDDLEWARE);
+  const r = await onRequest({
+    request: new Request('https://benura.benconsig.com/', { headers: { 'CF-Connecting-IP': '187.10.20.30' } }),
+    env: { BENURA_IPS_PERMITIDOS: LISTA },
+    next: async () => new Response('painel'),
+  });
+  assert.equal(r.status, 403);
+  const csp = r.headers.get('content-security-policy');
+  const nonce = /'nonce-([A-Za-z0-9+/=_-]{16,})'/.exec(csp)?.[1];
+  assert.ok(nonce, `CSP com nonce: ${csp}`);
+  assert.match(csp, /default-src 'none'/);
+  assert.doesNotMatch(csp, /unsafe-eval|https?:/);
+  const html = await r.text();
+  assert.match(html, /Acesso bloqueado/);
+  assert.match(html, /Acesso só pela rede da Benconsig[\s\S]*187\.10\.20\.30/);
+  assert.match(html, /não está na lista/i, 'o motivo');
+  assert.match(html, /Copiar/);
+  assert.match(html, /Tentar de novo/);
+  const scripts = [...html.matchAll(/<script([^>]*)>/g)].map((m) => m[1]);
+  assert.ok(scripts.length >= 1);
+  // o nonce é base64 (pode ter + e /): comparar como texto, não como expressão regular
+  for (const s of scripts) assert.ok(s.includes(`nonce="${nonce}"`), `todo script com o nonce: ${s}`);
+  assert.doesNotMatch(html, /(src|href)="https?:/, 'sem fonte, imagem ou script de fora');
+  assert.match(html, /prefers-reduced-motion/);
+  // outra resposta, outro nonce
+  const outro = cabecalhosDoBloqueio()['Content-Security-Policy'];
+  assert.notEqual(outro, csp);
+  assert.doesNotMatch(paginaBloqueada('"><script>alert(1)</script>', 'n'), /<script>alert/);
+});

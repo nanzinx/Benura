@@ -48,7 +48,7 @@ services:
       - "${BENURA_IP_PAINEL:-127.0.0.1}:3010:3010" # painel da supervisão
     stop_grace_period: 30s
 
-  # Cloudflare Tunnel: benura-api.benconsig.com.br → o painel. Usa a rede do container do
+  # Cloudflare Tunnel: benura-api.benconsig.com → o painel. Usa a rede do container do
   # BenURA (network_mode), então o painel vê o túnel pelo localhost, como no servidor.
   tunel:
     <<: *endurecido

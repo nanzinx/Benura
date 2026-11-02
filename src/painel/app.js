@@ -71,7 +71,7 @@ function montarPainel(overrides) {
     trava,
     parceiro,
     dados: new DadosDoDia({ pasta: cfg.logs.pasta, fuso: cfg.agenda.fusoHorario }),
-    cfg: { fuso: cfg.agenda.fusoHorario, origensPermitidas: p.origensPermitidas, proxySegredo: p.proxySegredo },
+    cfg: { fuso: cfg.agenda.fusoHorario, origensPermitidas: p.origensPermitidas, proxySegredo: p.proxySegredo, ipsPermitidos: p.ipsPermitidos },
     configuracao: retratoDaConfiguracao(cfg),
     logger: log,
   });

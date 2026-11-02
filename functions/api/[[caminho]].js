@@ -2,13 +2,13 @@
  * Cloudflare Pages Function: o /api do painel (página no Pages) vai para o
  * benura-painel do servidor, pelo Cloudflare Tunnel.
  *
- * Para o navegador continua tudo no mesmo endereço (https://benura.benconsig.com.br):
+ * Para o navegador continua tudo no mesmo endereço (https://benura.benconsig.com):
  * cookie de sessão, conferência de origem e CSP seguem como no servidor. O endereço
  * do túnel (BENURA_API_URL) fica fechado no Cloudflare Access: só entra quem traz o
  * service token, e o servidor ainda exige o PAINEL_PROXY_SEGREDO.
  *
  * Variáveis do projeto no Pages (Production, como "Secret"):
- *   BENURA_API_URL            https://benura-api.benconsig.com.br (túnel da Cloudflare)
+ *   BENURA_API_URL            https://benura-api.benconsig.com (túnel da Cloudflare)
  *                             ou https://<servidor>.<rede>.ts.net (Tailscale Funnel)
  *   PAINEL_PROXY_SEGREDO      o mesmo do .env do servidor
  *   CF_ACCESS_CLIENT_ID       service token do Access (só com o túnel da Cloudflare)

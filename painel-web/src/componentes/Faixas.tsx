@@ -14,6 +14,7 @@ import { alertasRecentes, avisarClientesNovos, proximoFimDeAviso, registrarAlert
 const MAX_FAIXAS_RISCO = 3;
 import { situacaoDosPcs } from './DoisPcs';
 import { faixaDosRobos } from '../faixa-robos';
+import { definirTitulo } from '../rotas';
 import { problemaNaArgus, saudeDaArgus } from '../saude-argus';
 
 /** Automação desligada (ou desligando/religando): a faixa mais importante, com o botão de religar. */
@@ -61,7 +62,6 @@ function Faixa({ tom, icone, titulo, detalhe }: { tom: 'perigo' | 'alerta'; icon
 
 export function Faixas() {
   const { data: v } = useVisao();
-  const tituloOriginal = useRef(document.title);
   const alertas = v?.alertas?.alertas ?? [];
   // [NOVO] Cada aviso de cliente de risco fica AVISO_MS (5 s) e some: a faixa, a notificação e o título.
   const [, setTique] = useState(0);
@@ -71,7 +71,7 @@ export function Faixas() {
 
   useEffect(() => {
     avisarClientesNovos(novos.current.splice(0));
-    document.title = (recentes.length ? '⚠ Cliente de risco · ' : '') + tituloOriginal.current;
+    definirTitulo({ risco: recentes.length > 0 });
     const fim = proximoFimDeAviso(alertas);
     if (fim == null) return undefined;
     const t = setTimeout(() => setTique((n) => n + 1), fim + 50);
