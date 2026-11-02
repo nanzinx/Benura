@@ -1759,6 +1759,7 @@ class RodizioService {
       dryRun: r.dryRun,
       desligandoAutomacao: r.desligandoAutomacao,
       ramaisRobos: [...this.ramaisRobos],
+      saudeArgus: r.saudeArgus,
       retratoDaUra: {
         fresco: this.retratoFresco(agora),
         haMs: this.retratoRecebidoEm != null ? agora - this.retratoRecebidoEm : null,
@@ -1834,6 +1835,8 @@ class RodizioService {
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),
       // [NOVO] no de pessoas, os robôs como o benura-robos disse na última resposta
       ...(this.papel === 'pessoas' && this.resumoDosRobosRemoto ? this.resumoDosRobosRemoto : {}),
+      // [NOVO] a Argus vista por este serviço nos últimos 15 min (painel, aba Serviços)
+      saudeArgus: this.client?.saude?.resumo?.() ?? null,
       // [NOVO] o benura-robos respondendo? (null fora do de pessoas)
       servicoDosRobos: this.papel === 'pessoas' ? {
         respondendo: this.robosRespondeuEm != null && !this.robosSemResposta,

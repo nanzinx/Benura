@@ -97,6 +97,8 @@ function traduzirErro(comando, e) {
   return new ArgusError(`Argus /${comando} falhou: ${e.message}${detalhe}`, { comando, cause: e });
 }
 
+const { SaudeDaArgus } = require('./saude-argus');
+
 class ArgusClient {
   /**
    * @param {object} cfg - Seção `argus` da configuração
@@ -107,6 +109,8 @@ class ArgusClient {
     this.log = logger;
     this.pausaAte = 0;
     this.pausaLidaEm = 0;
+    /** [NOVO] chamadas, erros, lentidão e 429 dos últimos 15 min (o /health mostra; saude-argus.js) */
+    this.saude = new SaudeDaArgus();
   }
 
   /**
@@ -125,7 +129,13 @@ class ArgusClient {
 
   /** POST com retry; erros de transporte viram ArgusError/ArgusAutenticacaoError/ArgusLimiteError. */
   async enviar(nome, corpo, { timeoutMs = this.cfg.timeoutMs, tentativas = this.cfg.tentativas, url } = {}) {
-    this.exigirForaDaPausa(nome);
+    try {
+      this.exigirForaDaPausa(nome);
+    } catch (e) {
+      this.saude.registrar({ ms: 0, resultado: 'segurada' });
+      throw e;
+    }
+    const inicio = Date.now();
     const requisicao = () => requisitar(url || `${this.cfg.baseUrl}/${nome}`, {
       metodo: 'POST',
       headers: { 'Token-Signature': this.cfg.token },
@@ -133,13 +143,18 @@ class ArgusClient {
       timeoutMs,
     });
     try {
-      return await comRetry(requisicao, {
+      const resposta = await comRetry(requisicao, {
         tentativas,
         retentavel: retentavelNaArgus,
         aoFalhar: (e, n) => this.log.debug(`${nome}: tentativa ${n} falhou (${e.message})`),
       });
+      this.saude.registrar({ ms: Date.now() - inicio, resultado: 'ok' });
+      return resposta;
     } catch (e) {
-      throw this.traduzirFalha(nome, e);
+      const erro = this.traduzirFalha(nome, e);
+      this.saude.registrar({ ms: Date.now() - inicio, resultado: erro instanceof ArgusLimiteError ? 'limite' : 'erro', texto: `/${nome}: ${erro.message}` });
+      this.saude.pausaAte = this.pausaAte;
+      throw erro;
     }
   }
 
@@ -158,6 +173,7 @@ class ArgusClient {
     if (!this.cfg.arquivoPausa || agora - this.pausaLidaEm < 1000) return;
     this.pausaLidaEm = agora;
     this.pausaAte = Math.max(this.pausaAte, lerPausa(this.cfg.arquivoPausa));
+    this.saude.pausaAte = this.pausaAte;
   }
 
   traduzirFalha(nome, e) {

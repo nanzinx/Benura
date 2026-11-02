@@ -103,7 +103,9 @@ function criarApp(overrides) {
 
   const agendador = new Agendador({ roteamento, agenda: cfg.agenda, logger: log.filho('agendador') });
   const servidor = criarServidor({
-    controllers: criarControllers({ roteamento, esteira, relogio, metaDiaria: cfg.regras.metaDiaria, logger: log.filho('http') }),
+    controllers: criarControllers({
+      roteamento, esteira, relogio, metaDiaria: cfg.regras.metaDiaria, logger: log.filho('http'), saudeArgus: () => argusClient.saude?.resumo() ?? null,
+    }),
     cfg: cfg.http,
     logger: log.filho('http'),
   });

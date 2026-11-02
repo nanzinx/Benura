@@ -14,6 +14,7 @@ import { AvisosBenhub } from '../componentes/AvisosBenhub';
 import { ClientesWebhook } from '../componentes/ClientesWebhook';
 import { CartaoDoisPcs } from '../componentes/DoisPcs';
 import { semAcesso, usePode } from '../sessao';
+import { saudeDaArgus } from '../saude-argus';
 
 /** [NOVO] Ligar ou desligar só este componente (administrador), com o efeito na confirmação. */
 function LigaDesliga({ v, app }: { v: Visao; app: Componente }) {
@@ -78,6 +79,7 @@ function Cartoes({ v }: { v: Visao }) {
   const ultimoCiclo = v.argus.cicloUraHaSeg == null ? '–' : `${duracao(v.argus.cicloUraHaSeg)} atrás`;
   const parado = v.automacao?.estado === 'desligada';
   const comp = v.automacao?.componentes ?? {};
+  const argus = saudeDaArgus(v);
   return (
     <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <CartaoServico parado={parado} desligadoAMao={comp['benura-roteador']} acao={<LigaDesliga v={v} app="benura-roteador" />} s={roteador}
@@ -103,7 +105,27 @@ function Cartoes({ v }: { v: Visao }) {
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-slate-500 dark:text-slate-400">Último ciclo</dt><dd className="text-right tabular-nums">{ultimoCiclo}</dd>
           <dt className="text-slate-500 dark:text-slate-400">Fixos na URA</dt><dd className="text-right tabular-nums">{r ? (r.fixosPermanentes ?? []).length : '–'}</dd>
+          {/* [NOVO] o que roteador, rodízio e robôs viram da Argus nos últimos 15 min */}
+          {argus && <>
+            <dt className="text-slate-500 dark:text-slate-400" title="Chamadas à Argus de todos os serviços nos últimos 15 min">Chamadas (15 min)</dt>
+            <dd className="text-right tabular-nums">{argus.chamadas}</dd>
+            <dt className="text-slate-500 dark:text-slate-400">Com erro</dt>
+            <dd className={clsx('text-right tabular-nums', argus.erros > 0 && 'font-semibold text-red-700 dark:text-red-300')}>
+              {argus.erros}{argus.chamadas ? ` (${Math.round((argus.erros / argus.chamadas) * 100)}%)` : ''}
+            </dd>
+            <dt className="text-slate-500 dark:text-slate-400">Tempo médio</dt>
+            <dd className="text-right tabular-nums">{argus.msMedio != null ? `${argus.msMedio} ms` : '–'}{argus.lentas ? ` · ${argus.lentas} lenta(s)` : ''}</dd>
+            <dt className="text-slate-500 dark:text-slate-400" title="HTTP 429: a Argus pediu para desacelerar; o BenURA espera um pouco (só desligar robôs segue)">Pedidos para desacelerar</dt>
+            <dd className={clsx('text-right tabular-nums', argus.limites > 0 && 'font-semibold text-amber-800 dark:text-amber-200')}>
+              {argus.limites}{argus.seguradas ? ` · ${argus.seguradas} segurada(s)` : ''}
+            </dd>
+          </>}
         </dl>
+        {argus?.ultimoErro && (
+          <p className="truncate text-xs text-slate-500 dark:text-slate-400" title={argus.ultimoErro.texto}>
+            Último erro às {horaCurta(argus.ultimoErro.em)}: {argus.ultimoErro.texto}
+          </p>
+        )}
       </div>
     </div>
   );

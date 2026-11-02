@@ -119,6 +119,22 @@ export interface CalculoRobos {
   roboMinutos30: number;
 }
 
+/** [NOVO] A Argus vista por um serviço nos últimos 15 min (src/integrations/argus/saude-argus.js). */
+export interface SaudeArgus {
+  janelaMin: number;
+  chamadas: number;
+  erros: number;
+  /** pedidos de desacelerar (HTTP 429) */
+  limites: number;
+  /** não saíram por causa da pausa */
+  seguradas: number;
+  lentas: number;
+  msMedio: number | null;
+  ultimoErro: { em: string; texto: string } | null;
+  ultimoLimiteEm: string | null;
+  pausaAte: string | null;
+}
+
 /** [NOVO] /health do benura-robos (os robôs num serviço próprio). */
 export interface SaudeRobos {
   papel?: 'robos' | 'desativado';
@@ -126,6 +142,7 @@ export interface SaudeRobos {
   lastLoopUra?: string;
   robos?: SaudeRodizio['robos'];
   retratoDaUra?: { fresco: boolean; haMs: number | null; lendoSozinho: boolean };
+  saudeArgus?: SaudeArgus | null;
 }
 
 export interface SaudeRodizio {
@@ -133,6 +150,7 @@ export interface SaudeRodizio {
   papel?: 'tudo' | 'pessoas';
   /** [NOVO] no de pessoas: o benura-robos respondendo, e se a rede de segurança agiu */
   servicoDosRobos?: { respondendo: boolean; respondeuEm: string | null; emergencia: boolean } | null;
+  saudeArgus?: SaudeArgus | null;
   lastLoopUra?: string;
   uptime?: number;
   dryRun?: boolean;
@@ -335,7 +353,7 @@ export interface ResultadoTransferencia {
   uraCheiaDesligada: boolean;
 }
 
-export interface SaudeRoteador { uptime?: number; cargaInicialFeita?: boolean; ultimoMonitoramento?: string | null }
+export interface SaudeRoteador { uptime?: number; cargaInicialFeita?: boolean; ultimoMonitoramento?: string | null; saudeArgus?: SaudeArgus | null }
 export interface SaudeRotinas { uptime?: number; ultimaExecucao?: string | null }
 
 export interface Servico<T extends { uptime?: number } = { uptime?: number }> {

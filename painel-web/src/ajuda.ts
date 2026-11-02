@@ -180,6 +180,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       'Veja os "Avisos de hoje" no fim da aba Serviços: cada problema aparece lá com o horário e o serviço.',
       'Serviço fora do ar: no PC do BenURA, "npx pm2 status" mostra quem caiu e "npx pm2 logs" mostra o motivo.',
+      'É a Argus ou o BenURA? O cartão "Argus (discadora)" na aba Serviços mostra as chamadas dos últimos 15 min: quantas deram erro, o tempo médio, as lentas e os pedidos para desacelerar (HTTP 429). Muitos erros ou pedidos para desacelerar = o problema está na Argus (ou na rede até ela), e uma faixa amarela avisa no topo.',
       'Robôs ligados sem ninguém livre na URA: desligue pelo painel da Argus e confira se o pânico está ligado (aba URA e robôs).',
       'Em emergência, "Desligar automação" para tudo sem mexer em mais nada.',
     ],
