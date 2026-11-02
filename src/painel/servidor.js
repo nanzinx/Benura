@@ -330,7 +330,11 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     if (pathname.startsWith('/api/') || req.method !== 'GET') throw new ErroPainel(403, `Acesso só pela rede da Benconsig (seu IP: ${ip})`);
     return {
       status: 403,
-      bruto: { tipo: 'text/html; charset=utf-8', conteudo: regra ? regra.paginaBloqueada(ip) : 'Acesso só pela rede da Benconsig.', csp: "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" },
+      bruto: regra ? (() => {
+        const nonce = regra.novoNonce();
+        const { 'Content-Type': tipo, ...cabecalhos } = regra.cabecalhosDoBloqueio(nonce);
+        return { tipo, conteudo: regra.paginaBloqueada(ip, nonce), cabecalhos };
+      })() : { tipo: 'text/plain; charset=utf-8', conteudo: 'Acesso só pela rede da Benconsig.' },
     };
   }
 
@@ -450,7 +454,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
   function responder(res, { status, corpo, bruto, cookie }) {
     const headers = { ...SEGURANCA, ...(cookie ? { 'Set-Cookie': cookie } : {}) };
     if (bruto) {
-      res.writeHead(status, { ...headers, ...(bruto.csp ? { 'Content-Security-Policy': bruto.csp } : {}), 'Content-Type': bruto.tipo });
+      res.writeHead(status, { ...headers, ...bruto.cabecalhos, 'Content-Type': bruto.tipo });
       return res.end(bruto.conteudo);
     }
     res.writeHead(status, { ...headers, 'Content-Type': 'application/json; charset=utf-8' });

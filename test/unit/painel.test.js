@@ -369,7 +369,11 @@ test('[NOVO] só os IPs da empresa pelo túnel (BENURA_IPS_PERMITIDOS no painel)
   const fora = await pedir('GET', '/', { extras: { 'CF-Connecting-IP': '187.10.20.30' } });
   assert.equal(fora.status, 403);
   assert.match(fora.headers.get('content-type'), /text\/html/);
-  assert.match(await fora.text(), /Acesso só pela rede da Benconsig[\s\S]*187\.10\.20\.30/);
+  const htmlFora = await fora.text();
+  assert.match(htmlFora, /Acesso só pela rede da Benconsig[\s\S]*187\.10\.20\.30/);
+  const nonce = /'nonce-([^']+)'/.exec(fora.headers.get('content-security-policy'))?.[1];
+  assert.ok(nonce && htmlFora.includes(`<script nonce="${nonce}">`), 'o script da tela roda (o nonce da resposta)');
+  assert.equal(fora.headers.get('cache-control'), 'no-store');
   assert.equal((await pedir('GET', '/receptivo', { extras: { 'CF-Connecting-IP': '187.10.20.30' } })).status, 403, 'as abas também');
   const api = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA }, extras: { 'CF-Connecting-IP': '187.10.20.30' } });
   assert.equal(api.status, 403, 'o /api também');
