@@ -111,9 +111,10 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     onde: 'Visão geral → Relatório → abas 7 dias e 30 dias',
     itens: [
       'As abas 7 dias e 30 dias mostram um dia por linha, com hoje ainda parcial. A coluna de status segue o status da URA de agora, e "mais ocioso" marca o dia com o OPL mais alto.',
-      'Nos quadros, TOR, TPA e transbordos aparecem em média por dia, para usar as mesmas cores do relatório do dia. TME e OPL somam o período. Embaixo, a comparação com os 7 (ou 30) dias anteriores.',
-      'Sugestões: comparam a configuração atual dos robôs com a anterior, em cada status da URA, pelo OPL e pelos transbordos. Só contam dias completos com 2 h ou mais naquele status, e só com 3 dias ou mais de cada configuração.',
-      'Se o OPL melhorou mas os transbordos subiram mais de 30%, a sugestão avisa e não aponta vencedor. Com 2 semanas de dados, ela mostra também o dia da semana mais ocioso.',
+      'Nos quadros, TOR, TPA e transbordos aparecem em média por dia completo, para usar as mesmas cores do relatório do dia (hoje, ainda parcial, não entra na média). TME e OPL somam o período. Embaixo, a comparação com os 7 (ou 30) dias anteriores.',
+      'Sugestões: comparam a configuração atual dos robôs com a anterior, em cada status da URA, pelo OPL e pelos transbordos por hora. Só contam as horas daquele status com os robôs no automático (sem robôs por livre escolhido à mão), em dias completos com 2 h ou mais nele, e só com 3 dias ou mais de cada configuração.',
+      'A configuração inclui o cálculo (taxa ou fixo), os robôs por livre, a espera alvo e, na calma, o "todos com N livres". Dia em que ela mudou no meio (reinício com outro .env) não entra.',
+      'Se o OPL melhorou mas os transbordos subiram mais de 30%, a sugestão avisa e não aponta vencedor. Com 2 semanas de dados (das últimas 8), ela mostra também o dia da semana mais ocioso. As sugestões usam todo o histórico, não só os dias da aba.',
       'As sugestões só sugerem: quem muda os números é a supervisão, no .env. A "Planilha" da aba baixa por dia, os totais com o período anterior e por atendente.',
     ],
   },

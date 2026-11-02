@@ -305,7 +305,8 @@ function comparativoDoPeriodo(rotulo: string, atual: number | null, antes: numbe
   return (
     <span className={clsx('flex items-center gap-1 truncate whitespace-nowrap', t && COR_DA_TENDENCIA[t])} title={t ? { melhor: 'agora está melhor', pior: 'agora está pior', igual: 'igual' }[t] : undefined}>
       {t && t !== 'igual' && <span aria-hidden>{SETA[t]}</span>}
-      {rotulo}: {formatar(antes ?? null)}
+      {/* no celular, "antes" (o quadro é estreito e o número cortava) */}
+      <span className="sm:hidden">antes</span><span className="max-sm:hidden">{rotulo}</span>: {formatar(antes ?? null)}
     </span>
   );
 }
@@ -364,7 +365,8 @@ function Sugestoes({ lista }: { lista: Sugestao[] }) {
         ))}
       </ul>
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        Comparam só dias completos com 2 h ou mais no status, e só com 3 dias ou mais de cada configuração. O BenURA não muda nada sozinho.
+        Usam todo o histórico guardado, não só os dias da aba. Comparam só as horas de cada status (com os robôs no automático), em dias completos com 2 h ou mais nele,
+        e só com 3 dias ou mais de cada configuração. O BenURA não muda nada sozinho.
       </p>
     </div>
   );
@@ -421,7 +423,7 @@ function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30
         <Numero rotulo="TPA" dica={DICAS.tpa} valor={minPorDia(ind.tpaMin)} nivel={nivelDoIndicador('tpaMin', ind.tpaMin)}
           nota={`${minutos(t.tpaMin)} no período`} comparar={comparativoDoPeriodo(rotuloAntes, ind.tpaMin, antes('tpaMin'), minPorDia)} />
         <Numero rotulo="Leads derivados" dica={DICAS.leads} valor={t.leadsDerivados} nota={`${virgula(t.leadsDia)}/dia`}
-          comparar={p.anterior ? <span className="truncate whitespace-nowrap">{rotuloAntes}: {virgula(p.anterior.leadsDia)}/dia</span> : undefined} />
+          comparar={p.anterior ? <span className="truncate whitespace-nowrap"><span className="sm:hidden">antes</span><span className="max-sm:hidden">{rotuloAntes}</span>: {virgula(p.anterior.leadsDia)}/dia</span> : undefined} />
       </div>
       <Sugestoes lista={p.sugestoes} />
       <BarraPorDia p={p} />
@@ -476,8 +478,8 @@ function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30
         </div>
       ) : <Vazio>Ainda não há dias guardados neste período.</Vazio>}
       <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-        Desde {diaCurto(p.desde)}. TOR, TPA e transbordos dos quadros em média por dia (a mesma régua de cores do dia); TME e OPL somando o período.
-        Hoje entra parcial. A comparação é com os {dias} dias anteriores.
+        Desde {diaCurto(p.desde)}. TOR, TPA e transbordos dos quadros em média por dia completo (a mesma régua de cores do dia); TME e OPL somando o período.
+        Hoje entra nas somas, ainda parcial, mas não nas médias por dia. A comparação é com os {dias} dias anteriores.
       </p>
     </Cartao>
   );

@@ -951,6 +951,8 @@ class RodizioService {
     });
     this.estatisticas?.amostrar(agora, {
       ...amostra, panico: this.panicoTipo, termometro: this.statusAtualDaUra() ?? termometro, pausas, operadores,
+      // [NOVO] robôs no automático e sem robôs por livre escolhido à mão: a hora vale para as sugestões
+      naConfig: this.modoDosRobos() === 'automatico' && this.calculoDosRobos(agora)?.fonte !== 'manual',
     });
   }
 

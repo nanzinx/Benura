@@ -227,6 +227,8 @@ export interface DiaDoPeriodo {
 /** [NOVO] Somas do período; TME e OPL pelas somas; TOR, TPA, transbordos e leads também por dia. */
 export interface TotaisDoPeriodo {
   dias: number;
+  /** dias sem hoje: as médias por dia usam só estes */
+  diasCompletos?: number;
   transbordos: number;
   leadsDerivados: number;
   derivacoes: number;

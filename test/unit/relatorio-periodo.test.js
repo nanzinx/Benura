@@ -60,7 +60,8 @@ test('período de 7 dias: série com hoje, totais certos (TME e OPL pelas somas)
   assert.equal(p.totais.transbordos, 4);
   assert.equal(p.totais.oplSeg, Math.round(((30 + 30 + 0) * 60) / (10 + 30 + 1)), 'tempo livre somado ÷ derivações somadas');
   assert.equal(p.totais.tmeSeg, Math.round((1200 + 600 + 30) / (10 + 30 + 1)));
-  assert.equal(p.totais.torMinDia, Math.round(((4 + 4) / 3) * 10) / 10, 'média por dia');
+  assert.equal(p.totais.torMinDia, 4, 'média por dia, só dos 2 dias completos');
+  assert.equal(p.totais.diasCompletos, 2);
   assert.equal(p.anterior.dias, 1);
   assert.equal(p.anterior.transbordos, 9);
   assert.deepEqual(p.porAtendente.map((a) => [a.ramal, a.atendimentos, a.livreMin, a.atendimentoMin]), [['201', 8, 15, 45]], '3 + 4 dos dias guardados + 1 de hoje');
@@ -107,4 +108,48 @@ test('período: hoje sem nada medido não vira linha; a comparação do /health 
   assert.equal(c.anterior.dia, '2026-10-30');
   assert.equal(c.anterior.porAtendente, undefined);
   assert.equal(c.anterior.config, undefined);
+});
+
+test('histórico por status: cada hora conta para o status em que a URA passou mais da metade; horas fora da configuração não contam', () => {
+  const historico = memoria();
+  const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE, historico, fotoDaConfig: () => CONFIG });
+  amostras(e, '2026-11-02', '09:00', 59, { livres: 2, robosLigados: 10, termometro: 'calma' }); // 09h: calma
+  e.registrarDerivacao(em('2026-11-02', '09:20'), null, 30_000);
+  amostras(e, '2026-11-02', '10:00', 59, { livres: 1, robosLigados: 10, termometro: 'normal' }); // 10h: normal
+  amostras(e, '2026-11-02', '11:00', 59, { livres: 3, robosLigados: 0, termometro: 'calma', naConfig: false }); // 11h: robôs fora do automático
+  e.amostrar(em('2026-11-03', '08:05'), { livres: 0, robosLigados: 0, termometro: 'normal' });
+  const [d] = historico.dados.dias;
+  assert.equal(Math.round(d.porStatus.calma.min), 59, 'só a hora das 9');
+  assert.equal(Math.round(d.porStatus.calma.livresMin), 118);
+  assert.equal(d.porStatus.calma.derivacoes, 1);
+  assert.equal(d.porStatus.normal.min, 59.5, 'inclui os 30 s da virada para normal');
+  assert.equal(d.porStatus.agressiva.min, 0);
+  assert.equal(d.configMudou, undefined);
+});
+
+test('histórico: a configuração que vale é a do começo do dia; se mudar no meio (reinício com outro .env), o dia fica marcado', () => {
+  const historico = memoria();
+  let cfg = CONFIG;
+  const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE, historico, fotoDaConfig: () => cfg });
+  amostras(e, '2026-11-02', '09:00', 5, { livres: 2, robosLigados: 10, termometro: 'calma' });
+  cfg = { ...CONFIG, porLivre: 9 };
+  amostras(e, '2026-11-02', '09:06', 5, { livres: 2, robosLigados: 10, termometro: 'calma' });
+  e.amostrar(em('2026-11-03', '08:05'), { livres: 0, robosLigados: 0, termometro: 'normal' });
+  const [d] = historico.dados.dias;
+  assert.deepEqual(d.config, CONFIG);
+  assert.equal(d.configMudou, true);
+});
+
+test('período: médias por dia só com os dias completos (hoje parcial não puxa para baixo); a linha usa o OPL e o TME gravados', () => {
+  const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE, historico: memoria({ dias: [
+    dia('2026-10-30', { transbordos: 10, oplSeg: 61, tmeSeg: 119 }), dia('2026-10-31', { transbordos: 10 }),
+  ] }) });
+  e.carregar(em('2026-11-02', '09:00'));
+  e.registrarDerivacao(em('2026-11-02', '09:30'), null, 30_000);
+  const p = e.periodo(7, em('2026-11-02', '12:00'));
+  assert.equal(p.totais.dias, 3);
+  assert.equal(p.totais.transbordos, 20);
+  assert.equal(p.totais.transbordosDia, 10, 'hoje (0 até agora) não entra na média');
+  assert.equal(p.dias[0].oplSeg, 61);
+  assert.equal(p.dias[0].tmeSeg, 119);
 });

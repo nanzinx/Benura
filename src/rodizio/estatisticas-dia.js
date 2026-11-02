@@ -82,12 +82,17 @@ function limiteDaPausaMin(tipo, limites = LIMITES_PAUSA) {
 
 /** [NOVO] Totais de uma lista de dias do histórico: somas, TME e OPL pelas somas, TOR e TPA por dia. */
 function totaisDoPeriodo(dias) {
-  const total = (campo) => Math.round(dias.reduce((t, d) => t + (d[campo] ?? 0), 0) * 10) / 10;
-  const porDia = (campo) => (dias.length ? Math.round((total(campo) / dias.length) * 10) / 10 : 0);
+  const somar = (lista, campo) => Math.round(lista.reduce((t, d) => t + (d[campo] ?? 0), 0) * 10) / 10;
+  const total = (campo) => somar(dias, campo);
+  // as médias por dia usam só os dias completos: hoje, ainda parcial, puxaria para baixo (só hoje: ele mesmo)
+  const completos = dias.filter((d) => !d.hoje);
+  const base = completos.length ? completos : dias;
+  const porDia = (campo) => (base.length ? Math.round((somar(base, campo) / base.length) * 10) / 10 : 0);
   const derivacoes = total('derivacoes');
   const esperaQtd = total('esperaQtd');
   return {
     dias: dias.length,
+    diasCompletos: completos.length,
     transbordos: total('transbordos'),
     leadsDerivados: total('leadsDerivados'),
     derivacoes,
@@ -136,7 +141,7 @@ class EstatisticasDia {
     const valido = expediente?.inicio && expediente?.fim ? expediente : null;
     Object.assign(this, { repositorio, fusoHorario, gravarACadaMs, expediente: valido, historico });
     /** [NOVO] A configuração dos robôs e da URA (do .env), guardada em cada dia do histórico para as sugestões. */
-    this.config = fotoDaConfig ? fotoDaConfig() : null;
+    this.fotoDaConfig = fotoDaConfig;
     this.estado = diaNovo(dataLocal(fusoHorario));
     this.ultimaAmostraEm = null;
     this.gravadoEm = 0;
@@ -207,7 +212,12 @@ class EstatisticasDia {
     return min + 59 >= minutosDoDia(this.expediente.inicio) && min < minutosDoDia(this.expediente.fim);
   }
 
-  amostrar(agora, { livres, robosLigados, panico, termometro, pausas = [], operadores = [] }) {
+  /**
+   * @param {object} amostra
+   * @param {boolean} [amostra.naConfig] - [NOVO] os robôs seguem a configuração (modo automático, sem
+   *        robôs por livre escolhido à mão): a hora fora dela não entra nas sugestões
+   */
+  amostrar(agora, { livres, robosLigados, panico, termometro, pausas = [], operadores = [], naConfig = true }) {
     const h = this.doDia(agora); // virou o dia: zera, e o intervalo até a última amostra não conta
     const dt = this.ultimaAmostraEm == null ? 0 : Math.min(Math.max(agora - this.ultimaAmostraEm, 0), MAX_INTERVALO_MS, this.noExpediente(agora));
     this.ultimaAmostraEm = agora;
@@ -234,7 +244,8 @@ class EstatisticasDia {
         h.robosMs = (h.robosMs ?? 0) + dt * robosLigados;
         h.medidoMs = (h.medidoMs ?? 0) + dt;
       }
-      if (this.config) e.config = this.config;
+      if (!naConfig) h.foraDaConfigMs = (h.foraDaConfigMs ?? 0) + dt;
+      this.guardarConfig(e);
       for (const tipo of pausas) e.pausasMs[tipo] = (e.pausasMs[tipo] ?? 0) + dt;
     }
     for (const op of operadores) this.amostrarAtendente(agora, dt, op);
@@ -367,6 +378,8 @@ class EstatisticasDia {
       medindoMin: minutos(soma('medindoMs')),
       robosLigadosMedia: soma('medidoMs') ? Math.round((soma('robosMs') / soma('medidoMs')) * 10) / 10 : null,
       ...(e.config ? { config: e.config } : {}),
+      ...(e.configMudou ? { configMudou: true } : {}),
+      porStatus: this.porStatusDoDia(horas),
       porAtendente: Object.entries(e.porRamal ?? {}).map(([ramal, a]) => ({
         ramal, nome: a.nome ?? null, atendimentos: a.atendimentos ?? 0, livreMin: minutos(a.livreMs ?? 0),
         atendimentoMin: minutos(a.atendimentoMs ?? 0), pausaMin: minutos(Object.values(a.pausasMs ?? {}).reduce((t, v) => t + v, 0)),
@@ -392,8 +405,9 @@ class EstatisticasDia {
     const linha = (d) => ({
       dia: d.dia, ...(d.hoje ? { hoje: true } : {}),
       transbordos: d.transbordos ?? 0, leadsDerivados: d.leadsDerivados ?? 0, derivacoes: d.derivacoes ?? 0,
-      tmeSeg: d.esperaQtd ? Math.round((d.esperaSomaSeg ?? 0) / d.esperaQtd) : null,
-      oplSeg: d.derivacoes ? Math.round(((d.livresMin ?? 0) * 60) / d.derivacoes) : null,
+      // o gravado no dia (das somas em ms); só recalcula em dia antigo sem ele
+      tmeSeg: d.tmeSeg !== undefined ? d.tmeSeg : d.esperaQtd ? Math.round((d.esperaSomaSeg ?? 0) / d.esperaQtd) : null,
+      oplSeg: d.oplSeg !== undefined ? d.oplSeg : d.derivacoes ? Math.round(((d.livresMin ?? 0) * 60) / d.derivacoes) : null,
       livresMin: d.livresMin ?? 0, torMin: d.torMin ?? 0, tpaMin: d.tpaMin ?? 0,
       calmaMin: d.calmaMin ?? 0, normalMin: d.normalMin ?? 0, agressivaMin: d.agressivaMin ?? 0, medindoMin: d.medindoMin ?? 0,
       robosLigadosMedia: d.robosLigadosMedia ?? null,
@@ -407,6 +421,41 @@ class EstatisticasDia {
       porAtendente: somaPorAtendente(noPeriodo),
       sugestoes: sugestoes([...historico, hoje]),
     };
+  }
+
+  /**
+   * [NOVO] A configuração do dia é a do começo dele. Se outra aparecer no meio (reinício com outro
+   * .env), o dia fica marcado e as sugestões não o usam.
+   */
+  guardarConfig(e) {
+    const agora = this.fotoDaConfig?.();
+    if (!agora) return;
+    if (!e.config) e.config = agora;
+    else if (!e.configMudou && JSON.stringify(e.config) !== JSON.stringify(agora)) e.configMudou = true;
+  }
+
+  /**
+   * [NOVO] Por status da URA (calma, normal, agressiva): cada hora conta para o status em que a URA
+   * passou mais da metade do tempo medido, e não conta se a maior parte foi fora da configuração.
+   * Dá o OPL e os transbordos de cada status, para comparar configurações (sugestões).
+   */
+  porStatusDoDia(horas) {
+    const acc = Object.fromEntries(['calma', 'normal', 'agressiva'].map((s) => [s, { ms: 0, livresMs: 0, derivacoes: 0, transbordos: 0 }]));
+    for (const h of horas) {
+      const tempos = { calma: h.calmaMs ?? 0, normal: h.normalMs ?? 0, agressiva: h.agressivaMs ?? 0 };
+      const medido = tempos.calma + tempos.normal + tempos.agressiva + (h.medindoMs ?? 0);
+      if (!medido || (h.foraDaConfigMs ?? 0) * 2 > medido) continue;
+      const [status, ms] = Object.entries(tempos).sort((a, b) => b[1] - a[1])[0];
+      if (ms * 2 <= medido) continue;
+      const a = acc[status];
+      a.ms += ms;
+      a.livresMs += h.livresMs ?? 0;
+      a.derivacoes += h.derivacoes ?? 0;
+      a.transbordos += h.transbordos ?? 0;
+    }
+    return Object.fromEntries(Object.entries(acc).map(([s, a]) => [s, {
+      min: minutos(a.ms), livresMin: minutos(a.livresMs), derivacoes: a.derivacoes, transbordos: a.transbordos,
+    }]));
   }
 
   /** [NOVO] Guarda os totais do dia no histórico (um por dia, os últimos DIAS_NO_HISTORICO). */
