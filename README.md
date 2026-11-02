@@ -212,6 +212,9 @@ O rodízio de pessoas e o controle dos robôs rodam em processos separados. Um p
   - o de robôs responde com o que fez (robôs ligados, pânico) e devolve os eventos que são do relatório do dia: pânico (TPA), encerramentos e callbacks do relatório de ligações;
   - cada evento tem número: ninguém conta duas vezes, e o que não chegou vai na próxima.
 - **Chamadas à Argus:** não aumentam. Cada serviço só lê o que é dele, e o de robôs não lê a URA enquanto o retrato chega.
+- **No código:** as regras de pessoas ficam em `src/rodizio/rodizio.service.js`. Os métodos dos robôs (pânico, modo, ajuste, taxa, raio-x, manual) ficam em `src/rodizio/rodizio.robos.js`, e os da conversa entre os dois serviços em `src/rodizio/rodizio.separacao.js`. São o mesmo `RodizioService`, nos três papéis.
+- [NOVO] **Saúde da Argus:** cada serviço (roteador, rodízio, robôs) mede as chamadas à Argus dos últimos 15 min: quantas, com erro, lentas (3 s ou mais), pedidos para desacelerar (HTTP 429) e seguradas pela pausa (`saudeArgus` no `/health`, `src/integrations/argus/saude-argus.js`). O cartão "Argus (discadora)" da aba Serviços soma tudo, e uma faixa amarela avisa quando a Argus pede para desacelerar ou erra 20% ou mais.
+- [NOVO] **Faixa vermelha na Visão geral** quando o `benura-robos` cai (e quando o de pessoas parou os robôs por segurança).
 - **Se o de pessoas parar** (desligado no painel ou caído):
   - quem está na URA **fica onde está**: ninguém sobe nem volta;
   - o de robôs segue: com o retrato vencido (mais de 15 s), lê os grupos e os status da URA sozinho, **só leitura**, e continua desligando os robôs quando a URA esvazia.
@@ -356,6 +359,8 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
          - um dia por linha (hoje entra parcial), com os mesmos indicadores, a média de robôs ligados e a coluna do status da URA de agora; "mais ocioso" marca o dia de OPL mais alto;
          - os quadros mostram TOR, TPA e transbordos **em média por dia completo** (a mesma régua de cores do dia; hoje, parcial, só entra nas somas) e TME e OPL pelas somas, com ▼▲ em relação aos **N dias anteriores**;
          - a barra mostra o status da URA dia a dia; a **Planilha** baixa **Por dia**, **Totais** (com o período anterior) e **Por atendente**;
+         - [NOVO] **"Ver tendência dia a dia"** (fechado por padrão) abre um gráfico de um indicador por vez (OPL, transbordos, TME ou leads), com a linha do fim da faixa verde;
+         - [NOVO] nos 30 dias, a tabela mostra os **10 dias mais recentes** e um "Ver todos"; no celular, as tabelas do relatório viram **cartões**;
          - cada dia do histórico guarda também os minutos em normal, agressiva e medindo, a média de robôs ligados, o resumo por atendente, os números **por status** (cada hora conta para o status em que a URA passou mais da metade; horas com os robôs fora do automático ou com robôs por livre escolhido à mão não contam) e uma **foto da configuração** do começo do dia (cálculo, robôs por livre e espera alvo de cada status, "todos com N livres" da calma, `TEMPO_MIN` e os livres da URA cheia; nenhum segredo). Se a configuração muda no meio do dia (reinício com outro `.env`), o dia fica marcado e não entra nas sugestões.
        - [NOVO] **Sugestões** (`src/domain/sugestoes.js`), só sugerem, nunca mudam nada:
          - por status (calma, normal, agressiva), comparam a configuração atual com a anterior pelo **OPL** e pelos **transbordos por hora**, só das horas daquele status, contando só dias completos com **2 h ou mais** nele e só com **3 dias ou mais** de cada lado (usam todo o histórico, não só os dias da aba);
