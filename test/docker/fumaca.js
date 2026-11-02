@@ -1,7 +1,7 @@
 'use strict';
 /**
  * [NOVO] Teste de fumaça da imagem Docker (CI: job "docker"): sobe o container com uma
- * Argus falsa e confere que os quatro serviços ficam no ar (PM2 + /health), que o estado
+ * Argus falsa e confere que os cinco serviços ficam no ar (PM2 + /health), que o estado
  * vai para o volume /dados e que o painel consegue parar e religar os serviços pelo PM2
  * de dentro do container (botões "Desligar/Religar automação").
  * [NOVO] Roda endurecido como no docker-compose.yml (disco só de leitura, sem permissões
@@ -18,7 +18,7 @@ const { criarArgusFake } = require('../rodizio/argus-fake');
 const IMAGEM = process.env.IMAGEM || 'benura:ci';
 const NOME = `benura-fumaca-${process.pid}`;
 const SENHA = 'senha-fumaca-123';
-const PORTAS = [3000, 3001, 3003, 3010];
+const PORTAS = [3000, 3001, 3003, 3004, 3010]; // [NOVO] 3004: o benura-robos
 const esperar = (ms) => new Promise((r) => { setTimeout(r, ms); });
 const docker = (...args) => execFileSync('docker', args, { encoding: 'utf8' }).trim();
 
@@ -37,7 +37,7 @@ function servicos() {
   const linha = saida.split(/\r?\n/).reverse().find((l) => /^\s*\[/.test(l));
   return Object.fromEntries(JSON.parse(linha).map((p) => [p.name.replace('benura-', ''), p.pm2_env.status]));
 }
-const todos = (status) => () => Object.values(servicos()).length === 4 && Object.values(servicos()).every((s) => s === status);
+const todos = (status) => () => Object.values(servicos()).length === 5 && Object.values(servicos()).every((s) => s === status);
 const saudaveis = async () => (await Promise.all(PORTAS.map((p) => fetch(`http://127.0.0.1:${p}/health`).then((r) => r.ok)))).every(Boolean);
 
 async function main() {
@@ -62,7 +62,7 @@ async function main() {
     docker('run', '-d', '--name', NOME, '--network', 'host', '--env-file', arquivoEnv, '-v', `${dados}:/dados`,
       '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--pids-limit', '512',
       '--tmpfs', '/run/benura:uid=1000,gid=1000,mode=0700', '--tmpfs', '/tmp:uid=1000,gid=1000,mode=0700', IMAGEM);
-    await aguardar(todos('online'), 'os quatro serviços online no PM2');
+    await aguardar(todos('online'), 'os cinco serviços online no PM2');
     await aguardar(saudaveis, '/health de todos');
     if (!fs.readdirSync(dados).some((f) => f.startsWith('state-'))) throw new Error(`estado fora do volume: ${fs.readdirSync(dados)}`);
     console.log('✓ no ar:', JSON.stringify(servicos()));
@@ -84,8 +84,8 @@ async function main() {
     const cookie = entrar.headers.get('set-cookie').split(';')[0];
     const pedir = (rota) => fetch(`http://127.0.0.1:3010/api/automacao/${rota}`, { method: 'POST', headers: { Cookie: cookie, 'X-Painel': '1' } });
     if ((await pedir('desligar')).status !== 202) throw new Error('desligar não foi aceito');
-    await aguardar(() => { const s = servicos(); return s.painel === 'online' && ['roteador', 'rodizio', 'rotinas'].every((n) => s[n] === 'stopped'); },
-      'desligar automação: os três parados, o painel no ar');
+    await aguardar(() => { const s = servicos(); return s.painel === 'online' && ['roteador', 'rodizio', 'robos', 'rotinas'].every((n) => s[n] === 'stopped'); },
+      'desligar automação: os quatro parados, o painel no ar');
     console.log('✓ desligou pelo painel:', JSON.stringify(servicos()));
     if ((await pedir('religar')).status !== 202) throw new Error('religar não foi aceito');
     await aguardar(todos('online'), 'religar automação: todos online');

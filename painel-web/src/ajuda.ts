@@ -140,6 +140,18 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     ],
   },
   {
+    id: 'servicos-separados',
+    titulo: 'Rodízio de pessoas e serviço dos robôs',
+    onde: 'Aba Serviços (cartões "Rodízio de pessoas" e "Robôs da URA")',
+    itens: [
+      'São dois serviços: o rodízio de pessoas (benura-rodizio) move quem sobe e volta da URA; o serviço dos robôs (benura-robos) liga e desliga os robôs (pânico, modo, ajuste, cliente de risco). Um problema num não para o outro.',
+      'O rodízio de pessoas manda a foto da URA aos robôs a cada ciclo e na hora de cada atendimento: os robôs reagem tão rápido quanto antes, e a Argus não recebe consultas a mais.',
+      'Rodízio de pessoas desligado: quem está na URA fica onde está, ninguém sobe nem volta. Os robôs seguem, lendo a URA sozinhos.',
+      'Serviço dos robôs desligado (ou sem responder por 30 s): os robôs parados param de discar e os em ligação terminam a chamada. As pessoas seguem no rodízio normal.',
+      'Para voltar a ter tudo num serviço só: ROBOS_SERVICO_PROPRIO=false no .env e reiniciar o rodízio.',
+    ],
+  },
+  {
     id: 'avisos',
     titulo: 'Avisos (BenHub)',
     onde: 'Aba Serviços → Avisos (BenHub)',

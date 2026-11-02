@@ -29,6 +29,7 @@ ENV NODE_ENV=production \
     # Travas de instância única fora do volume: num container novo os PIDs se repetem e uma
     # trava velha com o PID de outro serviço impediria a subida (no compose, /run/benura é tmpfs).
     RODIZIO_LOCK_FILE=/run/benura/argus.lock \
+    ROBOS_LOCK_FILE=/run/benura/robos.lock \
     ROTEADOR_LOCK_FILE=/run/benura/roteador.lock \
     ROTINAS_LOCK_FILE=/run/benura/rotinas.lock \
     ATUALIZADOR_LOCK_FILE=/run/benura/atualizador.lock \
@@ -49,6 +50,7 @@ USER node
 
 VOLUME ["/dados"]
 # 3000 rodízio (webhooks da Argus) · 3001 roteador (webhook de venda) · 3003 rotinas · 3010 painel
+# (3004, o benura-robos, só conversa com o rodízio e o painel por dentro: não precisa sair)
 EXPOSE 3000 3001 3003 3010
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

@@ -119,7 +119,20 @@ export interface CalculoRobos {
   roboMinutos30: number;
 }
 
+/** [NOVO] /health do benura-robos (os robôs num serviço próprio). */
+export interface SaudeRobos {
+  papel?: 'robos' | 'desativado';
+  uptime?: number;
+  lastLoopUra?: string;
+  robos?: SaudeRodizio['robos'];
+  retratoDaUra?: { fresco: boolean; haMs: number | null; lendoSozinho: boolean };
+}
+
 export interface SaudeRodizio {
+  /** [NOVO] tudo (robôs aqui) ou pessoas (robôs no benura-robos) */
+  papel?: 'tudo' | 'pessoas';
+  /** [NOVO] no de pessoas: o benura-robos respondendo, e se a rede de segurança agiu */
+  servicoDosRobos?: { respondendo: boolean; respondeuEm: string | null; emergencia: boolean } | null;
   lastLoopUra?: string;
   uptime?: number;
   dryRun?: boolean;
@@ -363,13 +376,15 @@ export interface EstadoAutomacao {
 }
 
 /** [NOVO] Os componentes que o painel liga e desliga sozinhos (o app do PM2). */
-export type Componente = 'benura-roteador' | 'benura-rodizio' | 'benura-rotinas';
+export type Componente = 'benura-roteador' | 'benura-rodizio' | 'benura-robos' | 'benura-rotinas';
 
 export interface Visao {
   agora: string;
   servicos: {
     roteador: Servico<SaudeRoteador>;
     rodizio: Servico<SaudeRodizio>;
+    /** [NOVO] só com ROBOS_SERVICO_PROPRIO=true */
+    robos?: Servico<SaudeRobos>;
     rotinas: Servico<SaudeRotinas>;
     atualizador?: Servico;
   };

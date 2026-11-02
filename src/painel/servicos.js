@@ -11,9 +11,10 @@
  * Comandos do painel → serviço e rota. Os de escrita ficam no log do painel.
  * comQuem: o painel põe no corpo quem pediu (`por`: e-mail do Access e IP), para o log do serviço.
  */
+// [NOVO] servico 'robos': o benura-robos; com ROBOS_SERVICO_PROPRIO=false (sem ele na config), vai ao rodízio.
 const ACOES = Object.freeze([
-  { metodo: 'POST', caminho: '/api/rodizio/panico', servico: 'rodizio', destino: '/panico', nome: 'ligar o pânico' },
-  { metodo: 'DELETE', caminho: '/api/rodizio/panico', servico: 'rodizio', destino: '/panico', nome: 'desligar o pânico' },
+  { metodo: 'POST', caminho: '/api/rodizio/panico', servico: 'robos', destino: '/panico', nome: 'ligar o pânico' },
+  { metodo: 'DELETE', caminho: '/api/rodizio/panico', servico: 'robos', destino: '/panico', nome: 'desligar o pânico' },
   // [NOVO] status da URA (manual ou automático), métricas do dia e "Alocar Todos no Ativo"
   { metodo: 'PUT', caminho: '/api/ura/status', servico: 'rodizio', destino: '/ura/status', nome: 'mudar o status da URA', comQuem: true, limiteBytes: 1024 },
   { metodo: 'GET', caminho: '/api/metricas/hoje', servico: 'rodizio', destino: '/metricas/hoje' },
@@ -21,7 +22,7 @@ const ACOES = Object.freeze([
   { metodo: 'GET', caminho: '/api/relatorio/semana', servico: 'rodizio', destino: '/relatorio/periodo?dias=7' },
   { metodo: 'GET', caminho: '/api/relatorio/mes', servico: 'rodizio', destino: '/relatorio/periodo?dias=30' },
   // [NOVO] modo dos robôs: automático, só pânico ou desligados
-  { metodo: 'PUT', caminho: '/api/robos/modo', servico: 'rodizio', destino: '/robos/modo', nome: 'mudar o modo dos robôs', comQuem: true, limiteBytes: 1024 },
+  { metodo: 'PUT', caminho: '/api/robos/modo', servico: 'robos', destino: '/robos/modo', nome: 'mudar o modo dos robôs', comQuem: true, limiteBytes: 1024 },
   {
     metodo: 'POST', caminho: '/api/operadores/transferir-ura-ativo', servico: 'rodizio', destino: '/operadores/transferir-ura-ativo',
     nome: 'alocar todos da URA no Ativo', comQuem: true, limiteBytes: 1024, timeoutMs: 60_000,
@@ -45,9 +46,9 @@ const ACOES = Object.freeze([
   })),
   { metodo: 'POST', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'ligar a URA cheia' },
   { metodo: 'DELETE', caminho: '/api/rodizio/ura/cheia', servico: 'rodizio', destino: '/ura/cheia', nome: 'desligar a URA cheia' },
-  { metodo: 'POST', caminho: '/api/rodizio/risco/desligar', servico: 'rodizio', destino: '/risco/desligar', nome: 'ligar "desligar robôs com cliente de risco"' },
-  { metodo: 'DELETE', caminho: '/api/rodizio/risco/desligar', servico: 'rodizio', destino: '/risco/desligar', nome: 'desligar "desligar robôs com cliente de risco"' },
-  { metodo: 'GET', caminho: '/api/rodizio/perfis/risco', servico: 'rodizio', destino: '/perfis/risco' },
+  { metodo: 'POST', caminho: '/api/rodizio/risco/desligar', servico: 'robos', destino: '/risco/desligar', nome: 'ligar "desligar robôs com cliente de risco"' },
+  { metodo: 'DELETE', caminho: '/api/rodizio/risco/desligar', servico: 'robos', destino: '/risco/desligar', nome: 'desligar "desligar robôs com cliente de risco"' },
+  { metodo: 'GET', caminho: '/api/rodizio/perfis/risco', servico: 'robos', destino: '/perfis/risco' },
   // [NOVO] webhook de transferências para clientes (só administrador; o cliente também se cadastra por API)
   { metodo: 'GET', caminho: '/api/webhooks/clientes', servico: 'rodizio', destino: '/webhooks/clientes', papel: 'administrador' },
   { metodo: 'POST', caminho: '/api/webhooks/clientes', servico: 'rodizio', destino: '/webhooks/clientes', nome: 'cadastrar um cliente do webhook', papel: 'administrador', limiteBytes: 2048 },
@@ -59,7 +60,12 @@ const ACOES = Object.freeze([
   { metodo: 'POST', caminho: '/api/roteador/recarregar', servico: 'roteador', destino: '/recarregar', nome: 'recarregar as vendas' },
 ]);
 
-const NOMES = Object.freeze({ roteador: 'Roteador de vendas', rodizio: 'Rodízio e robôs', rotinas: 'Rotinas do dia', atualizador: 'Atualizador automático' });
+const NOMES = Object.freeze({
+  roteador: 'Roteador de vendas', rodizio: 'Rodízio e robôs', robos: 'Robôs da URA', rotinas: 'Rotinas do dia', atualizador: 'Atualizador automático',
+});
+
+/** [NOVO] Do /health do benura-robos, o que a tela lê no do rodízio (assim ela não muda). */
+const CAMPOS_DOS_ROBOS = ['robos', 'panico', 'ajusteRobos', 'ultimoLivreSaindo'];
 
 class Servicos {
   /**
@@ -78,7 +84,19 @@ class Servicos {
    * @param {{ metodo?: string, corpo?: string, timeoutMs?: number }} [opcoes] - corpo já em JSON
    * @returns {Promise<{ status: number, corpo: any, ms: number }>} status 0 = fora do ar
    */
-  async chamar(servico, caminho, { metodo = 'GET', corpo, timeoutMs = this.cfg.timeoutMs } = {}) {
+  /** [NOVO] O benura-robos está na config (ROBOS_SERVICO_PROPRIO=true)? */
+  robosSeparados() {
+    return Boolean(this.cfg.servicos.robos);
+  }
+
+  /** [NOVO] Nome de cada serviço para a tela: com os robôs separados, o rodízio é o "de pessoas". */
+  nome(servico) {
+    if (servico === 'rodizio' && this.robosSeparados()) return 'Rodízio de pessoas';
+    return NOMES[servico] ?? servico;
+  }
+
+  async chamar(pedido, caminho, { metodo = 'GET', corpo, timeoutMs = this.cfg.timeoutMs } = {}) {
+    const servico = pedido === 'robos' && !this.robosSeparados() ? 'rodizio' : pedido;
     const inicio = Date.now();
     const headers = { ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}), ...(corpo ? { 'Content-Type': 'application/json' } : {}) };
     try {
@@ -90,12 +108,12 @@ class Servicos {
       try {
         json = texto ? JSON.parse(texto) : null;
       } catch {
-        json = { erro: `Resposta inesperada do ${NOMES[servico]} (HTTP ${resposta.status})` };
+        json = { erro: `Resposta inesperada do ${this.nome(servico)} (HTTP ${resposta.status})` };
       }
       return { status: resposta.status, corpo: json, ms: Date.now() - inicio };
     } catch (e) {
       const motivo = e.name === 'TimeoutError' ? 'não respondeu a tempo' : 'fora do ar';
-      return { status: 0, corpo: { erro: `${NOMES[servico]} ${motivo}` }, ms: Date.now() - inicio };
+      return { status: 0, corpo: { erro: `${this.nome(servico)} ${motivo}` }, ms: Date.now() - inicio };
     }
   }
 
@@ -103,11 +121,24 @@ class Servicos {
   async saude() {
     const nomes = Object.keys(this.cfg.servicos);
     const respostas = await Promise.all(nomes.map((s) => this.chamar(s, '/health')));
-    return Object.fromEntries(nomes.map((s, i) => {
+    const saude = Object.fromEntries(nomes.map((s, i) => {
       const r = respostas[i];
-      return [s, { nome: NOMES[s] ?? s, online: r.status >= 200 && r.status < 300, ms: r.ms, dados: r.status === 200 ? r.corpo : null }];
+      return [s, { nome: this.nome(s), online: r.status >= 200 && r.status < 300, ms: r.ms, dados: r.status === 200 ? r.corpo : null }];
     }));
+    juntarRobosNoRodizio(saude);
+    return saude;
   }
+}
+
+/**
+ * [NOVO] A tela (e os alertas) leem os robôs no /health do rodízio: com o benura-robos no ar, valem os
+ * dele (o rodízio de pessoas só tem o espelho da última resposta).
+ */
+function juntarRobosNoRodizio(saude) {
+  const robos = saude.robos?.online && saude.robos.dados?.papel === 'robos' ? saude.robos.dados : null;
+  const rodizio = saude.rodizio?.dados;
+  if (!robos || !rodizio) return;
+  for (const campo of CAMPOS_DOS_ROBOS) if (robos[campo] !== undefined) rodizio[campo] = robos[campo];
 }
 
 module.exports = { Servicos, ACOES, NOMES };

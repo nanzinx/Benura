@@ -56,6 +56,20 @@ jobs:
       - run: npm ci
       - run: npm run test:cenarios
 
+  # [NOVO] Os mesmos cenários com os robôs num serviço próprio (robos.js / benura-robos).
+  cenarios-separado:
+    name: cenarios-separado
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:cenarios:separado
+
   # [NOVO] Imagem Docker (alternativa ao PM2 como serviço): constrói e sobe com uma Argus
   # falsa: os quatro serviços no ar, estado no volume, Desligar/Religar pelo painel e restart.
   docker:

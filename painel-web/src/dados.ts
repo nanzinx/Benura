@@ -49,12 +49,18 @@ export function useComponente() {
 }
 
 /** [NOVO] Nome de cada componente e o que acontece com ele desligado (confirmação e Ajuda). */
-export const NOMES_DOS_COMPONENTES: Record<Componente, string> = { 'benura-roteador': 'roteador', 'benura-rodizio': 'rodízio', 'benura-rotinas': 'rotinas' };
+export const NOMES_DOS_COMPONENTES: Record<Componente, string> = {
+  'benura-roteador': 'roteador', 'benura-rodizio': 'rodízio', 'benura-robos': 'serviço dos robôs', 'benura-rotinas': 'rotinas',
+};
 export const EFEITO_DESLIGADO: Record<Componente, string> = {
   'benura-roteador': 'Ninguém é movido entre Ativo e URA pelas vendas, e a lista de quem pode ir para a URA fica parada. O rodízio e o pânico seguem.',
   'benura-rodizio': 'Sem rodízio, pânico, URA cheia, status da URA, clientes de risco e relatório do dia. Os robôs são desligados antes; quem religa os robôs é a supervisão, pela Argus.',
+  'benura-robos': 'Os robôs parados saem já e os em ligação terminam a chamada; ninguém mais liga nem desliga robô (pânico, modo, ajuste e cliente de risco param). O rodízio de pessoas segue normal. Quem religa os robôs é a supervisão, pela Argus.',
   'benura-rotinas': 'Sem a checagem de fim de expediente. O resto segue normal.',
 };
+
+/** [NOVO] Com os robôs num serviço próprio, desligar o rodízio de pessoas não mexe nos robôs. */
+export const EFEITO_DESLIGADO_PESSOAS = 'Ninguém sobe nem volta da URA: quem está lá fica onde está (para levar todos ao Ativo, use "Alocar todos no Ativo" antes). URA cheia, status da URA e relatório do dia param. Os robôs seguem no serviço dos robôs, lendo a URA sozinhos.';
 
 /** Botão "Modo simulação" (DRY_RUN): grava e reinicia os serviços. */
 export function useSimulacao() {

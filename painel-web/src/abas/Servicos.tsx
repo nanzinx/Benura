@@ -1,7 +1,7 @@
 import { clsx } from 'clsx';
 import { Power, PowerOff, Search } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { EFEITO_DESLIGADO, NOMES_DOS_COMPONENTES, useComponente, useDia, useSimulacao, useVisao } from '../dados';
+import { EFEITO_DESLIGADO, EFEITO_DESLIGADO_PESSOAS, NOMES_DOS_COMPONENTES, useComponente, useDia, useSimulacao, useVisao } from '../dados';
 import { FlaskConical } from 'lucide-react';
 import { Botao } from '../ui/base';
 import { useRetorno } from '../ui/retorno';
@@ -22,12 +22,14 @@ function LigaDesliga({ v, app }: { v: Visao; app: Componente }) {
   const { confirmar } = useRetorno();
   const a = v.automacao;
   const desligado = Boolean(a?.componentes?.[app]);
-  const nome = NOMES_DOS_COMPONENTES[app];
+  const separado = Boolean(v.servicos.robos);
+  const nome = app === 'benura-rodizio' && separado ? 'rodízio de pessoas' : NOMES_DOS_COMPONENTES[app];
+  const efeito = app === 'benura-rodizio' && separado ? EFEITO_DESLIGADO_PESSOAS : EFEITO_DESLIGADO[app];
   const ocupado = mutacao.isPending || !['ligada', 'desligada'].includes(a?.estado ?? 'ligada');
   const trocar = async () => {
     const ok = await confirmar(desligado
       ? { titulo: `Ligar o ${nome}?`, texto: a?.estado === 'desligada' ? `A automação está desligada: o ${nome} sobe quando ela for religada.` : `O ${nome} volta a funcionar em alguns segundos.`, confirmar: `Ligar o ${nome}` }
-      : { titulo: `Desligar só o ${nome}?`, texto: `${EFEITO_DESLIGADO[app]} Fica desligado (mesmo se o PC reiniciar ou a agenda religar) até alguém clicar em "Ligar".`, confirmar: `Desligar o ${nome}`, perigo: true });
+      : { titulo: `Desligar só o ${nome}?`, texto: `${efeito} Fica desligado (mesmo se o PC reiniciar ou a agenda religar) até alguém clicar em "Ligar".`, confirmar: `Desligar o ${nome}`, perigo: true });
     if (ok) mutacao.mutate({ app, ligar: desligado });
   };
   return (
@@ -65,8 +67,13 @@ function CartaoServico({ s, linhas, opcional, parado, desligadoAMao, acao }: {
 }
 
 function Cartoes({ v }: { v: Visao }) {
-  const { roteador, rodizio, rotinas, atualizador } = v.servicos;
+  const { roteador, rodizio, robos, rotinas, atualizador } = v.servicos;
   const r = rodizio.dados;
+  const modoDosRobos = r?.robos?.modo === 'panico' ? 'pânico' : r?.robos?.modo === 'desligados' ? 'desligados' : 'automático';
+  // [NOVO] robôs num serviço próprio: o rodízio de pessoas diz se o benura-robos responde; o cartão dele diz de onde vê a URA
+  const conversa = r?.servicoDosRobos ? (r.servicoDosRobos.emergencia ? 'parou os robôs' : r.servicoDosRobos.respondendo ? 'respondendo' : 'sem resposta') : '–';
+  const retrato = robos?.dados?.retratoDaUra;
+  const deOndeVe = !retrato ? '–' : retrato.fresco ? 'pelo rodízio de pessoas' : 'lendo a Argus sozinho';
   const argusOk = v.argus.respondendo && !v.argus.tokenRecusado;
   const ultimoCiclo = v.argus.cicloUraHaSeg == null ? '–' : `${duracao(v.argus.cicloUraHaSeg)} atrás`;
   const parado = v.automacao?.estado === 'desligada';
@@ -76,7 +83,13 @@ function Cartoes({ v }: { v: Visao }) {
       <CartaoServico parado={parado} desligadoAMao={comp['benura-roteador']} acao={<LigaDesliga v={v} app="benura-roteador" />} s={roteador}
         linhas={[['Carga do dia', roteador.dados?.cargaInicialFeita ? 'feita' : 'pendente'], ['Última leitura de vendas', horaCurta(roteador.dados?.ultimoMonitoramento)]]} />
       <CartaoServico parado={parado} desligadoAMao={comp['benura-rodizio']} acao={<LigaDesliga v={v} app="benura-rodizio" />} s={rodizio}
-        linhas={[['Último ciclo da URA', ultimoCiclo], ['Modo dos robôs', r?.robos?.modo === 'panico' ? 'pânico' : 'automático'], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]} />
+        linhas={robos
+          ? [['Último ciclo da URA', ultimoCiclo], ['Serviço dos robôs', conversa], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]
+          : [['Último ciclo da URA', ultimoCiclo], ['Modo dos robôs', modoDosRobos], ['DRY_RUN', r?.dryRun ? 'ligado (simulação)' : 'desligado']]} />
+      {robos && (
+        <CartaoServico parado={parado} desligadoAMao={comp['benura-robos']} acao={<LigaDesliga v={v} app="benura-robos" />} s={robos}
+          linhas={[['Vê a URA', deOndeVe], ['Modo dos robôs', modoDosRobos], ['Robôs ligados', robos.dados?.robos?.ligados != null ? String(robos.dados.robos.ligados) : '–']]} />
+      )}
       <CartaoServico parado={parado} desligadoAMao={comp['benura-rotinas']} acao={<LigaDesliga v={v} app="benura-rotinas" />} s={rotinas}
         linhas={[['Última execução', horaCurta(rotinas.dados?.ultimaExecucao)]]} />
       {atualizador && <CartaoServico s={atualizador} linhas={[]} opcional />}

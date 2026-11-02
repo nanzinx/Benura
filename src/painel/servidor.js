@@ -270,7 +270,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
   }
 
   async function visao() {
-    const [saude, alertas] = await Promise.all([servicos.saude(), servicos.chamar('rodizio', '/alertas')]);
+    const [saude, alertas] = await Promise.all([servicos.saude(), servicos.chamar('robos', '/alertas')]);
     const { avisos } = dados.atualizar();
     const rodizio = saude.rodizio.dados;
     const agora = new Date();

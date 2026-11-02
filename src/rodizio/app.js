@@ -76,64 +76,105 @@ function montarWebhooksClientes(cfg, diretorio, log) {
   return { assinaturas, aviso: new AvisoTransferencias({ assinaturas, diretorio, logger: log.filho('webhooks') }) };
 }
 
-/** Monta as dependências (sem efeitos colaterais: nada é iniciado aqui). */
-function montarRodizio(overrides) {
+/** [NOVO] Estado do rodízio só em memória: o de robôs nunca grava o estado das pessoas. */
+const estadoEmMemoria = () => ({ dados: {}, carregar() { return this.dados; }, salvar(d) { this.dados = d; return true; }, aguardar: async () => {} });
+
+/**
+ * [NOVO] O de pessoas fala com o de robôs pelo localhost (POST /interno/ura), com o WEBHOOK_TOKEN.
+ * @returns {{ enviar(corpo: object): Promise<object> }}
+ */
+function criarLigacaoRobos(cfg) {
+  const url = `${cfg.robos.url}/interno/ura`;
+  const token = cfg.http.tokenAdmin;
+  return {
+    async enviar(corpo) {
+      const resposta = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(corpo),
+        signal: AbortSignal.timeout(cfg.robos.timeoutMs),
+      });
+      if (!resposta.ok) throw new Error(`HTTP ${resposta.status}`);
+      return resposta.json();
+    },
+  };
+}
+
+/** [NOVO] Qual papel este processo faz: o pedido (robos.js) ou, no benura-rodizio, pessoas (separado) ou tudo. */
+const papelDoProcesso = (cfg, pedido) => pedido ?? (cfg.robos.servicoProprio ? 'pessoas' : 'tudo');
+
+/**
+ * Monta as dependências (sem efeitos colaterais: nada é iniciado aqui).
+ * @param {object} [overrides]
+ * @param {{ papel?: 'tudo'|'pessoas'|'robos' }} [opcoes] - [NOVO] robos.js pede 'robos'
+ */
+function montarRodizio(overrides, { papel: pedido = null } = {}) {
   const cfg = carregarConfig(overrides);
-  const log = criarLogger({ debug: cfg.debug, escopo: 'rodizio' });
-  const cfgRodizio = configDoRodizio(cfg);
+  const papel = papelDoProcesso(cfg, pedido);
+  const comPessoas = papel !== 'robos';
+  const comRobos = papel !== 'pessoas';
+  const log = criarLogger({ debug: cfg.debug, escopo: papel === 'robos' ? 'robos' : 'rodizio' });
+  // O de robôs nunca reloga ninguém (é ação do rodízio de pessoas).
+  const cfgRodizio = { ...configDoRodizio(cfg), ...(papel === 'robos' ? { alinharLogin: false } : {}) };
   const client = new ArgusClient(cfg.argus, log.filho('argus'));
+  const controleRobos = () => new ControleRobos({ client, cfg: cfgRodizio, logger: log.filho('robos') });
 
   const diretorio = new DiretorioOperadores({
     client, cfg: cfg.argus, arquivoSupervisoresGrupos: cfg.arquivoSupervisoresGrupos, logger: log.filho('diretorio'),
   });
   // [NOVO] Webhook de transferências: cada operador movido entre URA e Ativo avisa os clientes cadastrados.
-  const webhooksClientes = montarWebhooksClientes(cfg, diretorio, log);
+  const webhooksClientes = comPessoas ? montarWebhooksClientes(cfg, diretorio, log) : null;
   const rodizio = new RodizioService({
+    papel,
     client,
-    transferencias: new Transferencias({
+    transferencias: comPessoas ? new Transferencias({
       client, cfg: cfgRodizio, logger: log.filho('transferencias'), aoTransferir: (t) => { webhooksClientes.aviso.avisar(t).catch((e) => log.aviso(`Webhook de transferências: ${e.message}`)); },
-    }),
-    robos: new ControleRobos({ client, cfg: cfgRodizio, logger: log.filho('robos') }),
-    repositorio: new EstadoRodizioRepository({ arquivo: cfgRodizio.arquivoEstado, logger: log.filho('estado') }),
+    }) : null,
+    robos: comRobos ? controleRobos() : null,
+    // [NOVO] No de pessoas: a conversa com o de robôs e, para a rede de segurança, os robôs de verdade.
+    ligacaoRobos: papel === 'pessoas' ? criarLigacaoRobos(cfg) : null,
+    robosDeEmergencia: papel === 'pessoas' ? controleRobos() : null,
+    repositorio: comPessoas ? new EstadoRodizioRepository({ arquivo: cfgRodizio.arquivoEstado, logger: log.filho('estado') }) : estadoEmMemoria(),
     cfg: cfgRodizio,
-    logger: log.filho('rodizio'),
+    logger: log.filho(papel === 'robos' ? 'robos' : 'rodizio'),
     // Grupo do supervisor, para devolver ao Ativo quem não foi movido pelo rodízio.
-    diretorio,
+    diretorio: comPessoas ? diretorio : null,
     // [NOVO] Contas operacionais de supervisores: não ficam na URA.
-    contasSupervisores: new ContasDeSupervisores({ diretorio, cfg: cfg.regras.contasSupervisores, logger: log.filho('rodizio') }),
-    elegiveis: cfgRodizio.soElegiveis ? montarElegiveis(cfg, diretorio, log.filho('rodizio')) : null,
-    ajuste: montarAjuste(cfgRodizio, cfg.agenda.fusoHorario, log.filho('robos')),
-    uraCheia: new UraCheia({ arquivo: cfgRodizio.arquivoUraCheia, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
+    contasSupervisores: comPessoas ? new ContasDeSupervisores({ diretorio, cfg: cfg.regras.contasSupervisores, logger: log.filho('rodizio') }) : null,
+    elegiveis: comPessoas && cfgRodizio.soElegiveis ? montarElegiveis(cfg, diretorio, log.filho('rodizio')) : null,
+    ajuste: comRobos ? montarAjuste(cfgRodizio, cfg.agenda.fusoHorario, log.filho('robos')) : null,
+    uraCheia: comPessoas ? new UraCheia({ arquivo: cfgRodizio.arquivoUraCheia, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }) : null,
     // Fixos e equipes fixas (ex.: a do Robson): ficam na URA de vez, sem a regra do ocioso.
-    fixos: cfg.regras.fixosPermanentesUra ? lerFixos(cfg, diretorio) : null,
-    panico: new Interruptor({
+    fixos: comPessoas && cfg.regras.fixosPermanentesUra ? lerFixos(cfg, diretorio) : null,
+    panico: comRobos ? new Interruptor({
       nome: 'Pânico dos robôs', arquivo: cfgRodizio.arquivoPanico, padrao: cfgRodizio.panicoPadrao, logger: log.filho('robos'),
-    }),
+    }) : null,
     // Termômetro (faixas em src/config/uraThresholds.js) e o status manual do painel, que vale por cima dele.
-    termometro: new TermometroUra({ logger: log.filho('robos') }),
-    statusDaUra: new StatusUra({ arquivo: cfgRodizio.arquivoStatusUra, logger: log.filho('robos') }),
+    // [NOVO] No de robôs, os dois vêm no retrato (o serviço troca por um repasse ao de pessoas).
+    termometro: comPessoas ? new TermometroUra({ logger: log.filho('robos') }) : null,
+    statusDaUra: comPessoas ? new StatusUra({ arquivo: cfgRodizio.arquivoStatusUra, logger: log.filho('robos') }) : null,
     // "Alocar Todos no Ativo": segura todos no Ativo até "Retomar rodízio da URA" (o roteador lê o mesmo arquivo).
-    retencao: new RetencaoAtivo({ arquivo: cfg.automacao.arquivoRetencao, logger: log.filho('rodizio') }),
-    modoRobos: new ModoRobos({ arquivo: cfgRodizio.arquivoModoRobos, padrao: cfgRodizio.robosModo, logger: log.filho('robos') }),
-    travas: new TravasManuais({ arquivo: cfg.automacao.arquivoTravas, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }),
-    estatisticas: new EstatisticasDia({
+    retencao: comPessoas ? new RetencaoAtivo({ arquivo: cfg.automacao.arquivoRetencao, logger: log.filho('rodizio') }) : null,
+    modoRobos: comRobos ? new ModoRobos({ arquivo: cfgRodizio.arquivoModoRobos, padrao: cfgRodizio.robosModo, logger: log.filho('robos') }) : null,
+    travas: comPessoas ? new TravasManuais({ arquivo: cfg.automacao.arquivoTravas, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }) : null,
+    estatisticas: comPessoas ? new EstatisticasDia({
       repositorio: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoEstatisticas, logger: log.filho('estado') }), fusoHorario: cfg.agenda.fusoHorario,
       historico: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoHistorico, logger: log.filho('estado') }),
       // [NOVO] O relatório é do expediente: o mesmo horário da agenda da automação (08:00 às 18:00).
       expediente: { inicio: cfg.automacao.agenda.religarAs, fim: cfg.automacao.agenda.desligarAs },
       // [NOVO] a configuração dos robôs e da URA guardada em cada dia: as sugestões do relatório comparam por ela
       fotoDaConfig: () => fotoDaConfig(cfgRodizio),
-    }),
+    }) : null,
   });
-  const retornoFila = montarRetornoFila(cfg, client, log.filho('retorno-fila'));
-  const comRobos = cfgRodizio.gruposRobosIds.length > 0;
+  const retornoFila = comPessoas ? montarRetornoFila(cfg, client, log.filho('retorno-fila')) : null;
+  const haRobos = comRobos && cfgRodizio.gruposRobosIds.length > 0;
   const cfgVigias = { gruposRobosIds: cfgRodizio.gruposRobosIds, idCampanha: cfgRodizio.idCampanhaRobos || undefined, fuso: cfg.agenda.fusoHorario };
-  const risco = comRobos && cfgRodizio.perfis.ativo ? montarRisco({ cfgRodizio, cfgVigias, client, rodizio, log }) : null;
-  const vigia = cfgRodizio.callbacksVerificarMs > 0 && comRobos ? new VigiaCallbacks({
+  const risco = haRobos && cfgRodizio.perfis.ativo ? montarRisco({ cfgRodizio, cfgVigias, client, rodizio, log }) : null;
+  const vigia = cfgRodizio.callbacksVerificarMs > 0 && haRobos ? new VigiaCallbacks({
     client, rodizio, cfg: cfgVigias, logger: log.filho('callbacks'), perfis: risco?.perfis ?? null,
   }) : null;
-  const acoes = new AcoesOperador({ client, rodizio, cfg: { dryRun: cfg.argus.dryRun }, logger: log.filho('acoes') });
-  return { cfg, cfgRodizio, log, rodizio, retornoFila, vigia, risco, acoes, webhooksClientes };
+  const acoes = comPessoas ? new AcoesOperador({ client, rodizio, cfg: { dryRun: cfg.argus.dryRun }, logger: log.filho('acoes') }) : null;
+  return { cfg, cfgRodizio, papel, log, rodizio, retornoFila, vigia, risco, acoes, webhooksClientes };
 }
 
 /** Perfis de clientes + vigia de cliente de risco em ligação + interruptor "desligar robôs". */
@@ -191,8 +232,8 @@ function montarRetornoFila(cfg, client, logger) {
   });
 }
 
-function exigirConfigValida(cfg, log) {
-  const { fatais, avisos } = validarConfig(cfg, { escopo: 'rodizio' });
+function exigirConfigValida(cfg, log, escopo = 'rodizio') {
+  const { fatais, avisos } = validarConfig(cfg, { escopo });
   avisos.forEach((a) => log.aviso(a));
   if (!fatais.length) return;
 
@@ -200,15 +241,18 @@ function exigirConfigValida(cfg, log) {
   process.exit(1);
 }
 
-/** Os três ciclos do rodízio, cada um sem sobreposição. */
-function iniciarCiclos({ rodizio, cfgRodizio, log, vigia, risco }) {
+/**
+ * Os ciclos do rodízio, cada um sem sobreposição. [NOVO] No de robôs não há o ciclo do Ativo
+ * (não move ninguém), e o da URA só decide os robôs; o vigia de callbacks e o de risco ficam lá.
+ */
+function iniciarCiclos({ rodizio, cfgRodizio, log, vigia, risco, papel }) {
   const ciclo = (nome, intervaloMs, tarefa) => executarPeriodicamente({
     nome, intervaloMs, tarefa, logger: log, alertaLentoMs: Math.max(5000, cfgRodizio.pollUraMs * 2, cfgRodizio.pollAtivoMs * 2),
   });
   return {
     grupos: ciclo('atualizarGrupos', cfgRodizio.refreshGruposMs, () => rodizio.atualizarGrupos()),
-    ativo: ciclo('cicloAtivo', cfgRodizio.pollAtivoMs, () => rodizio.cicloAtivo()),
-    ura: ciclo('cicloUra', () => rodizio.intervaloUraMs(), () => rodizio.cicloUra()),
+    ...(papel !== 'robos' ? { ativo: ciclo('cicloAtivo', cfgRodizio.pollAtivoMs, () => rodizio.cicloAtivo()) } : {}),
+    ura: ciclo(papel === 'robos' ? 'cicloRobos' : 'cicloUra', () => rodizio.intervaloUraMs(), () => rodizio.cicloUra()),
     ...(vigia ? { callbacks: ciclo('vigiaCallbacks', cfgRodizio.callbacksVerificarMs, () => vigia.verificar()) } : {}),
     ...(risco && cfgRodizio.perfis.vigiaMs > 0 ? { risco: ciclo('vigiaRisco', cfgRodizio.perfis.vigiaMs, () => risco.vigia.verificar()) } : {}),
   };
@@ -223,7 +267,30 @@ async function lerGruposIniciais(rodizio, log) {
   }
 }
 
-function montarServidor({ cfg, log, rodizio, retornoFila, risco, acoes, webhooksClientes }, ciclos) {
+/**
+ * [NOVO] No de pessoas, as rotas dos robôs (pânico, modo, ajuste, risco) vão ao benura-robos:
+ * a página /ura e quem chama o :3000 continuam funcionando.
+ */
+function criarRepasseAosRobos(cfg) {
+  const token = cfg.http.tokenAdmin;
+  return async ({ req, corpo }) => {
+    const u = new URL(req?.url ?? '/', 'http://x');
+    try {
+      const r = await fetch(`${cfg.robos.url}${u.pathname}${u.search}`, {
+        method: req.method,
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(corpo != null ? { 'Content-Type': 'application/json' } : {}) },
+        body: corpo != null ? JSON.stringify(corpo) : undefined,
+        signal: AbortSignal.timeout(15_000),
+      });
+      const texto = await r.text();
+      return { status: r.status, corpo: texto ? JSON.parse(texto) : null };
+    } catch (e) {
+      return { status: 502, corpo: { erro: `o serviço dos robôs (benura-robos) não respondeu: ${e.message}` } };
+    }
+  };
+}
+
+function montarServidor({ cfg, log, rodizio, retornoFila, risco, acoes, webhooksClientes, papel }, ciclos) {
   return criarServidor({
     rotas: criarRotasDoRodizio({
       rodizio,
@@ -231,7 +298,9 @@ function montarServidor({ cfg, log, rodizio, retornoFila, risco, acoes, webhooks
       risco,
       acoes,
       webhooksClientes,
-      ciclos: { ultimoCicloUra: () => ciclos.ura.ultimaExecucao(), ultimoCicloAtivo: () => ciclos.ativo.ultimaExecucao() },
+      papel,
+      repassarAosRobos: papel === 'pessoas' ? criarRepasseAosRobos(cfg) : null,
+      ciclos: { ultimoCicloUra: () => ciclos.ura.ultimaExecucao(), ultimoCicloAtivo: () => ciclos.ativo?.ultimaExecucao() ?? null },
       logger: log,
     }),
     cfg: cfg.http,
@@ -243,31 +312,57 @@ const descreverModoRobos = (c) => (c.robosModo === 'panico'
   ? 'modo pânico: a supervisão liga; o BenURA só desliga com 1 livre ou menos'
   : `${c.robosPorLivre} por livre${c.ajusteCallback ? `, de ${c.porLivreMinimo} a ${c.porLivreMaximo} conforme a URA` : ''}`);
 
-function logarInicio({ cfg, cfgRodizio, log }) {
+function logarInicio({ cfg, cfgRodizio, log, papel }) {
+  if (papel === 'robos') {
+    log.info(`Robôs da URA iniciados | HTTP na porta ${cfg.robos.porta} (GET /health, POST /interno/ura) | robôs=grupos ${cfgRodizio.gruposRobosIds.join(',')} `
+      + `(${descreverModoRobos(cfgRodizio)}) | a URA vem do retrato do benura-rodizio${cfgRodizio.dryRun ? ' | DRY_RUN' : ''}`);
+    return;
+  }
   const retorno = cfg.retornoFila.ativo ? `ligado (origem ${cfg.retornoFila.origem})` : 'desligado';
+  const robos = papel === 'pessoas' ? `robôs no benura-robos (${cfg.robos.url})` : `robôs=grupos ${cfgRodizio.gruposRobosIds.join(',')} (${descreverModoRobos(cfgRodizio)})`;
   log.info(`Rodízio iniciado | HTTP na porta ${cfgRodizio.porta} (GET /health, GET /ura, POST /webhook, POST /robos/manual, POST /robos/automatico) | `
-    + `TEMPO_MIN=${cfgRodizio.tempoNaUraMs / 60_000} | URA=${cfgRodizio.grupoUraId} | robôs=grupos ${cfgRodizio.gruposRobosIds.join(',')} (${descreverModoRobos(cfgRodizio)}) | `
+    + `TEMPO_MIN=${cfgRodizio.tempoNaUraMs / 60_000} | URA=${cfgRodizio.grupoUraId} | ${robos} | `
     + `Ativo=${cfgRodizio.gruposAtivosIds.join(',')} | sobem à URA: ${cfgRodizio.soElegiveis ? 'só elegíveis' : 'todos'} | retorno da fila: ${retorno}${cfgRodizio.dryRun ? ' | DRY_RUN' : ''}`);
 }
 
-async function iniciarRodizio() {
-  const app = montarRodizio();
-  const { cfg, cfgRodizio, log, rodizio, retornoFila } = app;
-  ativarLogsEmArquivo(cfg, 'rodizio');
+/**
+ * [NOVO] ROBOS_SERVICO_PROPRIO=false e o benura-robos subiu assim mesmo: os robôs são do benura-rodizio.
+ * Fica de pé só com o /health dizendo isso (sair faria o PM2 religar sem parar), sem tocar na Argus.
+ */
+async function ficarParadoSemPapel(cfg, log) {
+  log.aviso('ROBOS_SERVICO_PROPRIO=false: os robôs ficam no benura-rodizio. Este serviço (benura-robos) fica parado; pode desligá-lo no PM2.');
+  const servidor = criarServidor({
+    rotas: [{ metodo: 'GET', caminho: '/health', handler: async () => ({ status: 200, corpo: { papel: 'desativado', uptime: process.uptime() } }) }],
+    cfg: cfg.http,
+    logger: log.filho('http'),
+  });
+  await escutar(servidor, cfg.robos.porta);
+  registrarDesligamento({ logger: log, etapas: [() => fecharServidor(servidor)] });
+  return { servidor };
+}
 
-  exigirConfigValida(cfg, log);
-  await aguardarAutomacaoLigada(cfg.automacao, log, 'rodízio', { app: 'benura-rodizio' });
-  const vigia = vigiarPosse(cfg.automacao.posse, log, 'rodízio');
-  const trava = adquirirTravaOuEncerrar(cfgRodizio.arquivoTrava, log);
+/** Sobe um papel: o benura-rodizio (pessoas, ou tudo) ou o benura-robos. */
+async function iniciarServico(pedido = null) {
+  const app = montarRodizio(undefined, { papel: pedido });
+  const { cfg, cfgRodizio, log, rodizio, retornoFila, papel } = app;
+  const ehRobos = papel === 'robos';
+  ativarLogsEmArquivo(cfg, ehRobos ? 'robos' : 'rodizio');
+  if (ehRobos && !cfg.robos.servicoProprio) return ficarParadoSemPapel(cfg, log);
+
+  exigirConfigValida(cfg, log, ehRobos ? 'robos' : 'rodizio');
+  const nome = ehRobos ? 'robôs' : 'rodízio';
+  await aguardarAutomacaoLigada(cfg.automacao, log, nome, { app: ehRobos ? 'benura-robos' : 'benura-rodizio' });
+  const vigia = vigiarPosse(cfg.automacao.posse, log, nome);
+  const trava = adquirirTravaOuEncerrar(ehRobos ? cfg.robos.arquivoTrava : cfgRodizio.arquivoTrava, log);
   rodizio.inicializar();
-  retornoFila.inicializar();
+  retornoFila?.inicializar();
   app.risco?.perfis.carregar();
   app.risco?.desligaRobos.carregar();
   await lerGruposIniciais(rodizio, log);
 
   const ciclos = iniciarCiclos(app);
   const servidor = montarServidor(app, ciclos);
-  await escutar(servidor, cfgRodizio.porta);
+  await escutar(servidor, ehRobos ? cfg.robos.porta : cfgRodizio.porta);
   logarInicio(app);
 
   registrarDesligamento({
@@ -279,11 +374,14 @@ async function iniciarRodizio() {
       () => rodizio.salvar(),
       () => rodizio.estatisticas?.gravar(),
       () => app.risco?.perfis.salvar(),
-      () => retornoFila.aguardar(),
+      () => retornoFila?.aguardar(),
       () => trava.liberar(),
     ],
   });
   return { ...app, ciclos, servidor };
 }
 
-module.exports = { montarRodizio, iniciarRodizio, fotoDaConfig };
+const iniciarRodizio = () => iniciarServico(null);
+const iniciarRobos = () => iniciarServico('robos');
+
+module.exports = { montarRodizio, iniciarRodizio, iniciarRobos, fotoDaConfig };

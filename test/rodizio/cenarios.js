@@ -24,6 +24,11 @@ const { dataLocal } = require('../../src/utils/datas');
 
 const RAIZ = path.join(__dirname, '..', '..');
 const ALVO = path.resolve(process.argv[2] || path.join(RAIZ, 'argus-automacao.js'));
+/**
+ * [NOVO] CENARIOS_SEPARADO=1: os robôs no benura-robos (robos.js), um segundo processo contra a mesma
+ * Argus falsa, como em produção com ROBOS_SERVICO_PROPRIO=true. Sem ele: tudo no rodízio, como antes.
+ */
+const SEPARADO = process.env.CENARIOS_SEPARADO === '1' && path.dirname(ALVO) === RAIZ;
 const TOKEN = 'tk';
 
 const GRUPOS_BASE = [
@@ -62,16 +67,15 @@ function prepararAlvo(pasta) {
   return copia;
 }
 
-async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usuarios, env = {}, preparar, atrasoTrocaMs } = {}) {
+async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usuarios, env = {}, preparar, atrasoTrocaMs, semRobos = false } = {}) {
   const argus = await criarArgusFake({ grupos, status, usuarios, atrasoTrocaMs });
   const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'rodizio-'));
   preparar?.({ argus, pasta });
   const porta = await portaLivre();
+  const portaRobos = await portaLivre();
   const saida = [];
 
-  const filho = spawn(process.execPath, [prepararAlvo(pasta)], {
-    cwd: pasta,
-    env: {
+  const envDoTeste = {
       PATH: process.env.PATH,
       BENURA_SEM_DOTENV: '1',
       ARGUS_TOKEN: 't',
@@ -131,29 +135,47 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       ARGUS_PAUSA_FILE: path.join(pasta, 'argus-pausa.json'),
       RETORNO_STATE_FILE: path.join(pasta, 'state-retorno-fila.json'),
       RETORNO_LOG_FILE: path.join(pasta, 'logs', 'retorno-fila.jsonl'),
+      // [NOVO] os robôs num serviço próprio (CENARIOS_SEPARADO=1) ou no rodízio (como antes)
+      ROBOS_SERVICO_PROPRIO: SEPARADO ? 'true' : 'false',
+      ROBOS_PORT: String(portaRobos),
+      ROBOS_URL: `http://127.0.0.1:${portaRobos}`,
+      ROBOS_LOCK_FILE: path.join(pasta, 'robos.lock'),
       ...env,
-    },
-  });
-  filho.stdout.on('data', (d) => saida.push(String(d)));
-  filho.stderr.on('data', (d) => saida.push(String(d)));
-
-  let saiu = null;
-  filho.once('exit', (codigo) => { saiu = codigo; });
+  };
+  const processos = [{ nome: 'rodízio', script: prepararAlvo(pasta), pronto: /ouvindo|HTTP na porta|Rodízio iniciado/i }];
+  if (SEPARADO && !semRobos) processos.push({ nome: 'robôs', script: path.join(RAIZ, 'robos.js'), pronto: /Robôs da URA iniciados/ });
+  for (const p of processos) {
+    p.saida = [];
+    p.filho = spawn(process.execPath, [p.script], { cwd: pasta, env: envDoTeste });
+    const juntar = (d) => { p.saida.push(String(d)); saida.push(String(d)); };
+    p.filho.stdout.on('data', juntar);
+    p.filho.stderr.on('data', juntar);
+    p.saiu = null;
+    p.filho.once('exit', (codigo) => { p.saiu = codigo; });
+  }
+  const [principal] = processos;
 
   const base = `http://127.0.0.1:${porta}`;
+  const parar = async (p) => {
+    if (p.saiu !== null) return;
+    p.filho.kill('SIGTERM');
+    await new Promise((r) => { if (p.saiu !== null) r(); p.filho.once('exit', r); setTimeout(r, 3000); });
+  };
   const encerrarTudo = async () => {
-    filho.kill('SIGTERM');
-    await new Promise((r) => { if (saiu !== null) r(); filho.once('exit', r); setTimeout(r, 3000); });
+    await Promise.all(processos.map(parar));
     await argus.fechar();
     fs.rmSync(pasta, { recursive: true, force: true });
   };
   try {
-    await aguardar(() => saiu !== null || saida.join('').match(/ouvindo|HTTP na porta|Rodízio iniciado/i), { descricao: 'rodízio iniciar' });
-    if (saiu !== null) throw new Error(`o processo encerrou ao iniciar (código ${saiu}): ${saida.join('').trim().split('\n').pop()}`);
+    for (const p of processos) {
+      await aguardar(() => p.saiu !== null || p.saida.join('').match(p.pronto), { descricao: `${p.nome} iniciar` });
+      if (p.saiu !== null) throw new Error(`o ${p.nome} encerrou ao iniciar (código ${p.saiu}): ${p.saida.join('').trim().split('\n').pop()}`);
+    }
   } catch (e) {
     await encerrarTudo();
     throw e;
   }
+  const saiu = () => principal.saiu;
   await esperar(800); // primeiro ciclo de grupos/status
 
   const chamadas = (comando) => argus.estado.chamadas.filter((c) => c.comando === comando);
@@ -171,6 +193,12 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
     }),
     encerrar: encerrarTudo,
+    saiu,
+    // [NOVO] para os cenários da separação: parar só um dos dois
+    pararRobos: () => parar(processos.find((p) => p.nome === 'robôs') ?? { saiu: 0 }),
+    pararRodizio: () => parar(principal),
+    portaRobos,
+    separado: SEPARADO,
   };
 }
 
@@ -632,8 +660,12 @@ const CENARIOS = {
     r.argus.definirStatus('201', 'em atendimento');
     await aguardar(() => ligados().length === 0, { timeoutMs: 8000, descricao: '1 livre: robôs desligados' });
     if (!r.saida.join('').includes('PÂNICO: 1 livre')) throw new Error('não registrou o pânico no log');
-    const health = await (await fetch(`${r.base}/health`)).json();
-    if (!health.panico.ativoAgora || !health.panico.ligado) throw new Error(`health: ${JSON.stringify(health.panico)}`);
+    // [NOVO] separado, o /health do rodízio mostra os robôs pela última resposta do benura-robos (até 1 ciclo depois)
+    let health;
+    await aguardar(async () => {
+      health = await (await fetch(`${r.base}/health`)).json();
+      return health.panico.ativoAgora && health.panico.ligado;
+    }, { timeoutMs: 3000, descricao: `/health com o pânico: ${JSON.stringify(health?.panico)}` });
     if (!(await (await fetch(`${r.base}/ura`)).text()).includes('Pânico dos robôs')) throw new Error('a /ura não mostra o pânico');
 
     // A supervisão religa os robôs com 1 livre: na próxima leitura de grupos (1 s), o BenURA desliga de novo.
@@ -811,6 +843,30 @@ const CENARIOS = {
     const res = await r.webhook({ idTipoWebhook: 1, codUsuarioIntegracao: '200' });
     if (res.status !== 200) throw new Error(`webhook respondeu ${res.status}`);
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { timeoutMs: 1200, descricao: 'deslogar após webhook' });
+  },
+
+  // [NOVO] Só com os robôs num serviço próprio (CENARIOS_SEPARADO=1); no jeito antigo não há o que separar.
+  async 'Separado: rodízio de pessoas parado → os robôs leem a URA sozinhos e desligam quando ela esvazia'(r) {
+    if (!r.separado) return;
+    await aguardar(() => r.saida.join('').includes('livres ?→1'), { descricao: 'os robôs verem o livre pelo retrato' });
+    await r.pararRodizio();
+    const movidas = r.transferencias().length;
+    await aguardar(() => r.saida.join('').includes('os robôs leem a URA sozinhos'), { timeoutMs: 25_000, descricao: 'ler sozinho sem o retrato' });
+    const antes = r.chamadas('deslogaroperador').length;
+    r.argus.definirStatus('200', null); // o último humano da URA sai
+    await aguardar(() => r.chamadas('deslogaroperador').length >= antes + 2, { timeoutMs: 10_000, descricao: 'deslogar os robôs sem o rodízio de pessoas' });
+    if (r.transferencias().length !== movidas) throw new Error('alguém foi movido com o rodízio de pessoas parado');
+  },
+
+  async 'Separado: serviço dos robôs parado → o de pessoas para os robôs parados (rede de segurança)'(r) {
+    if (!r.separado) return;
+    await aguardar(() => r.saida.join('').includes('livres ?→1'), { descricao: 'robôs ligados com 1 livre' });
+    await r.pararRobos();
+    const antes = r.chamadas('deslogaroperador').length;
+    await aguardar(() => r.saida.join('').includes('Serviço dos robôs sem responder'), { timeoutMs: 15_000, descricao: 'o de pessoas perceber' });
+    await aguardar(() => r.chamadas('deslogaroperador').length >= antes + 2, { timeoutMs: 10_000, descricao: 'parar os robôs parados' });
+    const { servicoDosRobos } = await (await fetch(`${r.base}/health`)).json();
+    if (!servicoDosRobos?.emergencia) throw new Error(`/health não marcou a emergência: ${JSON.stringify(servicoDosRobos)}`);
   },
 
   async 'Webhook de início de atendimento no Ativo → marca histórico'(r) {
@@ -1186,6 +1242,9 @@ const VARIACOES = {
   'DRY_RUN: movido simulado não conta como livre na URA (alvo de robôs não infla)': {
     env: { DRY_RUN: '1', ROBOS_POR_LIVRE: '1' },
   },
+  'Separado: serviço dos robôs parado → o de pessoas para os robôs parados (rede de segurança)': {
+    env: { ROBOS_SEM_RESPOSTA_S: '3' },
+  },
   'Robôs: URA sem humanos → desliga': {
     grupos: GRUPOS_BASE.map((g) => (g.idGrupoUsuario === 2 ? { ...g, ramaisOperadores: [] } : g)),
   },
@@ -1218,7 +1277,7 @@ const VARIACOES = {
 
 async function main() {
   const filtro = process.env.CENARIO;
-  console.log(`Alvo: ${path.relative(process.cwd(), ALVO) || ALVO}\n`);
+  console.log(`Alvo: ${path.relative(process.cwd(), ALVO) || ALVO}${SEPARADO ? ' + robos.js (robôs num serviço próprio)' : ''}\n`);
   let falhas = 0;
 
   for (const [nome, cenario] of Object.entries(CENARIOS)) {

@@ -1,6 +1,6 @@
-# Ideia guardada: separar o rodízio de pessoas dos robôs
+# Feito: separar o rodízio de pessoas dos robôs
 
-Pedido em 27/10/2026. Ainda não começou.
+Pedido em 27/10/2026. Feito em 02/11/2026 (PR #72): veja "Dois serviços" no README. Abaixo, a anotação original.
 
 ## O que o usuário escolheu
 - Dois serviços separados no PM2: um só para o rodízio de pessoas (Ativo ↔ URA) e outro só para os robôs (pânico, modo dos robôs, cliente de risco). Cada um com o seu liga/desliga na aba Serviços.

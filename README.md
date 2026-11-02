@@ -43,7 +43,8 @@ roteador de vendas · rodízio da URA · retorno de quem desistiu da fila · rot
 | Script | App no PM2 | Porta | O que faz |
 |---|---|---|---|
 | `roteador-vendas.js` | `benura-roteador` | 3001 | Distribui vendedores entre **URA** e **Ativo** com base nas vendas da **API do Carrossel** |
-| `argus-automacao.js` | `benura-rodizio` | 3000 | Rodízio Ativo ↔ URA por atendimento, liga/desliga os robôs da URA e faz o **retorno de quem desistiu da fila** |
+| `argus-automacao.js` | `benura-rodizio` | 3000 | Rodízio Ativo ↔ URA por atendimento (o **rodízio de pessoas**), recebe os webhooks da Argus e faz o **retorno de quem desistiu da fila** |
+| `robos.js` | `benura-robos` | 3004 | [NOVO] **Robôs da URA**: pânico, modo, ajuste, taxa, cliente de risco e o vigia de callbacks. Vê a URA pelo retrato do `benura-rodizio` ([veja](#dois-servicos)) |
 | `rotinas.js` | `benura-rotinas` | 3003 | Rotinas diárias: **fim de expediente limpo** |
 | `painel.js` | `benura-painel` | 3010 | **Painel da supervisão**: controles da URA, esteira manual, saúde dos serviços e o dia da URA |
 | `atualizador.js` | `benura-atualizador` | 3002 | Deploy automático na máquina de produção, fora do expediente |
@@ -194,7 +195,48 @@ src/utils/                         HTTP com retry, persistência atômica, trava
 <a id="rodizio"></a>
 ## 🔄 Rodízio Ativo ↔ URA e robôs
 
-`argus-automacao.js` · lógica em `src/rodizio/` · regras puras em `src/domain/rodizio.js`
+`argus-automacao.js` (pessoas) e `robos.js` (robôs) · lógica em `src/rodizio/` · regras puras em `src/domain/rodizio.js`
+
+<a id="dois-servicos"></a>
+### [NOVO] Dois serviços: rodízio de pessoas e robôs
+
+O rodízio de pessoas e o controle dos robôs rodam em processos separados. Um problema num não para o outro. As regras são as mesmas: o `RodizioService` roda em três papéis (`src/rodizio/separacao.js`).
+
+| | `benura-rodizio` (:3000) | `benura-robos` (:3004) |
+|---|---|---|
+| **O que faz** | Grupos, Ativo → URA, URA → Ativo, URA cheia, status e termômetro da URA, relatório do dia, alertas de OPL/TOR, webhooks da Argus, retorno da fila, ações por atendente e webhook de clientes | Liga e desliga os robôs: pânico, modo (automático, só pânico, desligados), ajuste e taxa, último livre saindo, modo manual, cliente de risco, vigia de callbacks com o raio-x |
+| **Na Argus** | Lê grupos e status da URA e do Ativo; transfere e reloga | Lê e comanda só os robôs; lê o relatório de ligações |
+
+- **A conversa** (`POST /interno/ura`, pelo localhost e com o `WEBHOOK_TOKEN`):
+  - o de pessoas manda o **retrato da URA** no fim de cada ciclo e **na hora** de cada webhook de atendimento, para que os robôs desliguem tão rápido quanto antes quando o último livre atende. O retrato leva quem está na URA, o status de cada um, os fixos, o status da URA e o **"sai em"** de cada livre (quando a regra do ocioso o devolve);
+  - o de robôs responde com o que fez (robôs ligados, pânico) e devolve os eventos que são do relatório do dia: pânico (TPA), encerramentos e callbacks do relatório de ligações;
+  - cada evento tem número: ninguém conta duas vezes, e o que não chegou vai na próxima.
+- **Chamadas à Argus:** não aumentam. Cada serviço só lê o que é dele, e o de robôs não lê a URA enquanto o retrato chega.
+- **Se o de pessoas parar** (desligado no painel ou caído):
+  - quem está na URA **fica onde está**: ninguém sobe nem volta;
+  - o de robôs segue: com o retrato vencido (mais de 15 s), lê os grupos e os status da URA sozinho, **só leitura**, e continua desligando os robôs quando a URA esvazia.
+- **Se o de robôs parar:**
+  - o de pessoas segue normal;
+  - com **`ROBOS_SEM_RESPOSTA_S` (30 s)** sem resposta, ele manda os **robôs parados pararem de discar** (os em ligação terminam). Faz isso uma vez por queda e escreve no log;
+  - o vigia de saúde do painel avisa no BenHub, e o PM2 tenta religar.
+- **No painel:**
+  - **comandos:** os dos robôs (pânico, modo, cliente de risco) vão ao `benura-robos`, e a tela junta o que é dele no "rodízio". As rotas antigas do `:3000` (`/panico`, `/robos/*`, a página `/ura`) continuam e são repassadas;
+  - **aba Serviços:** cartões "Rodízio de pessoas" e "Robôs da URA", cada um com o seu **Desligar**.
+- **Para voltar a ter tudo num serviço só:**
+  1. `ROBOS_SERVICO_PROPRIO=false` no `.env`;
+  2. `npx pm2 restart benura-rodizio benura-painel`;
+  3. `npx pm2 stop benura-robos`. Se ele ficar ligado, só responde o `/health` dizendo que está desativado.
+- **Variáveis:**
+
+  | Variável | Padrão | Para quê |
+  |---|---|---|
+  | `ROBOS_SERVICO_PROPRIO` | `true` | Liga a separação |
+  | `ROBOS_PORT` | `3004` | Porta do `benura-robos` |
+  | `ROBOS_URL` | `http://127.0.0.1:3004` | Endereço do `benura-robos` |
+  | `ROBOS_LOCK_FILE` | — | Trava do processo |
+  | `ROBOS_SEM_RESPOSTA_S` | `30` | Tempo sem resposta até parar os robôs |
+  | `ROBOS_TIMEOUT_MS` | `2000` | Espera de cada conversa |
+  | `PAINEL_ROBOS_URL` | — | Endereço do `benura-robos` para o painel |
 
 ### Regras
 1. **Ativo → URA**: operador **elegível** do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
@@ -718,8 +760,9 @@ Estado e logs da simulação ficam em `.simulacao/`. `npx pm2 monit` abre um pai
 Usa o `.env` (copie de `.env.example`).
 
 ```bash
-npm run pm2:iniciar      # sobe o benura-roteador, o benura-rodizio, o benura-rotinas e o benura-painel
+npm run pm2:iniciar      # sobe o benura-roteador, o benura-rodizio, o benura-robos, o benura-rotinas e o benura-painel
 npx pm2 start ecosystem.config.js --only benura-rodizio   # só um deles
+npx pm2 start ecosystem.config.js --only benura-robos     # [NOVO] na primeira vez depois de atualizar (o atualizador também sobe)
 npx pm2 logs
 npm run pm2:parar
 ```

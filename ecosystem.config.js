@@ -4,7 +4,9 @@
  *
  * Roda os serviços usando a configuração do arquivo .env:
  *   benura-roteador  roteador de vendas (Carrossel → URA/Ativo)          porta PORT (3001)
- *   benura-rodizio   rodízio Ativo ↔ URA + robôs + retorno da fila       porta RODIZIO_PORT (3000)
+ *   benura-rodizio   rodízio Ativo ↔ URA + retorno da fila               porta RODIZIO_PORT (3000)
+ *   benura-robos     [NOVO] robôs da URA (pânico, modo, ajuste, risco)   porta ROBOS_PORT (3004)
+ *                    com ROBOS_SERVICO_PROPRIO=false, os robôs voltam ao benura-rodizio e este fica parado
  *   benura-rotinas   rotinas diárias (fim de expediente)                 porta ROTINAS_PORT (3003)
  *   benura-painel    painel da supervisão (controles, esteira, saúde)    porta PAINEL_PORT (3010)
  *
@@ -51,6 +53,13 @@ module.exports = {
       script: 'argus-automacao.js',
       out_file: path.join(LOGS, 'rodizio.out.log'),
       error_file: path.join(LOGS, 'rodizio.err.log'),
+    },
+    {
+      ...comum,
+      name: 'benura-robos',
+      script: 'robos.js',
+      out_file: path.join(LOGS, 'robos.out.log'),
+      error_file: path.join(LOGS, 'robos.err.log'),
     },
     {
       ...comum,
