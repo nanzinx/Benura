@@ -39,6 +39,19 @@ test('aumentar: liga os próximos da ordem crescente, um após o outro', async (
   assert.deepEqual(chamadas, ['liga 901', 'liga 902', 'liga 903']);
 });
 
+test('[NOVO] aumentar de uma vez (URA calma): sem o degrau', async () => {
+  const { robos, chamadas } = montar();
+  await robos.sincronizar(Object.keys(NOMES));
+  robos.ligados = new Set();
+  robos.cfg.degrauSubida = 2;
+  await robos.aumentar(Object.keys(NOMES), 7, 'teste');
+  assert.equal(chamadas.length, 2, 'em degraus: 2');
+  chamadas.length = 0;
+  robos.ligados = new Set();
+  await robos.aumentar(Object.keys(NOMES), 7, 'teste', { deUmaVez: true });
+  assert.equal(chamadas.length, 7, 'de uma vez: todos');
+});
+
 test('reduzir: tira do último para o primeiro e pula quem está em ligação', async () => {
   const { robos, chamadas } = montar(['951']);
   await robos.sincronizar(Object.keys(NOMES));

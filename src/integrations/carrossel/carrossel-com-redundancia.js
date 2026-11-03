@@ -7,6 +7,7 @@
  */
 
 const { rankingDaEsteira, ultimoDiaAntes } = require('../../domain/esteira-manual');
+const { deDiaBr, diaUtil, SEM_EXTRAS } = require('../../domain/calendario');
 
 class CarrosselComRedundancia {
   /**
@@ -16,9 +17,10 @@ class CarrosselComRedundancia {
    * @param {{ hoje(): string }} deps.relogio
    * @param {string} deps.metrica
    * @param {object} deps.logger
+   * @param {object} [deps.feriadosExtras] - FERIADOS_EXTRAS (calendario.lerFeriadosExtras)
    */
-  constructor({ client, esteira, relogio, metrica, logger }) {
-    Object.assign(this, { client, esteira, relogio, metrica, log: logger });
+  constructor({ client, esteira, relogio, metrica, logger, feriadosExtras = SEM_EXTRAS }) {
+    Object.assign(this, { client, esteira, relogio, metrica, log: logger, feriadosExtras });
     this.usandoEsteira = false;
   }
 
@@ -37,20 +39,36 @@ class CarrosselComRedundancia {
         + 'usou dados incompletos, refaça com POST /recarregar.');
     }
     this.usandoEsteira = false;
-    return payload;
+    return this.ontemDoDiaUtil(payload);
+  }
+
+  /**
+   * [NOVO] O Carrossel no ar, mas mandando um feriado ou fim de semana como "ontem" (ex.: 02/11): com uma
+   * esteira colada hoje, o "ontem" vem dela (o dia útil) e o "hoje" segue do Carrossel, ao vivo. Sem esteira,
+   * a resposta segue como veio, e o roteador adia a carga e avisa.
+   */
+  ontemDoDiaUtil(payload) {
+    const dia = deDiaBr(payload?.diaOntem);
+    if (!dia || diaUtil(dia, this.feriadosExtras)) return payload;
+    const dias = this.esteira.dias();
+    const hoje = this.relogio.hoje();
+    if (!this.esteira.coladaHoje(hoje) || !ultimoDiaAntes(dias, hoje, this.feriadosExtras)) return payload;
+    const daEsteira = rankingDaEsteira(dias, hoje, this.metrica, `em ${this.esteira.coladaEm()}`, this.feriadosExtras);
+    this.log.aviso(`O Carrossel mandou ${payload.diaOntem} (não é dia útil) como dia anterior: usando o ${daEsteira.diaOntem} da esteira colada.`);
+    return { ...payload, ontem: daEsteira.ontem, diaOntem: daEsteira.diaOntem, ultimaExtracao: `${daEsteira.ultimaExtracao} (dia anterior) · Carrossel ${payload.ultimaExtracao}` };
   }
 
   /** Ranking da esteira colada; sem esteira útil, repassa o erro (ou a resposta) original. */
   daEsteira(erro, respostaOriginal) {
     const dias = this.esteira.dias();
     const hoje = this.relogio.hoje();
-    const util = this.esteira.coladaHoje(hoje) && (dias[hoje] || ultimoDiaAntes(dias, hoje));
+    const util = this.esteira.coladaHoje(hoje) && (dias[hoje] || ultimoDiaAntes(dias, hoje, this.feriadosExtras));
     if (!util && respostaOriginal) return respostaOriginal;
     if (!util) throw erro;
 
     if (!this.usandoEsteira) this.log.aviso(`Carrossel indisponível (${erro.message}); usando a esteira colada em /manual.`);
     this.usandoEsteira = true;
-    return rankingDaEsteira(dias, hoje, this.metrica, `em ${this.esteira.coladaEm()}`);
+    return rankingDaEsteira(dias, hoje, this.metrica, `em ${this.esteira.coladaEm()}`, this.feriadosExtras);
   }
 }
 

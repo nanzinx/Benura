@@ -21,12 +21,12 @@ function esteiraInvalidaComo422(e) {
  * @param {number} [deps.metaDiaria]
  * @param {object} deps.logger
  */
-function criarControllers({ roteamento, esteira, relogio, metaDiaria, logger, saudeArgus = null }) {
+function criarControllers({ roteamento, esteira, relogio, metaDiaria, feriadosExtras, logger, saudeArgus = null }) {
   /** Guarda a esteira e devolve o que ela vai decidir hoje. */
   async function guardarEsteira(texto) {
     const hoje = relogio.hoje();
     const { dias, vendas, ignoradas } = await esteira.colar(texto, hoje);
-    const resumo = resumoDaEsteira(esteira.dias(), hoje, metaDiaria);
+    const resumo = resumoDaEsteira(esteira.dias(), hoje, metaDiaria, feriadosExtras);
     logger.info(`Esteira colada: ${vendas} venda(s) de ${dias.map(formatarDia).join(', ')}; dia anterior ${resumo.diaAnterior || 'não encontrado'}.`);
     return { status: 200, corpo: { diasColados: dias.map(formatarDia), vendas, ignoradas, hoje: formatarDia(hoje), metaDiaria, ...resumo } };
   }

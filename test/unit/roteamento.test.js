@@ -9,14 +9,14 @@ const { loggerNulo } = require('../../src/utils/logger');
 
 const relogio = { hoje: () => '2026-10-08' };
 
-function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {}, retencao = { ativa: false }, travas = {}, supervisores = [] } = {}) {
+function montar({ ontem = [], hoje = [], falharRamais = [], cadastrados = [], fixosUra = [], equipesFixasUra = [], equipes = {}, retencao = { ativa: false }, travas = {}, supervisores = [], diaOntem = '07/10/2026' } = {}) {
   const movimentos = [];
   const salvos = [];
   const vendas = { ontem, hoje };
   const carrossel = {
     async listarVendas(periodo) {
       if (vendas[periodo] === null) throw new Error('Carrossel fora');
-      return { vendedores: vendas[periodo], naoCadastrados: [], diaOntem: '07/10/2026', origem: 'api' };
+      return { vendedores: vendas[periodo], naoCadastrados: [], diaOntem: vendas.diaOntem ?? diaOntem, origem: 'api' };
     },
   };
   // Diretório da Argus: nome "V<ramal>" → ramal; `cadastrados` = operadores na URA/Ativo.
@@ -121,6 +121,23 @@ test('carga adiada: os fixos vão para a URA assim mesmo, uma vez por dia', asyn
   vendas.ontem = [v('1', 10)];
   await svc.executarCargaInicial();
   assert.deepEqual(movimentos.slice(2), [['7', 'URA'], ['8', 'URA'], ['1', 'ATIVO']]);
+});
+
+test('[NOVO] carga adiada quando o Carrossel manda um feriado ou fim de semana como dia anterior (os fixos sobem)', async () => {
+  const { svc, movimentos, vendas } = montar({ ontem: [v('1', 72_500)], fixosUra: ['7'], diaOntem: '12/10/2026' });
+  await assert.rejects(svc.executarCargaInicial(), (e) => e instanceof CargaInicialError
+    && /12\/10 \(Nossa Senhora Aparecida\)/.test(e.message) && /07\/10/.test(e.message) && /esteira/i.test(e.message));
+  assert.ok(!svc.cargaInicialFeitaHoje());
+  assert.deepEqual(movimentos, [['7', 'URA']], 'só os fixos');
+  assert.match(svc.resumo().cargaAdiada, /Nossa Senhora Aparecida/, 'o painel mostra o motivo');
+
+  vendas.diaOntem = '10/10/2026';
+  await assert.rejects(svc.executarCargaInicial(), /10\/10 \(sábado\)/);
+
+  vendas.diaOntem = '07/10/2026';
+  await svc.executarCargaInicial();
+  assert.ok(svc.cargaInicialFeitaHoje());
+  assert.equal(svc.resumo().cargaAdiada, null);
 });
 
 test('carga inicial é adiada (sem marcar o dia) se o Carrossel falhar ou vier vazio', async () => {

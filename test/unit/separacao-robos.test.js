@@ -292,3 +292,13 @@ test('[NOVO] papel robôs: não escreve a linha do tempo (a do de pessoas, no ro
   svc.registrarMudancaDeLivres(1, 2);
   assert.ok(!linhas.some((l) => /URA: livres/.test(l)));
 });
+
+test('[NOVO] papel pessoas: a primeira linha do tempo sai "livres ?→N", mesmo com o ultimosLivres da resposta dos robôs', async () => {
+  const resposta = { robos: { ligadosRamais: ['900'], alvo: 1, mudancasPorFora: 0 }, livres: 1, instancia: 'r1', eventos: [], ack: null };
+  const ligacaoRobos = { enviar: async () => resposta };
+  const { svc, linhas } = pessoas({ ligacaoRobos });
+  svc.ultimosLivres = 1; // a resposta do serviço dos robôs já chegou antes da primeira linha
+  await svc.avaliarRobos();
+  const primeira = linhas.find((l) => /URA: livres/.test(l));
+  assert.match(primeira, /^URA: livres \?→\d+ \|/);
+});

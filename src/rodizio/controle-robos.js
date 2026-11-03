@@ -220,12 +220,13 @@ class ControleRobos {
   /**
    * Liga os robôs que faltam para o alvo, no máximo `degrauSubida` por vez: todos
    * discando no mesmo segundo trazem derivações juntas e o excedente vira callback.
+   * [NOVO] `deUmaVez` (URA calma, gente parada esperando): todos os que faltam, sem degrau.
    */
-  async aumentar(ramais, alvo, motivo) {
+  async aumentar(ramais, alvo, motivo, { deUmaVez = false } = {}) {
     this.alvo = alvo;
     const ligados = this.ligados || new Set();
     const faltam = alvo - ligados.size;
-    const degrau = this.cfg.degrauSubida > 0 ? Math.min(faltam, this.cfg.degrauSubida) : faltam;
+    const degrau = !deUmaVez && this.cfg.degrauSubida > 0 ? Math.min(faltam, this.cfg.degrauSubida) : faltam;
     // Os próximos da ordem crescente que ainda não estão ligados, um após o outro (como à mão).
     const candidatos = this.emOrdem(ramais).filter((r) => !ligados.has(r)).slice(0, degrau);
     if (!candidatos.length) return;

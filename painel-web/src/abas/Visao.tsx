@@ -212,7 +212,7 @@ function Roteador() {
   const subiram = subiramHoje(s);
   const metaOntem = metaBatidaOntem(s);
   const dia = diaCurto(s?.carga?.diaAnterior);
-  const resumo = isError ? 'roteador sem resposta' : !s ? '' : s.cargaInicialFeita ? `carga do dia feita${s.ultimoMonitoramento ? ` · vendas lidas às ${horaCurta(s.ultimoMonitoramento)}` : ''}` : 'carga do dia pendente';
+  const resumo = isError ? 'roteador sem resposta' : !s ? '' : s.cargaInicialFeita ? `carga do dia feita${s.ultimoMonitoramento ? ` · vendas lidas às ${horaCurta(s.ultimoMonitoramento)}` : ''}` : s.cargaAdiada ? 'carga do dia adiada' : 'carga do dia pendente';
   const mini = (rotulo: string, valor: ReactNode) => (
     <div className="grid rounded-lg bg-azul-50 px-3 py-2.5 dark:bg-noite-800"><span className="rotulo">{rotulo}</span><b className="text-xl tabular-nums">{valor}</b></div>
   );
@@ -225,6 +225,12 @@ function Roteador() {
         {mini(`Meta batida ${dia ? `em ${dia}` : 'ontem'}`, s ? metaOntem.length : '–')}
         <div className="col-span-2 md:col-span-1">{mini('Meta diária', s ? reais(s.meta) : '–')}</div>
       </div>
+      {/* [NOVO] a carga do dia adiada (ex.: o Carrossel mandou um feriado como dia anterior): o motivo e o que fazer */}
+      {s && !s.cargaInicialFeita && s.cargaAdiada && (
+        <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/50 dark:text-amber-100">
+          {s.cargaAdiada}
+        </p>
+      )}
       <div className="grid gap-5 lg:grid-cols-2">
         <SubiramPorVenda s={s} />
         <MetaBatidaOntem s={s} />
