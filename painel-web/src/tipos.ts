@@ -294,6 +294,11 @@ export interface Sugestao {
   texto: string;
 }
 
+/** [NOVO] Mapa de risco dos robôs: "livres|robôs|status" → leads, callbacks de fila e invisíveis. */
+export type StatusDoMapa = 'calma' | 'normal' | 'agressiva' | 'medindo';
+export type MapaDeRisco = Record<string, { leads: number; fila: number; invisiveis: number }>;
+export interface CelulaDoMapa { livres: string; robos: string; leads: number; fila: number; invisiveis: number }
+
 export interface RelatorioDoPeriodo {
   tamanho: 7 | 30;
   desde: string;
@@ -303,6 +308,9 @@ export interface RelatorioDoPeriodo {
   anterior: TotaisDoPeriodo | null;
   porAtendente: AtendenteDoPeriodo[];
   sugestoes: Sugestao[];
+  /** [NOVO] mapa de risco do período (sem ele, servidor antigo) e as ligações sem foto da URA */
+  mapaRisco?: MapaDeRisco;
+  semFotoNoMapa?: number;
 }
 
 /** [NOVO] Os totais de um dia passado (histórico do relatório). */

@@ -362,6 +362,14 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
          - a barra mostra o status da URA dia a dia; a **Planilha** baixa **Por dia**, **Totais** (com o período anterior) e **Por atendente**;
          - [NOVO] **"Ver tendência dia a dia"** (fechado por padrão) abre um gráfico de um indicador por vez (OPL, transbordos, TME ou leads), com a linha do fim da faixa verde;
          - [NOVO] nos 30 dias, a tabela mostra os **10 dias mais recentes** e um "Ver todos"; no celular, as tabelas do relatório viram **cartões**;
+         - [NOVO] **"Ver mapa de risco dos robôs"** (fechado por padrão), a etapa 1 da métrica dos robôs (`src/domain/mapa-risco.js`): só mede e mostra, não muda os robôs.
+           - **O que anota:** a cada ligação da URA que termina (lead ou callback), o BenURA registra a situação de quando o cliente entrou: quantos livres havia, quantos robôs estavam ligados e o status da URA.
+           - **O mapa:** livres (0, 1, 2, 3, 4+) × robôs ligados (0, 1-10, 11-20, 21-30, 31-40, 41+). Cada célula mostra quantos callbacks de fila houve por lead.
+           - **As cores:** verde até a meta de **1 em 200 (0,5%)**, âmbar até 1%, vermelho acima, cinza com menos de 50 ligações (pouca amostra).
+           - **Os invisíveis:** callback com gente livre no momento é "invisível" (a ligação não chegou em quem estava livre: telefonia ou Argus). Fica contado à parte e não entra na taxa, porque não depende dos robôs.
+           - **Seletor:** todos, calma, normal ou agressiva.
+           - **Etapa 2:** com umas duas semanas de dados, o automático poderá ligar, para cada tanto de livres, o máximo de robôs que fica no verde.
+           - Cada dia do histórico guarda o mapa dele. As fotos da URA ficam só em memória (15 min): logo depois de um reinício, as primeiras ligações ficam fora do mapa (contadas em `semFotoNoMapa`).
          - cada dia do histórico guarda também os minutos em normal, agressiva e medindo, a média de robôs ligados, o resumo por atendente, os números **por status** (cada hora conta para o status em que a URA passou mais da metade; horas com os robôs fora do automático ou com robôs por livre escolhido à mão não contam) e uma **foto da configuração** do começo do dia (cálculo, robôs por livre e espera alvo de cada status, "todos com N livres" da calma, `TEMPO_MIN` e os livres da URA cheia; nenhum segredo). Se a configuração muda no meio do dia (reinício com outro `.env`), o dia fica marcado e não entra nas sugestões.
        - [NOVO] **Sugestões** (`src/domain/sugestoes.js`), só sugerem, nunca mudam nada:
          - por status (calma, normal, agressiva), comparam a configuração atual com a anterior pelo **OPL** e pelos **transbordos por hora**, só das horas daquele status, contando só dias completos com **2 h ou mais** nele e só com **3 dias ou mais** de cada lado (usam todo o histórico, não só os dias da aba);

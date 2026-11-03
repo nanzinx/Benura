@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { CalendarDays, ChartLine, Check, ChevronDown, Download, Hourglass, Lightbulb, Lock, TriangleAlert, Wand2 } from 'lucide-react';
+import { CalendarDays, ChartLine, Check, Grid3x3, ChevronDown, Download, Hourglass, Lightbulb, Lock, TriangleAlert, Wand2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { duracao, minutos } from '../formatos';
 import { baixarXlsx } from '../planilha';
@@ -12,6 +12,7 @@ import { semAcesso, usePode } from '../sessao';
 import type { EstadoTermometro, RelatorioDoDia, RelatorioDoPeriodo, StatusDaUra, Sugestao } from '../tipos';
 import { Botao, Cartao, Esqueleto, Segmentado, Vazio, useAberto } from '../ui/base';
 import { GraficoTendencia } from './GraficoTendencia';
+import { MapaDeRisco } from './MapaDeRisco';
 import { CORES_DA_URA, NOMES_DA_URA } from './StatusUra';
 
 const CORES_TERMOMETRO: Record<EstadoTermometro, string> = {
@@ -383,6 +384,8 @@ function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30
   const [tendenciaAberta, setTendenciaAberta] = useAberto('relatorio-tendencia', false);
   const [campoTendencia, setCampoTendencia] = useState<CampoDaTendencia>('oplSeg');
   const [todosOsDias, setTodosOsDias] = useAberto(`relatorio-todos-${dias}`, false);
+  // [NOVO] o mapa de risco dos robôs, também só com um clique
+  const [mapaAberto, setMapaAberto] = useAberto('relatorio-mapa-risco', false);
   const titulo = dias === 30 ? 'Relatório do mês' : 'Relatório da semana';
   const extra = (
     <>
@@ -446,6 +449,21 @@ function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30
           {tendenciaAberta && (
             <div className="mt-2 animate-entrar rounded-xl border border-slate-200 p-3 dark:border-noite-700">
               <GraficoTendencia dias={p.dias} campo={campoTendencia} aoMudar={setCampoTendencia} />
+            </div>
+          )}
+        </div>
+      )}
+      {p.mapaRisco && (
+        <div className="mb-4">
+          <button type="button" onClick={() => setMapaAberto(!mapaAberto)} aria-expanded={mapaAberto}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-azul-700 hover:bg-azul-50 dark:text-azul-300 dark:hover:bg-noite-800">
+            <Grid3x3 className="size-4" aria-hidden />
+            {mapaAberto ? 'Esconder o mapa de risco dos robôs' : 'Ver mapa de risco dos robôs'}
+            <ChevronDown className={clsx('size-4 transition-transform', mapaAberto && 'rotate-180')} aria-hidden />
+          </button>
+          {mapaAberto && (
+            <div className="mt-2 animate-entrar rounded-xl border border-slate-200 p-3 dark:border-noite-700">
+              <MapaDeRisco mapa={p.mapaRisco} semFoto={p.semFotoNoMapa} />
             </div>
           )}
         </div>

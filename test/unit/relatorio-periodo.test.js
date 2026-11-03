@@ -153,3 +153,40 @@ test('período: médias por dia só com os dias completos (hoje parcial não pux
   assert.equal(p.dias[0].oplSeg, 61);
   assert.equal(p.dias[0].tmeSeg, 119);
 });
+
+test('[NOVO] mapa de risco: cada ligação cai na foto de quando o cliente entrou (com o tempo de fila); vai ao histórico e o período soma', () => {
+  const historico = memoria();
+  const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE, historico });
+  e.amostrar(em('2026-11-02', '09:00'), { livres: 2, robosLigados: 14, termometro: 'normal' });
+  e.amostrar(em('2026-11-02', '09:01'), { livres: 0, robosLigados: 45, termometro: 'calma' });
+  e.amostrar(em('2026-11-02', '09:02'), { livres: 1, robosLigados: 45, termometro: 'calma' });
+  // lead que entrou às 09:00:30 (30 s de fila, terminou 09:01:00): foto das 09:00
+  e.registrarEncerramento(em('2026-11-02', '09:01'), { chave: 'L1', derivou: true, motivo: 'derivou', filaSeg: 30 });
+  e.registrarEncerramento(em('2026-11-02', '09:01'), { chave: 'L1', derivou: true, motivo: 'derivou', filaSeg: 30 }); // repetido
+  // callback que entrou 09:01:20 (0 livres): de fila
+  e.registrarEncerramento(em('2026-11-02', '09:02'), { chave: 'C1', derivou: false, motivo: 'abandono', filaSeg: 40 });
+  // callback pelo relatório (quando = início, 09:02:10): 1 livre → invisível
+  e.registrarEncerramento(em('2026-11-02', '09:05'), { chave: 'C2', derivou: false, motivo: 'abandono', filaSeg: null, quando: em('2026-11-02', '09:02') + 10_000 }, 'relatório');
+  // sem agente não conta (como nos transbordos)
+  e.registrarEncerramento(em('2026-11-02', '09:02'), { chave: 'S1', derivou: false, motivo: 'sem agente', filaSeg: 0 });
+  assert.deepEqual(e.estado.mapaRisco, {
+    '2|11-20|normal': { leads: 1, fila: 0, invisiveis: 0 },
+    '0|41+|calma': { leads: 0, fila: 1, invisiveis: 0 },
+    '1|41+|calma': { leads: 0, fila: 0, invisiveis: 1 },
+  });
+
+  e.amostrar(em('2026-11-03', '09:00'), { livres: 2, robosLigados: 14, termometro: 'normal' }); // virou o dia
+  assert.deepEqual(historico.dados.dias[0].mapaRisco['0|41+|calma'], { leads: 0, fila: 1, invisiveis: 0 });
+  e.registrarEncerramento(em('2026-11-03', '09:00') + 5000, { chave: 'L2', derivou: true, motivo: 'derivou', filaSeg: 2 });
+  const p = e.periodo(7, em('2026-11-03', '10:00'));
+  assert.deepEqual(p.mapaRisco['2|11-20|normal'], { leads: 2, fila: 0, invisiveis: 0 }, 'ontem + hoje');
+  assert.equal(p.semFotoNoMapa, 0);
+});
+
+test('[NOVO] mapa de risco: sem foto (logo depois de subir) a ligação conta no dia, mas não no mapa', () => {
+  const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE });
+  e.registrarEncerramento(em('2026-11-02', '09:00'), { chave: 'L1', derivou: true, motivo: 'derivou', filaSeg: 2 });
+  assert.equal(e.estado.leadsDerivados, 1);
+  assert.deepEqual(e.estado.mapaRisco ?? {}, {});
+  assert.equal(e.estado.semFotoNoMapa, 1);
+});

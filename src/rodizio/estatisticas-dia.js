@@ -16,9 +16,14 @@
 const { dataLocal, horaLocal } = require('../utils/datas');
 const { sugestoes } = require('../domain/sugestoes');
 const { limitesMin: LIMITES_PAUSA } = require('../config/pausas');
+const { anotar, somarMapas } = require('../domain/mapa-risco');
 
 /** Entre dois ciclos, no máximo isto conta (o rodízio pode ter ficado parado). */
 const MAX_INTERVALO_MS = 30_000;
+/** [NOVO] Mapa de risco: fotos da URA guardadas (em memória) para achar a situação de quando o cliente entrou. */
+const FOTOS_POR_MS = 15 * 60_000;
+/** Foto mais velha que isto antes do momento não vale (o rodízio ficou parado). */
+const FOTO_VALE_MS = 2 * 60_000;
 const TIPOS_PANICO = ['zero', 'saindo', 'fixo'];
 const ESTADOS_TERMOMETRO = ['medindo', 'calma', 'normal', 'agressiva'];
 /** [NOVO] Transbordo é o "Gerou Callback" da Argus: o "sem agente" vem do discador (0 s) e não conta. */
@@ -51,6 +56,9 @@ const diaNovo = (dia) => ({
   // nem um reinício que relê o dia desde 00:00. E a última, com a fonte.
   contadas: [],
   ultimoEncerramento: null,
+  // [NOVO] mapa de risco dos robôs ("livres|robôs|status" → leads, callbacks de fila e invisíveis), domain/mapa-risco.js
+  mapaRisco: {},
+  semFotoNoMapa: 0,
   // [NOVO] tempo em pausa dos humanos da URA, por tipo (descricaoPausa da Argus)
   pausasMs: {},
   // [NOVO] por atendente (ramal → acumulados), veja atendente()
@@ -147,6 +155,17 @@ class EstatisticasDia {
     this.gravadoEm = 0;
     /** Ligações já contadas hoje (a Argus pode reenviar o mesmo webhook). Espelho de estado.contadas. */
     this.contadas = new Set();
+    /** [NOVO] As fotos da URA dos últimos 15 min ({ ts, livres, robos, status }), para o mapa de risco. */
+    this.fotos = [];
+  }
+
+  /** [NOVO] A foto mais recente até `instante` (null se não houver uma recente). */
+  fotoEm(instante) {
+    for (let i = this.fotos.length - 1; i >= 0; i--) {
+      const f = this.fotos[i];
+      if (f.ts <= instante) return instante - f.ts <= FOTO_VALE_MS ? f : null;
+    }
+    return null;
   }
 
   carregar(agora = Date.now()) {
@@ -219,6 +238,8 @@ class EstatisticasDia {
    */
   amostrar(agora, { livres, robosLigados, panico, termometro, pausas = [], operadores = [], naConfig = true }) {
     const h = this.doDia(agora); // virou o dia: zera, e o intervalo até a última amostra não conta
+    this.fotos.push({ ts: agora, livres: livres ?? 0, robos: Number.isFinite(robosLigados) ? robosLigados : null, status: termometro ?? null });
+    while (this.fotos.length && agora - this.fotos[0].ts > FOTOS_POR_MS) this.fotos.shift();
     const dt = this.ultimaAmostraEm == null ? 0 : Math.min(Math.max(agora - this.ultimaAmostraEm, 0), MAX_INTERVALO_MS, this.noExpediente(agora));
     this.ultimaAmostraEm = agora;
     if (dt > 0) {
@@ -337,6 +358,9 @@ class EstatisticasDia {
       e.filaSegSoma += filaSeg;
       e.filaQtd += 1;
     }
+    // [NOVO] mapa de risco: a situação de quando o cliente entrou (o relatório traz o início; o webhook, o fim)
+    const entrou = quando ?? agora - (filaSeg ?? 0) * 1000;
+    if (!anotar((e.mapaRisco ??= {}), this.fotoEm(entrou), { derivou })) e.semFotoNoMapa = (e.semFotoNoMapa ?? 0) + 1;
     return true;
   }
 
@@ -380,6 +404,8 @@ class EstatisticasDia {
       ...(e.config ? { config: e.config } : {}),
       ...(e.configMudou ? { configMudou: true } : {}),
       porStatus: this.porStatusDoDia(horas),
+      mapaRisco: e.mapaRisco ?? {},
+      semFotoNoMapa: e.semFotoNoMapa ?? 0,
       porAtendente: Object.entries(e.porRamal ?? {}).map(([ramal, a]) => ({
         ramal, nome: a.nome ?? null, atendimentos: a.atendimentos ?? 0, livreMin: minutos(a.livreMs ?? 0),
         atendimentoMin: minutos(a.atendimentoMs ?? 0), pausaMin: minutos(Object.values(a.pausasMs ?? {}).reduce((t, v) => t + v, 0)),
@@ -420,6 +446,9 @@ class EstatisticasDia {
       anterior: anterior.length ? totaisDoPeriodo(anterior) : null,
       porAtendente: somaPorAtendente(noPeriodo),
       sugestoes: sugestoes([...historico, hoje]),
+      // [NOVO] mapa de risco dos robôs do período (painel: livres × robôs)
+      mapaRisco: somarMapas(noPeriodo.map((d) => d.mapaRisco)),
+      semFotoNoMapa: noPeriodo.reduce((t, d) => t + (d.semFotoNoMapa ?? 0), 0),
     };
   }
 
