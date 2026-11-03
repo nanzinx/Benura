@@ -633,6 +633,9 @@ const CENARIOS = {
     const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]);
     await aguardar(() => ligados().length === 8, { descricao: '2 livres × 4 = 8 robôs' });
     await aguardar(() => r.chamadas('ligacoesdetalhadas').length > 0, { descricao: 'primeira leitura do relatório' });
+    // O callback abaixo é de 5 s atrás e o raio-x usa a foto da URA daquela hora: espera os 8 robôs
+    // valerem há mais que isso (senão a foto ainda pega os 10 do começo e o teste falha ao acaso).
+    await esperar(6000);
 
     // Hora local (como o relatório traz), 5 s atrás: o raio-x usa as fotos da URA desse intervalo.
     const local = new Intl.DateTimeFormat('sv-SE', {
