@@ -463,6 +463,26 @@ Para descobrir **quando** e **por que** os robôs geram callback:
 
 Compare a hora de cada callback com a linha do tempo daquele minuto.
 
+5. **[NOVO] Ligações derivadas mudas ou que caem direto no pós-chamada, só leitura:**
+   ```bash
+   npm run diagnostico:mudas                        # hoje, desde a meia-noite
+   npm run diagnostico:mudas -- --minutos 240       # só os últimos 240 min
+   npm run diagnostico:mudas -- --ate-seg 10        # curta = até 10 s (padrão 15)
+   npm run diagnostico:mudas -- --janela-seg 30     # "perto" = até 30 s antes ou depois (padrão 20)
+   ```
+   - **O que faz:** busca as ligações do grupo da URA (`GRUPO_URA_ID`) no relatório de ligações da Argus. Separa as **curtas** (até `--ate-seg`, as mudas ou que caíram no pós-chamada) das normais.
+   - **O cruzamento:** para cada ligação, procura nos logs de hoje (`logs/AAAA-MM-DD/rodizio.txt` e `robos.txt`) o que o BenURA fez **no mesmo ramal** perto daquela hora:
+     - subiu para a URA ou voltou ao Ativo;
+     - foi relogado (`ALINHAR_LOGIN_APOS_TRANSFERIR`);
+     - foi movido à mão pelo painel;
+     - a telefonia trocou para a URA.
+     
+     Marca também as rajadas de robôs (10 ou mais ligados de uma vez).
+   - **Como ler:** compare a porcentagem das curtas com a das normais.
+     - **As curtas com bem mais evento por perto** (ex.: 17 de 40 com relogin, contra 2% das normais) indicam que o BenURA está no caminho. A correção é conferir o status de novo logo antes de trocar ou relogar, ou desligar o relogin.
+     - **Parecidas**, o problema está na Argus, na operadora ou na rede (SIP). Leve o resultado ao suporte da Argus.
+   - **Onde fica:** o resultado vai para `logs/diagnostico-mudas-AAAA-MM-DD.json`. Da ligação, guarda só a hora, o operador, o resultado e a duração; nada do cliente. Como os logs são os do dia, as ligações também são só as de hoje.
+
 ### Perfis de clientes e cliente de risco
 O BenURA monta um perfil de cada telefone das bases da URA a partir do relatório de ligações dos robôs (só leitura):
 - **Atendeu:** o cliente falou com o robô (`ATENDIMENTO` ou `OPER. VIRTUAL…`).

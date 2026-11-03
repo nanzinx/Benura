@@ -34,6 +34,7 @@
     "painel:build": "npm --prefix painel-web ci && npm --prefix painel-web run build",
     "painel:dev": "npm --prefix painel-web run dev",
     "diagnostico:callbacks": "node scripts/diagnostico-callbacks.js",
+    "diagnostico:mudas": "node scripts/diagnostico-mudas.js",
     "capturar:argus": "node scripts/capturar-argus.js",
     "conferir:supervisores": "node scripts/conferir-supervisores.js",
     "perfis:montar": "node scripts/perfis-montar.js",
