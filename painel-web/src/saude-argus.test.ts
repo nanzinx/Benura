@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { problemaNaArgus, saudeDaArgus } from './saude-argus';
+import { falhasDaArgus, problemaNaArgus, saudeDaArgus } from './saude-argus';
 import type { SaudeArgus, Visao } from './tipos';
 
 const s = (x: Partial<SaudeArgus> = {}): SaudeArgus => ({
@@ -29,10 +29,16 @@ describe('saúde da Argus no painel', () => {
     expect(saudeDaArgus(visao(null, null))).toBeNull();
   });
 
-  it('problema: pausa ativa, ou 20% ou mais de erro com 10 chamadas ou mais; poucos erros não', () => {
+  it('faixa no topo (todas as abas): só a pausa por excesso de chamadas, que tem hora para acabar', () => {
     expect(problemaNaArgus(saudeDaArgus(visao(s({ pausaAte: '2099-01-01T00:00:00.000Z' }), null)), Date.parse('2026-11-02T12:00:00Z'))?.titulo).toMatch(/desacelerar/);
-    expect(problemaNaArgus(saudeDaArgus(visao(s({ chamadas: 50, erros: 12 }), null)))?.titulo).toMatch(/24%/);
-    expect(problemaNaArgus(saudeDaArgus(visao(s({ chamadas: 50, erros: 5 }), null)))).toBeNull();
-    expect(problemaNaArgus(saudeDaArgus(visao(s({ chamadas: 5, erros: 3 }), null)))).toBeNull();
+    expect(problemaNaArgus(saudeDaArgus(visao(s({ chamadas: 50, erros: 40 }), null))), 'erro não vira faixa: fica na aba Serviços').toBeNull();
+    expect(problemaNaArgus(saudeDaArgus(visao(s({ pausaAte: '2020-01-01T00:00:00.000Z' }), null)))).toBeNull();
+  });
+
+  it('falhando muito (20% ou mais, com 10 chamadas ou mais): o aviso da aba Serviços e o pontinho na aba', () => {
+    expect(falhasDaArgus(saudeDaArgus(visao(s({ chamadas: 50, erros: 12 }), null)))).toEqual({ pct: 24, erros: 12, chamadas: 50 });
+    expect(falhasDaArgus(saudeDaArgus(visao(s({ chamadas: 50, erros: 5 }), null)))).toBeNull();
+    expect(falhasDaArgus(saudeDaArgus(visao(s({ chamadas: 5, erros: 3 }), null))), 'poucas chamadas').toBeNull();
+    expect(falhasDaArgus(null)).toBeNull();
   });
 });

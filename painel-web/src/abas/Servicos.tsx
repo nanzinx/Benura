@@ -14,7 +14,7 @@ import { AvisosBenhub } from '../componentes/AvisosBenhub';
 import { ClientesWebhook } from '../componentes/ClientesWebhook';
 import { CartaoDoisPcs } from '../componentes/DoisPcs';
 import { semAcesso, usePode } from '../sessao';
-import { saudeDaArgus } from '../saude-argus';
+import { falhasDaArgus, saudeDaArgus } from '../saude-argus';
 
 /** [NOVO] Ligar ou desligar só este componente (administrador), com o efeito na confirmação. */
 function LigaDesliga({ v, app }: { v: Visao; app: Componente }) {
@@ -80,6 +80,7 @@ function Cartoes({ v }: { v: Visao }) {
   const parado = v.automacao?.estado === 'desligada';
   const comp = v.automacao?.componentes ?? {};
   const argus = saudeDaArgus(v);
+  const falhas = falhasDaArgus(argus);
   return (
     <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <CartaoServico parado={parado} desligadoAMao={comp['benura-roteador']} acao={<LigaDesliga v={v} app="benura-roteador" />} s={roteador}
@@ -121,6 +122,13 @@ function Cartoes({ v }: { v: Visao }) {
             </dd>
           </>}
         </dl>
+        {/* [NOVO] a Argus falhando muito: o aviso fica aqui (não na faixa do topo de todas as abas) */}
+        {falhas && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/60 dark:text-amber-200">
+            <b>A Argus está falhando:</b> {falhas.pct}% das chamadas com erro nos últimos 15 min ({falhas.erros} de {falhas.chamadas}).
+            O problema é na Argus ou na rede até ela, não no BenURA.
+          </p>
+        )}
         {argus?.ultimoErro && (
           <p className="truncate text-xs text-slate-500 dark:text-slate-400" title={argus.ultimoErro.texto}>
             Último erro às {horaCurta(argus.ultimoErro.em)}: {argus.ultimoErro.texto}

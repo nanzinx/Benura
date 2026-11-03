@@ -65,8 +65,9 @@ const recusa = (comando, resposta) => new ArgusError(
  * A Argus real responde HTTP 500 ao /statusoperador de quem não está logado.
  * Tratar como "não logado" é seguro: só reduz os livres (e os robôs), nunca aumenta.
  */
+const eNaoLogado = (e) => e?.cause instanceof HttpError && e.cause.status === 500;
 function naoLogadoComo500(e) {
-  if (e.cause instanceof HttpError && e.cause.status === 500) return null;
+  if (eNaoLogado(e)) return null;
   throw e;
 }
 
@@ -127,8 +128,12 @@ class ArgusClient {
     throw recusa(nome, resposta);
   }
 
-  /** POST com retry; erros de transporte viram ArgusError/ArgusAutenticacaoError/ArgusLimiteError. */
-  async enviar(nome, corpo, { timeoutMs = this.cfg.timeoutMs, tentativas = this.cfg.tentativas, url } = {}) {
+  /**
+   * POST com retry; erros de transporte viram ArgusError/ArgusAutenticacaoError/ArgusLimiteError.
+   * [NOVO] `esperado(e)`: uma falha que é resposta normal (ex.: o 500 do /statusoperador de quem não
+   * está logado) entra na saúde como chamada boa, não como erro da Argus.
+   */
+  async enviar(nome, corpo, { timeoutMs = this.cfg.timeoutMs, tentativas = this.cfg.tentativas, url, esperado = null } = {}) {
     try {
       this.exigirForaDaPausa(nome);
     } catch (e) {
@@ -152,6 +157,10 @@ class ArgusClient {
       return resposta;
     } catch (e) {
       const erro = this.traduzirFalha(nome, e);
+      if (esperado?.(erro)) {
+        this.saude.registrar({ ms: Date.now() - inicio, resultado: 'ok' });
+        throw erro;
+      }
       this.saude.registrar({ ms: Date.now() - inicio, resultado: erro instanceof ArgusLimiteError ? 'limite' : 'erro', texto: `/${nome}: ${erro.message}` });
       this.saude.pausaAte = this.pausaAte;
       throw erro;
@@ -290,7 +299,7 @@ class ArgusClient {
    * @throws {ArgusError} quando a Argus não respondeu ou respondeu codStatus -1
    */
   async statusOperador(ramal) {
-    const resposta = await this.enviar('statusoperador', { ramal: String(ramal) }, { timeoutMs: 2000, tentativas: 1 })
+    const resposta = await this.enviar('statusoperador', { ramal: String(ramal) }, { timeoutMs: 2000, tentativas: 1, esperado: eNaoLogado })
       .catch(naoLogadoComo500);
     if (resposta?.codStatus === 1 && resposta.statusOperador) return resposta.statusOperador;
     if (resposta?.codStatus === -1) throw recusa('statusoperador', resposta);

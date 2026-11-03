@@ -39,21 +39,24 @@ export function saudeDaArgus(v: Visao): SaudeSomada | null {
   };
 }
 
-/** Faixa do topo: a Argus pediu para desacelerar (pausa agora) ou está falhando muito (20% ou mais, com 10 chamadas ou mais). */
+/**
+ * Faixa do topo (aparece em todas as abas): só quando a Argus pediu para desacelerar (HTTP 429). Essa
+ * pausa muda o que o BenURA faz e tem hora para acabar. A taxa de erro fica na aba Serviços (falhasDaArgus).
+ */
 export function problemaNaArgus(s: SaudeSomada | null, agora = Date.now()): { titulo: string; detalhe: string } | null {
-  if (!s) return null;
-  if (s.pausaAte && Date.parse(s.pausaAte) > agora) {
-    return {
-      titulo: 'A Argus pediu para desacelerar (excesso de chamadas)',
-      detalhe: `O BenURA espera até ${new Date(s.pausaAte).toLocaleTimeString('pt-BR')} para voltar a consultar; só desligar robôs segue na hora. Se repetir muito, veja a aba Serviços.`,
-    };
-  }
-  const pct = s.chamadas ? Math.round((s.erros / s.chamadas) * 100) : 0;
-  if (s.chamadas >= 10 && pct >= 20) {
-    return {
-      titulo: `A Argus está falhando: ${pct}% das chamadas com erro nos últimos 15 min`,
-      detalhe: `${s.erros} de ${s.chamadas}${s.ultimoErro ? ` · último: ${s.ultimoErro.texto}` : ''}. O problema é na Argus ou na rede até ela, não no BenURA.`,
-    };
-  }
-  return null;
+  if (!s?.pausaAte || Date.parse(s.pausaAte) <= agora) return null;
+  return {
+    titulo: 'A Argus pediu para desacelerar (excesso de chamadas)',
+    detalhe: `O BenURA espera até ${new Date(s.pausaAte).toLocaleTimeString('pt-BR')} para voltar a consultar; só desligar robôs segue na hora. Se repetir muito, veja a aba Serviços.`,
+  };
+}
+
+/**
+ * [NOVO] A Argus falhando muito (20% ou mais, com 10 chamadas ou mais, nos últimos 15 min): o aviso
+ * no cartão da Argus (aba Serviços) e o pontinho na aba. Não vira faixa: sozinha, não para nada.
+ */
+export function falhasDaArgus(s: SaudeSomada | null): { pct: number; erros: number; chamadas: number } | null {
+  if (!s || s.chamadas < 10) return null;
+  const pct = Math.round((s.erros / s.chamadas) * 100);
+  return pct >= 20 ? { pct, erros: s.erros, chamadas: s.chamadas } : null;
 }

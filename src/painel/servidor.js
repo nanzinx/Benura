@@ -312,7 +312,8 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
       const resultado = r.status >= 200 && r.status < 300 ? 'ok' : `falhou: ${r.corpo?.erro ?? `HTTP ${r.status}`}`;
       logger.aviso(`Painel: supervisão pediu para ${acao.nome} (${quem}) — ${resultado}.`);
     }
-    if (r.status === 0) return { status: 502, corpo: r.corpo };
+    // [NOVO] 503, não 502: pelo túnel, a Cloudflare troca o 502 pela página dela e o motivo some.
+    if (r.status === 0) return { status: 503, corpo: r.corpo };
     return { status: r.status, corpo: r.corpo };
   }
 

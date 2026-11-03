@@ -51,3 +51,22 @@ test('ArgusClient: cada chamada entra na saúde (ok, erro, 429 e a pausa)', asyn
   assert.deepEqual([r.chamadas, r.erros, r.limites, r.seguradas], [3, 1, 1, 1]);
   assert.ok(r.pausaAte, 'a pausa por limite aparece');
 });
+
+test('[NOVO] o HTTP 500 do /statusoperador de quem não está logado é resposta normal, não erro da Argus', async (t) => {
+  let resposta = [500, { codStatus: 0, descStatus: 'Falha na execução: - "ramal" indisponível ou não logado no sistema.' }];
+  const srv = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => res.writeHead(resposta[0], { 'Content-Type': 'application/json' }).end(JSON.stringify(resposta[1])));
+  });
+  await new Promise((r) => srv.listen(0, r));
+  t.after(() => srv.close());
+  const client = new ArgusClient({ baseUrl: `http://127.0.0.1:${srv.address().port}`, token: 't', timeoutMs: 5000, tentativas: 1, pausaLimiteMs: 60_000 }, loggerNulo);
+  for (let i = 0; i < 5; i++) assert.equal(await client.statusOperador('2266423'), null, 'não logado');
+  let r = client.saude.resumo();
+  assert.deepEqual([r.chamadas, r.erros], [5, 0], 'conta a chamada, não o erro');
+  assert.equal(r.ultimoErro, null);
+  // um 500 em outro comando continua sendo erro de verdade
+  await assert.rejects(client.listarGrupos());
+  r = client.saude.resumo();
+  assert.deepEqual([r.chamadas, r.erros], [6, 1]);
+});
