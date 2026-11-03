@@ -90,11 +90,11 @@ test('painel: lê os logs do dia aos poucos e recomeça na virada do dia', () =>
 });
 
 /** Painel de verdade (porta aleatória) com os serviços respondendo por um fetch falso. */
-async function subir(cfgExtra = {}, usuarios = semUsuarios(), { robos = false } = {}) {
+async function subir(cfgExtra = {}, usuarios = semUsuarios(), { robos = false, robosFora = false } = {}) {
   const chamadas = [];
   const fetchFalso = async (url, opcoes) => {
     chamadas.push({ url, metodo: opcoes.method, auth: opcoes.headers.Authorization, corpo: opcoes.body });
-    if (url.startsWith('http://rotinas')) throw new TypeError('fetch failed');
+    if (url.startsWith('http://rotinas') || (robosFora && url.startsWith('http://robos'))) throw new TypeError('fetch failed');
     // [NOVO] o benura-robos responde só o que é dele
     if (url === 'http://robos/health') {
       return { status: 200, text: async () => JSON.stringify({ papel: 'robos', robos: { ligados: 5, modo: 'automatico' }, panico: { ligado: true, tipo: 'saindo' }, ajusteRobos: { atual: 9 }, ultimoLivreSaindo: null }) };
@@ -387,4 +387,16 @@ test('[NOVO] sem BENURA_IPS_PERMITIDOS no painel, o túnel continua como antes',
   const { servidor, pedir } = await subir();
   t.after(() => servidor.close());
   assert.equal((await pedir('GET', '/', { extras: { 'CF-Connecting-IP': '187.10.20.30' } })).status, 200);
+});
+
+test('[NOVO] serviço interno fora do ar: 503 com o motivo e o que fazer (o 502 vira página da Cloudflare pelo túnel)', async (t) => {
+  const { servidor, pedir } = await subir({}, semUsuarios(), { robos: true, robosFora: true });
+  t.after(() => servidor.close());
+  const entrada = await pedir('POST', '/api/entrar', { corpo: { senha: SENHA } });
+  const cookie = entrada.headers.get('set-cookie').split(';')[0];
+  const r = await pedir('PUT', '/api/robos/modo', { cookie, corpo: { modo: 'automatico' } });
+  assert.equal(r.status, 503);
+  const { erro } = await r.json();
+  assert.match(erro, /Robôs da URA fora do ar/);
+  assert.match(erro, /npx pm2 logs benura-robos/, 'diz o que fazer no PC do BenURA');
 });

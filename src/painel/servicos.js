@@ -113,7 +113,8 @@ class Servicos {
       return { status: resposta.status, corpo: json, ms: Date.now() - inicio };
     } catch (e) {
       const motivo = e.name === 'TimeoutError' ? 'não respondeu a tempo' : 'fora do ar';
-      return { status: 0, corpo: { erro: `${this.nome(servico)} ${motivo}` }, ms: Date.now() - inicio };
+      // [NOVO] o que fazer: o log do serviço no PM2 diz por que ele caiu
+      return { status: 0, corpo: { erro: `${this.nome(servico)} ${motivo}. No PC do BenURA: npx pm2 logs benura-${servico}` }, ms: Date.now() - inicio };
     }
   }
 

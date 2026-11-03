@@ -29,7 +29,12 @@ export async function pedir<T>(metodo: Metodo, url: string, corpo?: unknown): Pr
     /* sem corpo */
   }
   if (resposta.status === 401 && url !== '/api/entrar') throw new SemSessao();
-  if (!resposta.ok) throw new Error((json as { erro?: string } | null)?.erro ?? `HTTP ${resposta.status}`);
+  if (!resposta.ok) {
+    const motivo = (json as { erro?: string } | null)?.erro;
+    // [NOVO] sem motivo, com 502/503/504: a página de erro da Cloudflare (o túnel ou o painel não respondeu)
+    if (!motivo && [502, 503, 504].includes(resposta.status)) throw new Error(`O servidor do BenURA não respondeu (HTTP ${resposta.status}). Veja a aba Serviços.`);
+    throw new Error(motivo ?? `HTTP ${resposta.status}`);
+  }
   return json as T;
 }
 

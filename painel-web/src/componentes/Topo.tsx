@@ -2,6 +2,7 @@ import { clsx } from 'clsx';
 import { Activity, ChevronDown, Headset, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ComponentType } from 'react';
 import { useVisao } from '../dados';
+import { falhasDaArgus, saudeDaArgus } from '../saude-argus';
 import { NOMES_PAPEIS, usePode, useSessao } from '../sessao';
 import type { Tema } from '../tema';
 import { Marca } from './Marca';
@@ -109,6 +110,8 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
   const { data: visao } = useVisao();
   const admin = usePode('administrador');
   const dryRun = Boolean(visao?.servicos.rodizio.dados?.dryRun);
+  // [NOVO] a Argus falhando muito: só um pontinho na aba Serviços (o detalhe fica lá)
+  const argusFalhando = visao ? falhasDaArgus(saudeDaArgus(visao)) : null;
   const proximoTema = TEMAS[(TEMAS.findIndex((t) => t.id === tema) + 1) % TEMAS.length]!;
   const TemaAtual = TEMAS.find((t) => t.id === tema)!.Icone;
 
@@ -127,6 +130,11 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
                 aba === id ? 'border-white text-white' : 'border-transparent text-azul-100/80 hover:text-white')}
             >
               <Icone className="size-4" aria-hidden /><span className="2xl:hidden">{curto}</span><span className="hidden 2xl:inline">{texto}</span>
+              {id === 'servicos' && argusFalhando && (
+                <span className="size-2 rounded-full bg-amarelo-400" title={`A Argus está falhando: ${argusFalhando.pct}% de erro nos últimos 15 min`}>
+                  <span className="sr-only">(a Argus está falhando)</span>
+                </span>
+              )}
             </a>
           ))}
         </nav>
