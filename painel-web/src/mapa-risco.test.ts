@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { celulasDoMapa, FAIXAS_LIVRES, FAIXAS_ROBOS, nivelDaCelula, resumoDoMapa, taxaEmTexto } from './mapa-risco';
+import { celulasDoMapa, FAIXAS_LIVRES, FAIXAS_ROBOS, nivelDaCelula, pontoSeguro, resumoDoMapa, taxaEmTexto } from './mapa-risco';
 
 const mapa = {
   '1|31-40|calma': { leads: 198, fila: 2, invisiveis: 1 },
@@ -34,5 +34,24 @@ describe('mapa de risco dos robôs', () => {
   it('resumo do período: leads, callbacks de fila e invisíveis, e quantos de 200', () => {
     expect(resumoDoMapa(mapa, null)).toEqual({ leads: 508, fila: 6, invisiveis: 3, porDuzentos: 2.3 });
     expect(resumoDoMapa({}, null)).toEqual({ leads: 0, fila: 0, invisiveis: 0, porDuzentos: null });
+  });
+
+  it('ponto seguro: para cada tanto de livres, a maior faixa de robôs no verde antes da primeira fora da meta', () => {
+    const m = {
+      '1|1-10|calma': { leads: 220, fila: 0, invisiveis: 0 },
+      '1|11-20|calma': { leads: 310, fila: 1, invisiveis: 0 },
+      '1|21-30|calma': { leads: 180, fila: 2, invisiveis: 0 }, // vermelho: para aqui
+      '1|41+|calma': { leads: 400, fila: 0, invisiveis: 0 }, // verde depois do vermelho não conta
+      '2|11-20|calma': { leads: 420, fila: 1, invisiveis: 0 },
+      '2|21-30|calma': { leads: 20, fila: 0, invisiveis: 0 }, // pouca amostra: pula
+      '2|31-40|calma': { leads: 300, fila: 1, invisiveis: 0 },
+      '3|1-10|calma': { leads: 98, fila: 2, invisiveis: 0 }, // já começa vermelho
+    };
+    const p = pontoSeguro(celulasDoMapa(m, null));
+    expect(p.find((x) => x.livres === '1')).toEqual({ livres: '1', ate: '11-20', parou: '21-30' });
+    expect(p.find((x) => x.livres === '2')).toEqual({ livres: '2', ate: '31-40', parou: null });
+    expect(p.find((x) => x.livres === '3')).toEqual({ livres: '3', ate: null, parou: '1-10' });
+    expect(p.find((x) => x.livres === '4+')).toEqual({ livres: '4+', ate: null, parou: null });
+    expect(p.map((x) => x.livres)).toEqual(['1', '2', '3', '4+']); // com 0 livre não há ponto seguro: é sempre fila
   });
 });

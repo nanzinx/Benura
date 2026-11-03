@@ -57,6 +57,28 @@ export function taxaEmTexto(c: CelulaDoMapa): string {
   return `${String(Number(pct.toFixed(casas))).replace('.', ',')}%`;
 }
 
+export type PontoSeguro = { livres: string; ate: string | null; parou: string | null };
+
+/**
+ * Para cada tanto de livres (1 ou mais; com 0 todo callback é de fila), até qual faixa de robôs ficou
+ * na meta: anda das faixas menores para as maiores, pula as sem dados ou com pouca amostra e para na
+ * primeira fora da meta (âmbar ou vermelho). `parou` é essa faixa (null se não houve).
+ */
+export function pontoSeguro(celulas: CelulaDoMapa[]): PontoSeguro[] {
+  return FAIXAS_LIVRES.filter((l) => l !== '0').map((livres) => {
+    let ate: string | null = null;
+    for (const robos of FAIXAS_ROBOS) {
+      if (robos === '0') continue;
+      const c = celulas.find((x) => x.livres === livres && x.robos === robos);
+      const nivel = c ? nivelDaCelula(c) : 'vazia';
+      if (nivel === 'vazia' || nivel === 'pouca') continue;
+      if (nivel !== 'bom') return { livres, ate, parou: robos };
+      ate = robos;
+    }
+    return { livres, ate, parou: null };
+  });
+}
+
 /** O período todo: leads, callbacks de fila, invisíveis e quantos de fila a cada 200 ligações. */
 export function resumoDoMapa(mapa: MapaDeRisco | undefined, status: StatusDoMapa | null) {
   const soma = celulasDoMapa(mapa, status).reduce((t, c) => ({ leads: t.leads + c.leads, fila: t.fila + c.fila, invisiveis: t.invisiveis + c.invisiveis }), { leads: 0, fila: 0, invisiveis: 0 });
