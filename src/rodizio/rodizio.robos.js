@@ -92,7 +92,7 @@ const metodosDosRobos = {
       return this.robos.encerrarSemDerrubar(`último livre (${this.ultimoSaindo.ramal}) saindo por ociosidade`);
     }
     const agora = Date.now();
-    const { acao, alvo, motivo, livres, excesso } = decidirRobos({
+    const { acao, alvo, motivo, livres, excesso, deUmaVez } = decidirRobos({
       ramaisUra: [...this.ramaisUra],
       status: this.statusUra,
       agora,
@@ -106,6 +106,8 @@ const metodosDosRobos = {
         maximo: this.cfg.robosMaximo,
         maxComUmLivre: this.maxComUmLivreAgora(agora),
         todosComLivres: this.todosComLivresAgora(agora),
+        comUmLivre: this.comUmLivreAgora(agora),
+        statusDaUra: this.statusAtualDaUra(),
         // Com poll lento, o status "envelhece" entre ciclos: não pode virar "sem visibilidade".
         validadeStatusMs: Math.max(VALIDADE_STATUS_MS, this.cfg.pollUraMs * 2 + 1000),
       },
@@ -115,7 +117,7 @@ const metodosDosRobos = {
     // Desde quando há robôs demais com gente livre (a redução parcial espera isso se confirmar).
     this.excessoDesde = excesso && acao !== AcaoRobos.DESLIGAR ? (this.excessoDesde ?? agora) : null;
     if (acao === AcaoRobos.DESLIGAR) await this.robos.reduzir(this.ramaisRobos, alvo, motivo);
-    if (acao === AcaoRobos.RELIGAR) await this.robos.aumentar(this.ramaisRobos, alvo, motivo);
+    if (acao === AcaoRobos.RELIGAR) await this.robos.aumentar(this.ramaisRobos, alvo, motivo, { deUmaVez: Boolean(deUmaVez) });
   },
 
   /** ROBOS_MODO=panico: a supervisão liga os robôs; o BenURA só os desliga no pânico. */
@@ -485,6 +487,12 @@ const metodosDosRobos = {
   todosComLivresAgora(agora = Date.now()) {
     const calculo = this.calculoDosRobos(agora);
     return calculo && calculo.fonte !== 'manual' ? calculo.todosComLivres : 0;
+  },
+
+  /** [NOVO] Robôs com 1 livre só pelo status (calma: 40). 0 = a regra de sempre (fixo, à mão ou outro status). */
+  comUmLivreAgora(agora = Date.now()) {
+    const calculo = this.calculoDosRobos(agora);
+    return calculo && calculo.fonte !== 'manual' ? (calculo.comUmLivre ?? 0) : 0;
   },
 
   /** O "por livre" foi escolhido à mão no painel hoje? (vale até virar o dia) */

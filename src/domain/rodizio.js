@@ -161,7 +161,7 @@ const motivoDaVolta = ({ classe, livreDesde, agora }) => (classe === Classe.OFFL
  * que ninguém atende e vira callback. Sem visibilidade da Argus, URA vazia ou
  * ninguém livre → 0 (desliga tudo, como sempre foi).
  *
- * @returns {{ alvo: number, livres: number, motivo: string }}
+ * @returns {{ alvo: number, livres: number, motivo: string, deUmaVez?: boolean }}  deUmaVez: liga sem os degraus
  */
 function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
   const nenhum = (motivo) => ({ alvo: 0, livres: 0, motivo });
@@ -182,8 +182,14 @@ function alvoDeRobos({ ramaisUra, status, agora, total, cfg }) {
   if (!livres) return nenhum('livre(s) na URA ainda na carência da troca de grupo');
 
   // [NOVO] URA calma com cfg.todosComLivres livres ou mais: potência máxima (até o ROBOS_MAXIMO).
+  // [NOVO] e de uma vez, sem os degraus da subida (pedido da supervisão, 03/11).
   if (cfg.todosComLivres > 0 && livres >= cfg.todosComLivres) {
-    return { alvo: Math.min(total, cfg.maximo || Infinity), livres, motivo: `URA calma com ${livres} livres: todos os robôs` };
+    return { alvo: Math.min(total, cfg.maximo || Infinity), livres, motivo: `URA calma com ${livres} livres: todos os robôs`, deUmaVez: true };
+  }
+  // [NOVO] URA calma com 1 livre: cfg.comUmLivre robôs (40), de uma vez. 0 = a regra de sempre (teto do 1 livre).
+  if (livres === 1 && cfg.comUmLivre > 0) {
+    const alvo = Math.min(total, cfg.comUmLivre, cfg.maximo || Infinity);
+    return { alvo, livres, motivo: `URA ${cfg.statusDaUra ?? 'calma'} com 1 livre: ${alvo} robôs`, deUmaVez: true };
   }
   const alvo = Math.min(total, livres * cfg.porLivre, cfg.maximo || Infinity);
   // Com 1 livre só, dois clientes pedindo humano juntos viram callback: menos robôs.
@@ -222,9 +228,10 @@ function decidirRobos({ ramaisUra, status, agora, robos, cfg }) {
   if (robos.ligados === null) return com(AcaoRobos.NENHUMA, 'aguardando a leitura dos robôs');
   if (excesso) return decidirReducao(robos, agora, cfg, com);
 
+  // [NOVO] "De uma vez" (URA calma): não espera o intervalo entre os degraus.
   const podeAumentar = robos.ligados < decisao.alvo && cfg.reativar
     && agora - robos.ultimaReducao >= cfg.minDesligadoMs
-    && agora - (robos.ultimoAumento || 0) >= (cfg.intervaloSubidaMs || 0);
+    && (decisao.deUmaVez || agora - (robos.ultimoAumento || 0) >= (cfg.intervaloSubidaMs || 0));
   return com(podeAumentar ? AcaoRobos.RELIGAR : AcaoRobos.NENHUMA);
 }
 

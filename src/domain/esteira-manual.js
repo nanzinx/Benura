@@ -14,6 +14,7 @@
 
 const { paraNumero } = require('../utils/moeda');
 const { normalizarNome } = require('../utils/texto');
+const { diaUtil, SEM_EXTRAS } = require('./calendario');
 
 class EsteiraInvalidaError extends Error {
   constructor(mensagem) {
@@ -122,8 +123,11 @@ function totaisPorDia(vendas) {
   return dias;
 }
 
-/** Último dia trabalhado antes de `hoje` (YYYY-MM-DD), entre os dias colados. */
-const ultimoDiaAntes = (dias, hoje) => Object.keys(dias).filter((d) => d < hoje).sort().pop() || null;
+/**
+ * Último dia útil antes de `hoje` (YYYY-MM-DD), entre os dias colados. [NOVO] Venda num feriado ou
+ * fim de semana (alguém trabalhou) não vira o "dia anterior": quase ninguém vendeu nele.
+ */
+const ultimoDiaAntes = (dias, hoje, extras = SEM_EXTRAS) => Object.keys(dias).filter((d) => d < hoje && diaUtil(d, extras)).sort().pop() || null;
 
 const formatarDia = (iso) => (iso ? iso.split('-').reverse().join('/') : null);
 
@@ -137,9 +141,10 @@ const vendedoresDoDia = (dia, metrica) => Object.values(dia || {})
  * @param {string} hoje - YYYY-MM-DD
  * @param {string} metrica - campo da linha GERAL lido pelo mapper (CARROSSEL_METRICA)
  * @param {string} [coladaEm] - descrição de quando foi colada, para o log
+ * @param {object} [extras] - FERIADOS_EXTRAS (calendario.lerFeriadosExtras)
  */
-function rankingDaEsteira(dias, hoje, metrica, coladaEm = '') {
-  const ontem = ultimoDiaAntes(dias, hoje);
+function rankingDaEsteira(dias, hoje, metrica, coladaEm = '', extras = SEM_EXTRAS) {
+  const ontem = ultimoDiaAntes(dias, hoje, extras);
   return {
     hoje: vendedoresDoDia(dias[hoje], metrica),
     ontem: vendedoresDoDia(ontem && dias[ontem], metrica),
@@ -163,8 +168,8 @@ const listaDoDia = (dia) => Object.values(dia || {})
  * O que a esteira colada vai decidir hoje, para conferir na página.
  * @returns {{ diaAnterior: string|null, acimaDaMeta: object[], vendeuHoje: object[] }}
  */
-function resumoDaEsteira(dias, hoje, metaDiaria) {
-  const anterior = ultimoDiaAntes(dias, hoje);
+function resumoDaEsteira(dias, hoje, metaDiaria, extras = SEM_EXTRAS) {
+  const anterior = ultimoDiaAntes(dias, hoje, extras);
   return {
     diaAnterior: formatarDia(anterior),
     acimaDaMeta: listaDoDia(anterior && dias[anterior]).filter((v) => v.total > metaDiaria),

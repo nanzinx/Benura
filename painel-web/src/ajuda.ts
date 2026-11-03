@@ -13,6 +13,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       'Às 08:00 a agenda religa a automação, e às 18:00 desliga. A noite e o fim de semana não entram no relatório.',
       'O roteador decide quem pode ir para a URA hoje: quem bateu a meta ontem, quem vende hoje e os fixos.',
+      '"Ontem" é o dia útil anterior (sem fim de semana, feriado nacional, Carnaval e Corpus Christi). Se o Carrossel mandar um feriado, a carga do dia espera: o cartão "Vendas e filas" diz o motivo, os fixos já sobem, e basta colar a esteira do dia útil em /manual.',
       'O rodízio leva para a URA quem atendeu uma ligação no Ativo e ficou livre, e devolve ao Ativo quem ficou livre na URA por 2 minutos seguidos. O tempo livre é o "Tempo" da Argus.',
       'O BenURA não loga nem desloga humano: só troca de grupo. A telefonia troca quando a pessoa fica livre, com um pequeno atraso da discadora.',
       'Conta de supervisor (ramal com o nome de um supervisor, como a da Ariel) não fica na URA: não sobe nem com venda ou fixo, e volta ao Ativo assim que não estiver em ligação. Só "Trazer para a URA" no painel a põe lá.',
@@ -38,8 +39,8 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       'O BenURA mede quantas derivações cada robô ligado gera por minuto nos últimos 30 min e liga robôs para cada livre receber uma ligação dentro da espera alvo do status da URA.',
       'Espera alvo: calma 45 s, normal 90 s, agressiva 120 s. Quanto menor a espera alvo, mais robôs por livre. A agressiva liga menos para não gerar callback.',
-      'Cada status tem um piso e um teto de robôs por livre: calma 20, normal de 4 a 10, agressiva de 2 a 6. Com 1 livre só, vale o teto do status.',
-      'URA calma com 2 livres ou mais: todos os robôs ligados (potência máxima), subindo em degraus.',
+      'Cada status tem um piso e um teto de robôs por livre: calma 20, normal de 4 a 10, agressiva de 2 a 6. Com 1 livre só, vale o teto do status (na calma, 40).',
+      'URA calma: com 1 livre, 40 robôs; com 2 livres ou mais, todos os robôs (potência máxima). Na calma eles ligam de uma vez, sem degraus.',
       'No começo do dia, com poucas derivações, aparece "medindo a taxa": até lá vale o ajuste do dia.',
       'O cartão "Rodízio dos robôs" mostra a conta. "Robôs por livre" escolhido à mão vale até virar o dia.',
     ],

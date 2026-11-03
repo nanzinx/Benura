@@ -53,43 +53,53 @@ test('lerEsteira: coluna obrigatória ausente → erro listando o que veio', () 
 
 test('totaisPorDia: soma por dia e agente (sem acento/caixa) e conta cada proposta uma vez', () => {
   const { vendas } = lerEsteira(esteiraCsv([
-    ['1', '10/10/2026', 'João Silva', '30.000,00'],
-    ['2', '10/10/2026', 'JOAO  SILVA', '25.000,00'],
-    ['2', '10/10/2026', 'JOAO SILVA', '25.000,00'], // mesma proposta colada duas vezes
+    ['1', '09/10/2026', 'João Silva', '30.000,00'],
+    ['2', '09/10/2026', 'JOAO  SILVA', '25.000,00'],
+    ['2', '09/10/2026', 'JOAO SILVA', '25.000,00'], // mesma proposta colada duas vezes
     ['3', '13/10/2026', 'V2', '100,00'],
   ]));
   const dias = totaisPorDia(vendas);
-  assert.deepEqual(Object.keys(dias).sort(), ['2026-10-10', HOJE]);
-  assert.deepEqual(dias['2026-10-10']['JOAO SILVA'], { nome: 'João Silva', total: 55000 });
+  assert.deepEqual(Object.keys(dias).sort(), ['2026-10-09', HOJE]);
+  assert.deepEqual(dias['2026-10-09']['JOAO SILVA'], { nome: 'João Silva', total: 55000 });
 });
 
 // ───────────── Ranking no formato do Carrossel ─────────────
 
 test('rankingDaEsteira: "ontem" é o último dia trabalhado e o mapper real lê a métrica', () => {
   const dias = totaisPorDia(lerEsteira(esteiraCsv([
-    ['1', '09/10/2026', 'V1', '90.000,00'], // quinta
-    ['2', '10/10/2026', 'V1', '60.000,00'], // sexta (último dia trabalhado antes de terça 13)
-    ['3', '10/10/2026', 'V2', '10.000,00'],
+    ['1', '08/10/2026', 'V1', '90.000,00'], // quinta
+    ['2', '09/10/2026', 'V1', '60.000,00'], // sexta (último dia útil antes de terça 13: 12/10 é feriado)
+    ['3', '09/10/2026', 'V2', '10.000,00'],
     ['4', '13/10/2026', 'V2', '500,00'],
   ])).vendas);
   const payload = rankingDaEsteira(dias, HOJE, 'vendaGeral', 'às 08:10');
 
-  assert.equal(payload.diaOntem, '10/10/2026');
+  assert.equal(payload.diaOntem, '09/10/2026');
   assert.match(payload.ultimaExtracao, /Esteira colada às 08:10/);
   const ontem = mapearRanking(payload, 'ontem', 'vendaGeral').vendedores;
   assert.deepEqual(ontem.map((v) => [v.nome, v.totalVendas]).sort(), [['V1', 60000], ['V2', 10000]]);
   assert.deepEqual(mapearRanking(payload, 'hoje', 'vendaGeral').vendedores.map((v) => v.totalVendas), [500]);
 });
 
+test('[NOVO] rankingDaEsteira: venda num feriado ou fim de semana não vira o dia anterior (12/10, Nossa Senhora Aparecida)', () => {
+  const dias = totaisPorDia(lerEsteira(esteiraCsv([
+    ['1', '09/10/2026', 'V1', '60.000,00'], // sexta
+    ['2', '10/10/2026', 'V2', '1.000,00'], // sábado
+    ['3', '12/10/2026', 'V3', '500,00'], // feriado
+  ])).vendas);
+  assert.equal(rankingDaEsteira(dias, HOJE, 'vendaGeral').diaOntem, '09/10/2026');
+  assert.equal(resumoDaEsteira(dias, HOJE, 50_000).diaAnterior, '09/10/2026');
+});
+
 test('unirDias: a colagem nova substitui só os dias que contém e guarda os mais recentes', () => {
-  const unidos = unirDias({ '2026-10-01': { a: 1 }, '2026-10-10': { a: 1 } }, { '2026-10-10': { b: 2 }, [HOJE]: { c: 3 } }, 2);
-  assert.deepEqual(unidos, { '2026-10-10': { b: 2 }, [HOJE]: { c: 3 } });
+  const unidos = unirDias({ '2026-10-01': { a: 1 }, '2026-10-09': { a: 1 } }, { '2026-10-09': { b: 2 }, [HOJE]: { c: 3 } }, 2);
+  assert.deepEqual(unidos, { '2026-10-09': { b: 2 }, [HOJE]: { c: 3 } });
 });
 
 test('resumoDaEsteira: quem passou da meta no dia anterior e quem vendeu hoje', () => {
-  const dias = { '2026-10-10': { A: { nome: 'A', total: 50_000 }, B: { nome: 'B', total: 50_000.01 } }, [HOJE]: { C: { nome: 'C', total: 10 } } };
+  const dias = { '2026-10-09': { A: { nome: 'A', total: 50_000 }, B: { nome: 'B', total: 50_000.01 } }, [HOJE]: { C: { nome: 'C', total: 10 } } };
   assert.deepEqual(resumoDaEsteira(dias, HOJE, 50_000), {
-    diaAnterior: '10/10/2026', acimaDaMeta: [{ nome: 'B', total: 50_000.01 }], vendeuHoje: [{ nome: 'C', total: 10 }],
+    diaAnterior: '09/10/2026', acimaDaMeta: [{ nome: 'B', total: 50_000.01 }], vendeuHoje: [{ nome: 'C', total: 10 }],
   });
 });
 
@@ -98,12 +108,12 @@ test('resumoDaEsteira: quem passou da meta no dia anterior e quem vendeu hoje', 
 test('EsteiraManualRepository: une colagens e sobrevive a reinício', async () => {
   const arquivo = tmp();
   const repo = new EsteiraManualRepository({ arquivo, logger: loggerNulo });
-  await repo.colar(esteiraCsv([['1', '10/10/2026', 'V1', '60.000,00']]), HOJE);
+  await repo.colar(esteiraCsv([['1', '09/10/2026', 'V1', '60.000,00']]), HOJE);
   const r = await repo.colar(esteiraCsv([['2', '13/10/2026', 'V2', '1,00']]), HOJE);
   assert.deepEqual(r, { dias: [HOJE], vendas: 1, ignoradas: 0 });
 
   const recarregado = new EsteiraManualRepository({ arquivo, logger: loggerNulo });
-  assert.deepEqual(Object.keys(recarregado.dias()).sort(), ['2026-10-10', HOJE]);
+  assert.deepEqual(Object.keys(recarregado.dias()).sort(), ['2026-10-09', HOJE]);
   assert.ok(recarregado.coladaHoje(HOJE));
   assert.ok(!recarregado.coladaHoje('2026-10-14'));
 });
@@ -111,7 +121,7 @@ test('EsteiraManualRepository: une colagens e sobrevive a reinício', async () =
 test('EsteiraManualRepository: limpar apaga todos os dias e grava no arquivo', async () => {
   const arquivo = tmp();
   const repo = new EsteiraManualRepository({ arquivo, logger: loggerNulo });
-  await repo.colar(esteiraCsv([['1', '10/10/2026', 'V1', '60.000,00'], ['2', '13/10/2026', 'V2', '1,00']]), HOJE);
+  await repo.colar(esteiraCsv([['1', '09/10/2026', 'V1', '60.000,00'], ['2', '13/10/2026', 'V2', '1,00']]), HOJE);
   assert.equal(await repo.limpar(), 2);
   assert.deepEqual(repo.dias(), {});
   assert.ok(!repo.coladaHoje(HOJE));
@@ -125,7 +135,7 @@ test('EsteiraManualRepository: limpar apaga todos os dias e grava no arquivo', a
 
 async function redundancia({ falha, resposta, colar = true, colarEm = HOJE, limpar = false } = {}) {
   const esteira = new EsteiraManualRepository({ arquivo: tmp(), logger: loggerNulo });
-  if (colar) await esteira.colar(esteiraCsv([['1', '10/10/2026', 'V1', '60.000,00']]), colarEm);
+  if (colar) await esteira.colar(esteiraCsv([['1', '09/10/2026', 'V1', '60.000,00']]), colarEm);
   if (limpar) await esteira.limpar();
   const client = { async buscarRankingVendedores() { if (falha) throw falha; return resposta; } };
   return new CarrosselComRedundancia({ client, esteira, relogio: { hoje: () => HOJE }, metrica: 'vendaConcluida', logger: loggerNulo });
@@ -136,19 +146,31 @@ test('redundância: Carrossel no ar → usa o Carrossel, mesmo com esteira colad
   assert.equal(await (await redundancia({ resposta })).buscarRankingVendedores(), resposta);
 });
 
+test('[NOVO] redundância: Carrossel no ar mandando um feriado como dia anterior → o "ontem" da esteira colada; o "hoje" segue do Carrossel', async () => {
+  const resposta = { hoje: [{ nome: 'V9', performance: [{ Equipe: 'GERAL', vendaConcluida: 700 }] }], ontem: [], ultimaExtracao: '13/10/2026 08:00:00', diaOntem: '12/10/2026' };
+  const r = await (await redundancia({ resposta })).buscarRankingVendedores();
+  assert.equal(r.diaOntem, '09/10/2026');
+  assert.match(r.ultimaExtracao, /^Esteira colada/);
+  assert.deepEqual(mapearRanking(r, 'ontem', 'vendaConcluida').vendedores.map((v) => [v.nome, v.totalVendas]), [['V1', 60000]]);
+  assert.deepEqual(mapearRanking(r, 'hoje', 'vendaConcluida').vendedores.map((v) => v.totalVendas), [700], 'hoje ao vivo');
+  // sem esteira colada hoje: a resposta do Carrossel como veio (a carga adia e avisa)
+  const semEsteira = { ...resposta };
+  assert.equal(await (await redundancia({ resposta: semEsteira, colar: false })).buscarRankingVendedores(), semEsteira);
+});
+
 test('redundância: Carrossel fora do ar ou com "Erro" → usa a esteira colada hoje', async () => {
   const caiu = await (await redundancia({ falha: new Error('ECONNREFUSED') })).buscarRankingVendedores();
-  assert.equal(caiu.diaOntem, '10/10/2026');
+  assert.equal(caiu.diaOntem, '09/10/2026');
   assert.match(caiu.ultimaExtracao, /Esteira colada/);
 
   const comErro = await (await redundancia({ resposta: { ultimaExtracao: 'Erro', hoje: [], ontem: [] } })).buscarRankingVendedores();
-  assert.equal(comErro.diaOntem, '10/10/2026');
+  assert.equal(comErro.diaOntem, '09/10/2026');
 });
 
 test('redundância: sem esteira colada hoje → o erro original continua', async () => {
   const falha = new Error('ECONNREFUSED');
   await assert.rejects((await redundancia({ falha, colar: false })).buscarRankingVendedores(), /ECONNREFUSED/);
-  await assert.rejects((await redundancia({ falha, colarEm: '2026-10-10' })).buscarRankingVendedores(), /ECONNREFUSED/);
+  await assert.rejects((await redundancia({ falha, colarEm: '2026-10-09' })).buscarRankingVendedores(), /ECONNREFUSED/);
   await assert.rejects((await redundancia({ falha, limpar: true })).buscarRankingVendedores(), /ECONNREFUSED/);
   const erro = { ultimaExtracao: 'Erro', hoje: [], ontem: [] };
   assert.equal(await (await redundancia({ resposta: erro, colar: false })).buscarRankingVendedores(), erro);
@@ -178,7 +200,7 @@ test('com o Carrossel fora do ar, a esteira colada faz a carga pela meta e o gat
 
   await assert.rejects(svc.executarCargaInicial(), /adiada/);
 
-  await esteira.colar(esteiraCsv([['1', '10/10/2026', 'V1', '60.000,00'], ['2', '10/10/2026', 'V2', '40.000,00']]), HOJE);
+  await esteira.colar(esteiraCsv([['1', '09/10/2026', 'V1', '60.000,00'], ['2', '09/10/2026', 'V2', '40.000,00']]), HOJE);
   await svc.executarCargaInicial();
   assert.deepEqual(movimentos, [['1', 'URA'], ['2', 'ATIVO']]);
 
@@ -206,13 +228,13 @@ test('GET /manual devolve a página; POST /manual exige token, aceita esteira gr
   assert.equal((await enviar('x', {})).status, 401);
   assert.equal((await enviar('Agente;Valor Contrato\nV1;1,00')).status, 422);
 
-  const linhas = Array.from({ length: 5000 }, (_, i) => [String(i), i % 2 ? '13/10/2026' : '10/10/2026', `V${i % 3}`, '20,00']);
+  const linhas = Array.from({ length: 5000 }, (_, i) => [String(i), i % 2 ? '13/10/2026' : '09/10/2026', `V${i % 3}`, '20,00']);
   const resposta = await enviar(esteiraCsv(linhas));
   assert.equal(resposta.status, 200);
   const corpo = await resposta.json();
   assert.equal(corpo.vendas, 5000);
-  assert.equal(corpo.diaAnterior, '10/10/2026');
-  assert.deepEqual(corpo.diasColados, ['10/10/2026', '13/10/2026']);
+  assert.equal(corpo.diaAnterior, '09/10/2026');
+  assert.deepEqual(corpo.diasColados, ['09/10/2026', '13/10/2026']);
   assert.equal(corpo.vendeuHoje.length, 3);
 
   const limpar = (headers = { Authorization: 'Bearer segredo' }) => fetch(`${base}/manual`, { method: 'DELETE', headers });
@@ -227,7 +249,7 @@ test('GET /manual devolve a página; POST /manual exige token, aceita esteira gr
 test('a carga e cada promoção registram de onde vieram as vendas (Carrossel ou esteira)', async () => {
   const relogio = { hoje: () => HOJE };
   const esteira = new EsteiraManualRepository({ arquivo: tmp(), logger: loggerNulo });
-  await esteira.colar(esteiraCsv([['1', '10/10/2026', 'V1', '60.000,00'], ['2', '13/10/2026', 'V2', '10,00']]), HOJE);
+  await esteira.colar(esteiraCsv([['1', '09/10/2026', 'V1', '60.000,00'], ['2', '13/10/2026', 'V2', '10,00']]), HOJE);
   const caido = { async buscarRankingVendedores() { throw new Error('ECONNREFUSED'); } };
   const client = new CarrosselComRedundancia({ client: caido, esteira, relogio, metrica: 'vendaConcluida', logger: loggerNulo });
   const diretorio = {
@@ -247,6 +269,6 @@ test('a carga e cada promoção registram de onde vieram as vendas (Carrossel ou
   await svc.monitorarVendas();
   const status = svc.resumo();
   assert.equal(status.carga.fonte, 'esteira');
-  assert.equal(status.carga.diaAnterior, '10/10/2026');
+  assert.equal(status.carga.diaAnterior, '09/10/2026');
   assert.equal(status.ura.find((v) => v.ramal === '2').fonteDaVenda, 'esteira');
 });

@@ -121,6 +121,7 @@ Consome `GET {CARROSSEL_API_URL}/ranking/vendedores` do Carrosel-BenApi, que dev
 `{ hoje: [...], ontem: [...], semanal, mensal, ultimaExtracao, diaOntem }`.
 - **Total vendido**: campo `CARROSSEL_METRICA` (padrão `vendaConcluida`) da linha `GERAL` de `performance`.
 - **"Ontem"** é o dia útil anterior calculado pelo próprio Carrossel (pula fim de semana e feriados).
+- [NOVO] **Se o Carrossel mandar um feriado ou fim de semana como "ontem"** (como 02/11, Finados), a carga do dia é adiada: os fixos sobem, e o painel ("Vendas e filas") e o log dizem o motivo e o dia útil certo. Cole a esteira desse dia em `/manual`: o "ontem" passa a vir dela, e o "hoje" segue do Carrossel. Os feriados (`src/domain/calendario.js`) são os nacionais de lei e a Sexta-feira Santa, mais o Carnaval (segunda e terça) e o Corpus Christi. Outros dias (feriado da cidade, emenda) entram em `FERIADOS_EXTRAS`. A esteira colada também pula feriados e fins de semana.
 - **Atualização**: o Carrossel refaz o scraping a cada 6 min; um poll de 1 min é suficiente.
 - Se o Carrossel responder `ultimaExtracao: "Erro"` ou vier sem vendas de ontem, a carga do dia é adiada e tentada de novo.
 - Só `src/integrations/carrossel/carrossel.mapper.js` conhece esse formato.
@@ -391,14 +392,14 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
      - robôs por livre = ⌈ (60 ÷ espera alvo) ÷ taxa ⌉, preso entre o piso e o teto do status;
      - padrões (todos trocáveis no `.env`):
 
-       | Status | Espera alvo (`ROBOS_ESPERA_ALVO_*_S`) | Piso (`ROBOS_POR_LIVRE_MIN_*`) | Teto (`ROBOS_POR_LIVRE_MAX_*`) | Todos os robôs com (`ROBOS_TODOS_COM_LIVRES_*`) |
-       | --- | --- | --- | --- | --- |
-       | calma | 45 s | 20 | 20 | 2 livres |
-       | normal (e medindo) | 90 s | 4 | 10 | nunca (0) |
-       | agressiva | 120 s | 2 | 6 | nunca (0) |
+       | Status | Espera alvo (`ROBOS_ESPERA_ALVO_*_S`) | Piso (`ROBOS_POR_LIVRE_MIN_*`) | Teto (`ROBOS_POR_LIVRE_MAX_*`) | Todos os robôs com (`ROBOS_TODOS_COM_LIVRES_*`) | Com 1 livre (`ROBOS_COM_1_LIVRE_*`) |
+       | --- | --- | --- | --- | --- | --- |
+       | calma | 45 s | 20 | 20 | 2 livres | 40 |
+       | normal (e medindo) | 90 s | 4 | 10 | nunca (0) | o teto (0) |
+       | agressiva | 120 s | 2 | 6 | nunca (0) | o teto (0) |
 
-     - **com 1 livre** vale o teto do status (no lugar do `ROBOS_MAX_COM_1_LIVRE`): na calma, 20;
-     - **URA calma com 2 livres ou mais**: todos os robôs (até `ROBOS_MAXIMO`), subindo em degraus;
+     - **com 1 livre** vale o teto do status (no lugar do `ROBOS_MAX_COM_1_LIVRE`); [NOVO] na calma, `ROBOS_COM_1_LIVRE_CALMA` (**40**), de uma vez;
+     - **URA calma com 2 livres ou mais**: todos os robôs (até `ROBOS_MAXIMO`), [NOVO] **de uma vez**, sem os degraus de `ROBOS_DEGRAU` (pedido da supervisão, 03/11);
      - exemplo: 0,1 derivação por robô por minuto → no normal ⌈0,67 ÷ 0,1⌉ = 7 por livre; na agressiva, 5; na calma, o piso de 20;
      - **medindo** (menos de 5 derivações ou 30 robô-minutos na janela, como no começo do dia): vale a conta de antes (abaixo), presa entre o piso e o teto do status;
      - com a taxa valendo, o callback e a URA passiva não mexem no ajuste do dia: o callback já deixa a URA agressiva, e a passividade aparece na taxa;

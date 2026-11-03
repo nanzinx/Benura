@@ -7,6 +7,7 @@
  * isso mantém o restante do código testável e independente do ambiente.
  */
 
+const { lerFeriadosExtras } = require('../domain/calendario');
 const os = require('os');
 const path = require('path');
 const { METRICAS } = require('../integrations/carrossel/carrossel.mapper');
@@ -171,6 +172,8 @@ function carregarConfig(overrides = {}) {
             min: envNum(`ROBOS_POR_LIVRE_MIN_${S}`, meta.min),
             max: envNum(`ROBOS_POR_LIVRE_MAX_${S}`, meta.max),
             todosComLivres: envNum(`ROBOS_TODOS_COM_LIVRES_${S}`, meta.todosComLivres),
+            // [NOVO] robôs com 1 livre só (calma: 40), de uma vez. 0 = o teto de sempre (max).
+            comUmLivre: envNum(`ROBOS_COM_1_LIVRE_${S}`, meta.comUmLivre),
           }];
         })),
       },
@@ -286,6 +289,9 @@ function carregarConfig(overrides = {}) {
     // --- Regras de negócio ---
     regras: {
       metaDiaria: envNum('META_DIARIA', 50_000),
+      // [NOVO] Além dos feriados nacionais (de lei, Carnaval e Corpus Christi, src/domain/calendario.js):
+      // AAAA-MM-DD (só aquele dia) ou DD/MM (todo ano), separados por vírgula. Ex.: 2026-11-30, 25/01
+      feriadosExtras: lerFeriadosExtras(env('FERIADOS_EXTRAS', '')),
       // Operadores fixos: começam o dia na URA com ou sem venda (ramais ou nomes, separados por vírgula).
       fixosUra: envLista('OPERADORES_FIXOS_URA', ''),
       // Equipes fixas: toda a equipe destes supervisores (nomes como na Argus) começa o dia
@@ -579,11 +585,12 @@ function validarRodizio(cfg) {
     fatais.push('GRUPOS_ROBOS_URA_IDS é obrigatório (grupos dos robôs da URA, ex.: 6).');
   }
   if (!(r.robosPorLivre >= 1)) fatais.push('ROBOS_POR_LIVRE deve ser 1 ou mais.');
-  for (const [status, { esperaS, min, max, todosComLivres }] of Object.entries(r.robosTaxa.porStatus)) {
+  for (const [status, { esperaS, min, max, todosComLivres, comUmLivre }] of Object.entries(r.robosTaxa.porStatus)) {
     const S = status.toUpperCase();
     if (!(esperaS >= 10 && esperaS <= 600)) fatais.push(`ROBOS_ESPERA_ALVO_${S}_S deve ficar entre 10 e 600 segundos.`);
     if (!(min >= 1 && max >= min)) fatais.push(`ROBOS_POR_LIVRE_MIN_${S} (${min}) deve ser 1 ou mais e no máximo ROBOS_POR_LIVRE_MAX_${S} (${max}).`);
     if (!(todosComLivres >= 0)) fatais.push(`ROBOS_TODOS_COM_LIVRES_${S} deve ser 0 (nunca) ou mais.`);
+    if (!(comUmLivre >= 0)) fatais.push(`ROBOS_COM_1_LIVRE_${S} deve ser 0 (a regra de sempre) ou mais.`);
   }
   if (!a.gruposAtivosIds.length) fatais.push('GRUPOS_ATIVOS_IDS é obrigatório (whitelist dos grupos do Ativo).');
   if (a.gruposAtivosIds.includes(a.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');

@@ -19,6 +19,7 @@ const { resolverFixos } = require('../integrations/argus/fixos');
 const { distribuirCargaInicial, deveSubirParaUra } = require('../domain/regras-roteamento');
 const { estadoVazio } = require('../repositories/estado.repository');
 const { formatarReais, paraNumero } = require('../utils/moeda');
+const { deDiaBr, diaUtil, feriadoEm, ultimoDiaUtilAntes, SEM_EXTRAS } = require('../domain/calendario');
 
 /** Máximo de re-tentativas de sincronização de um ramal com a discadora no dia. */
 const MAX_TENTATIVAS_SYNC = 5;
@@ -136,7 +137,17 @@ class RoteamentoService {
    * @throws {CargaInicialError}
    */
   executarCargaInicial() {
-    return this.exclusivo(() => this.cargaInicial());
+    return this.exclusivo(async () => {
+      try {
+        const r = await this.cargaInicial();
+        this.cargaAdiada = null;
+        return r;
+      } catch (e) {
+        // [NOVO] O motivo vai para o painel ("carga do dia adiada: ...")
+        if (e instanceof CargaInicialError) this.cargaAdiada = e.message;
+        throw e;
+      }
+    });
   }
 
   async cargaInicial() {
@@ -224,7 +235,24 @@ class RoteamentoService {
     if (vendas.vendedores.length === 0) {
       throw new CargaInicialError('Carga inicial adiada: o Carrossel não retornou vendas do dia anterior.');
     }
+    this.exigirDiaUtil(vendas.diaOntem);
     return vendas;
+  }
+
+  /**
+   * [NOVO] O "dia anterior" vem pronto do Carrossel. Se ele mandar um feriado ou fim de semana (ex.: 02/11,
+   * Finados), quase ninguém vendeu e todos iriam para o Ativo: adia e diz o que fazer.
+   */
+  exigirDiaUtil(diaOntem) {
+    const dia = deDiaBr(diaOntem);
+    const extras = this.regras.feriadosExtras ?? SEM_EXTRAS;
+    if (!dia || diaUtil(dia, extras)) return;
+    const curto = (iso) => iso.split('-').reverse().slice(0, 2).join('/');
+    const semana = new Date(`${dia}T12:00:00Z`).getUTCDay();
+    const motivo = feriadoEm(dia, extras) ?? (semana === 6 ? 'sábado' : 'domingo');
+    const util = curto(ultimoDiaUtilAntes(this.relogio.hoje(), extras));
+    throw new CargaInicialError(`Carga do dia adiada: o Carrossel mandou ${curto(dia)} (${motivo}) como dia anterior, e não é dia útil. `
+      + `Cole a esteira do dia útil (${util}) em /manual; a carga sai no próximo ciclo. Os fixos já estão na URA.`);
   }
 
   async montarUniversoOuAdiar(vendasOntem) {
@@ -475,6 +503,8 @@ class RoteamentoService {
     return {
       data: this.estado.data,
       cargaInicialFeita: this.cargaInicialFeitaHoje(),
+      // [NOVO] por que a carga não saiu (ex.: o Carrossel mandou um feriado como dia anterior)
+      cargaAdiada: this.cargaInicialFeitaHoje() ? null : (this.cargaAdiada ?? null),
       carga: this.estado.carga || null,
       meta: this.regras.metaDiaria,
       ultimoMonitoramento: this.ultimoMonitoramento,

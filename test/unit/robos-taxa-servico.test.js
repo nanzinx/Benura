@@ -124,13 +124,13 @@ test('config: ROBOS_CALCULO=taxa por padrão, metas por status pelo .env, valida
   const { cfg, fatais } = config({});
   assert.equal(cfg.rodizio.robosCalculo, 'taxa');
   assert.equal(cfg.rodizio.prepararSaidaMs, 15_000, 'último livre: os robôs param 15 s antes de ele sair');
-  assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 45, min: 20, max: 20, todosComLivres: 2 });
-  assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.agressiva, { esperaS: 120, min: 2, max: 6, todosComLivres: 0 });
+  assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 45, min: 20, max: 20, todosComLivres: 2, comUmLivre: 40 });
+  assert.deepEqual(cfg.rodizio.robosTaxa.porStatus.agressiva, { esperaS: 120, min: 2, max: 6, todosComLivres: 0, comUmLivre: 0 });
   assert.deepEqual(fatais, []);
 
-  const trocado = config({ ROBOS_CALCULO: 'FIXO', ROBOS_ESPERA_ALVO_CALMA_S: '30', ROBOS_POR_LIVRE_MIN_CALMA: '15', ROBOS_POR_LIVRE_MAX_CALMA: '25', ROBOS_TODOS_COM_LIVRES_CALMA: '3' });
+  const trocado = config({ ROBOS_CALCULO: 'FIXO', ROBOS_ESPERA_ALVO_CALMA_S: '30', ROBOS_POR_LIVRE_MIN_CALMA: '15', ROBOS_POR_LIVRE_MAX_CALMA: '25', ROBOS_TODOS_COM_LIVRES_CALMA: '3', ROBOS_COM_1_LIVRE_CALMA: '30' });
   assert.equal(trocado.cfg.rodizio.robosCalculo, 'fixo');
-  assert.deepEqual(trocado.cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 30, min: 15, max: 25, todosComLivres: 3 });
+  assert.deepEqual(trocado.cfg.rodizio.robosTaxa.porStatus.calma, { esperaS: 30, min: 15, max: 25, todosComLivres: 3, comUmLivre: 30 });
 
   const ruim = config({ ROBOS_POR_LIVRE_MIN_NORMAL: '12', ROBOS_ESPERA_ALVO_AGRESSIVA_S: '5' });
   assert.match(ruim.fatais.join(' | '), /ROBOS_POR_LIVRE_MIN_NORMAL.*ROBOS_POR_LIVRE_MAX_NORMAL/);

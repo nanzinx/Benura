@@ -472,6 +472,8 @@ export interface Vendedor {
 
 export interface StatusRoteador {
   cargaInicialFeita?: boolean;
+  /** [NOVO] Por que a carga do dia não saiu (ex.: o Carrossel mandou um feriado como dia anterior). */
+  cargaAdiada?: string | null;
   ultimoMonitoramento?: string | null;
   meta?: number;
   /** Carga do dia: de que dia são as vendas de "ontem" (ex.: "20/10/2026"). */
