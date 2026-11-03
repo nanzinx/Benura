@@ -58,7 +58,10 @@ const metodosDosRobos = {
    * e webhook) não se sobrepõem: quem chega durante uma avaliação pede outra rodada.
    */
   async avaliarRobos() {
-    if (this.papel === 'pessoas') return this.enviarAosRobos(); // [NOVO] quem decide é o de robôs
+    if (this.papel === 'pessoas') { // [NOVO] quem decide é o de robôs; a linha do tempo do painel é daqui
+      await this.enviarAosRobos();
+      return this.registrarLinhaDoTempo();
+    }
     if (this.emModoManual()) return;
     if (this.avaliandoRobos) {
       this.reavaliarRobos = true;
@@ -273,10 +276,34 @@ const metodosDosRobos = {
    * cruzar com a hora de cada callback (npm run diagnostico:callbacks).
    */
   registrarMudancaDeLivres(livres, alvo) {
-    if (livres === this.ultimosLivres) return;
+    // [NOVO] Com os robôs num serviço próprio, a linha é do de pessoas (no rodizio.txt, que o painel lê).
+    if (this.papel === 'robos') return;
+    this.escreverLinhaDoTempo(livres, this.robos.situacao(this.ramaisRobos.length).ligados, alvo);
+  },
+
+  /**
+   * [NOVO] No de pessoas: os livres contados aqui e os robôs ligados pelo que o serviço dos robôs
+   * respondeu. Com ele sem responder, "?" (o gráfico mostra o vão, não 0).
+   */
+  registrarLinhaDoTempo(agora = Date.now()) {
+    const { livres } = alvoDeRobos({
+      ramaisUra: [...this.ramaisUra],
+      status: this.statusUra,
+      agora,
+      total: this.ramaisRobos.length,
+      cfg: { porLivre: 1, validadeStatusMs: Math.max(VALIDADE_STATUS_MS, (this.cfg.pollUraMs ?? 0) * 2 + 1000) },
+    });
+    const ligados = this.robosSemResposta ? null : this.robos.situacao(this.ramaisRobos.length).ligados;
+    this.escreverLinhaDoTempo(livres, ligados, null);
+  },
+
+  /** Uma linha quando mudam os livres ou os robôs ligados (antes, só os livres: o gráfico não via os robôs). */
+  escreverLinhaDoTempo(livres, ligados, alvo) {
+    const anterior = this.ultimaLinhaDoTempo;
+    if (anterior && anterior.livres === livres && anterior.ligados === (ligados ?? null)) return;
+    this.ultimaLinhaDoTempo = { livres, ligados: ligados ?? null };
     const humanos = [...this.ramaisUra].filter((r) => this.statusUra.has(r) && this.statusUra.get(r).classe !== Classe.OFFLINE).length;
-    const { ligados } = this.robos.situacao(this.ramaisRobos.length);
-    this.log.info(`URA: livres ${this.ultimosLivres ?? '?'}→${livres} | humanos ${humanos} | robôs ligados ${ligados ?? '?'}${alvo == null ? '' : ` (alvo ${alvo})`}`
+    this.log.info(`URA: livres ${anterior?.livres ?? this.ultimosLivres ?? '?'}→${livres} | humanos ${humanos} | robôs ligados ${ligados ?? '?'}${alvo == null ? '' : ` (alvo ${alvo})`}`
       + `${this.descreverLivres()}`);
   },
 

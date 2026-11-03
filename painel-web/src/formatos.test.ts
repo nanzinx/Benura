@@ -34,6 +34,21 @@ describe('formatos', () => {
     ]);
     expect(degraus([{ hora: '08:00:00', n: null }], (p) => p.n, { agora, janelaSeg: null })).toEqual([]);
   });
+
+  it('[NOVO] sem dado no meio (robôs sem resposta): a linha para ali e volta com o próximo valor; não vira 0 nem estica', () => {
+    const t = segundosDoDia;
+    const agora = t('08:30:00');
+    const pontos = [{ hora: '08:00:00', n: 2 }, { hora: '08:10:00', n: null }, { hora: '08:20:00', n: 3 }];
+    expect(degraus(pontos, (p) => p.n, { agora, janelaSeg: null })).toEqual([
+      { t: t('08:00:00'), y: 2 }, { t: t('08:10:00'), y: 2 }, { t: t('08:10:00'), y: null }, { t: t('08:20:00'), y: 3 }, { t: agora, y: 3 },
+    ]);
+    // terminou sem dado: o eixo vai até agora, mas sem linha (o vão aparece)
+    expect(degraus([{ hora: '08:00:00', n: 2 }, { hora: '08:10:00', n: null }], (p) => p.n, { agora, janelaSeg: null })).toEqual([
+      { t: t('08:00:00'), y: 2 }, { t: t('08:10:00'), y: 2 }, { t: t('08:10:00'), y: null }, { t: agora, y: null },
+    ]);
+    // começou sem dado: ignora até o primeiro valor
+    expect(degraus([{ hora: '08:00:00', n: null }, { hora: '08:10:00', n: 1 }], (p) => p.n, { agora, janelaSeg: null }).map((p) => p.y)).toEqual([1, 1]);
+  });
 });
 
 describe('receptivo [NOVO]', () => {
