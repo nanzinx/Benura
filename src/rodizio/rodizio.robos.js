@@ -305,7 +305,10 @@ const metodosDosRobos = {
     if (anterior && anterior.livres === livres && anterior.ligados === (ligados ?? null)) return;
     this.ultimaLinhaDoTempo = { livres, ligados: ligados ?? null };
     const humanos = [...this.ramaisUra].filter((r) => this.statusUra.has(r) && this.statusUra.get(r).classe !== Classe.OFFLINE).length;
-    this.log.info(`URA: livres ${anterior?.livres ?? this.ultimosLivres ?? '?'}→${livres} | humanos ${humanos} | robôs ligados ${ligados ?? '?'}${alvo == null ? '' : ` (alvo ${alvo})`}`
+    // "Antes": o da última linha. Sem ela, no de pessoas "?" (o ultimosLivres de lá é o que o serviço dos
+    // robôs respondeu, não uma linha anterior); no "tudo", o ultimosLivres, como sempre.
+    const antes = anterior ? anterior.livres : this.papel === 'pessoas' ? null : this.ultimosLivres;
+    this.log.info(`URA: livres ${antes ?? '?'}→${livres} | humanos ${humanos} | robôs ligados ${ligados ?? '?'}${alvo == null ? '' : ` (alvo ${alvo})`}`
       + `${this.descreverLivres()}`);
   },
 
