@@ -43,9 +43,19 @@ export const motivoLegivel = (motivo: string | null | undefined): string => Stri
  * ponto de "agora" (o último valor continua valendo) e corta pela janela pedida.
  */
 export function degraus<T extends { hora: string }>(pontos: T[], valor: (p: T) => number | null, { agora, janelaSeg }: { agora: number; janelaSeg: number | null }) {
-  const serie = pontos
-    .map((p) => ({ t: segundosDoDia(p.hora), y: valor(p) }))
-    .filter((p): p is { t: number; y: number } => p.y != null);
+  // [NOVO] Um ponto sem dado (ex.: o serviço dos robôs sem responder) corta a linha ali: o valor
+  // anterior vale até aquele momento e depois fica o vão, sem virar 0 nem esticar.
+  const serie: { t: number; y: number | null }[] = [];
+  for (const p of pontos) {
+    const t = segundosDoDia(p.hora);
+    const y = valor(p);
+    const anterior = serie.at(-1);
+    if (y == null) {
+      if (anterior?.y != null) serie.push({ t, y: anterior.y }, { t, y: null });
+      continue;
+    }
+    serie.push({ t, y });
+  }
   if (!serie.length) return [];
   const ultimo = serie[serie.length - 1]!;
   if (agora > ultimo.t) serie.push({ t: agora, y: ultimo.y });

@@ -255,3 +255,40 @@ test('papel robôs: erro ao montar o resumo não derruba a resposta ao de pessoa
   assert.equal(resposta.resumo, null);
   assert.ok(Array.isArray(resposta.robos.ligadosRamais));
 });
+
+test('[NOVO] papel pessoas: escreve a linha do tempo da URA (o gráfico do painel) quando mudam os livres ou os robôs', async () => {
+  const { lerMudancaDeLivres } = require('../../src/domain/painel');
+  let resposta = { robos: { ligadosRamais: ['900', '901'], alvo: 2, mudancasPorFora: 0 }, instancia: 'r1', eventos: [], ack: null };
+  let falhar = false;
+  const ligacaoRobos = { enviar: async () => { if (falhar) throw new Error('fora do ar'); return resposta; } };
+  const { svc, linhas } = pessoas({ ligacaoRobos });
+  const pontos = () => linhas.map((l) => lerMudancaDeLivres(`08:00:00 ${l}`)).filter(Boolean);
+
+  await svc.avaliarRobos();
+  assert.equal(pontos().length, 1, 'a primeira linha do dia');
+  const livres = pontos()[0].livres;
+  assert.equal(pontos()[0].robos, 2, 'robôs ligados pelo que o serviço dos robôs respondeu');
+
+  await svc.avaliarRobos();
+  assert.equal(pontos().length, 1, 'nada mudou: nenhuma linha nova');
+
+  resposta = { ...resposta, robos: { ...resposta.robos, ligadosRamais: ['900', '901', '902'] } };
+  await svc.avaliarRobos();
+  assert.deepEqual([pontos().length, pontos()[1].livres, pontos()[1].robos], [2, livres, 3], 'só os robôs mudaram: linha nova');
+
+  svc.statusUra.set('201', { classe: Classe.ATENDIMENTO, ts: Date.now() });
+  await svc.avaliarRobos();
+  assert.deepEqual([pontos().length, pontos()[2].livres, pontos()[2].robos], [3, livres - 1, 3], 'os livres mudaram');
+
+  falhar = true;
+  await svc.avaliarRobos();
+  assert.deepEqual([pontos().length, pontos()[3].robos], [4, null], 'serviço dos robôs sem responder: "?" (sem dado, não 0)');
+});
+
+test('[NOVO] papel robôs: não escreve a linha do tempo (a do de pessoas, no rodizio.txt, é a que o painel lê)', () => {
+  const { svc, linhas } = robos();
+  svc.ramaisUra = new Set(['201']);
+  svc.statusUra.set('201', { classe: Classe.LIVRE, ts: Date.now(), livreDesde: Date.now() - 1000 });
+  svc.registrarMudancaDeLivres(1, 2);
+  assert.ok(!linhas.some((l) => /URA: livres/.test(l)));
+});
