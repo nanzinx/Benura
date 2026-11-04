@@ -119,6 +119,8 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'As sugestões só sugerem: quem muda os números é a supervisão, no .env. A "Planilha" da aba baixa por dia, os totais com o período anterior e por atendente.',
       '"Ver tendência dia a dia" (logo abaixo dos quadros) abre um gráfico de um indicador por vez: OPL, transbordos, TME ou leads. A linha verde marca o fim da faixa verde. Fechado, não ocupa a tela; o navegador lembra se você deixou aberto.',
       'Nos 30 dias, a tabela mostra os 10 dias mais recentes; "Ver todos" mostra o resto. O total é sempre do período inteiro. No celular, cada linha das tabelas do relatório vira um cartão.',
+      '"Ver mapa de risco dos robôs": para cada tanto de gente livre (0, 1, 2, 3, 4 ou mais) e de robôs ligados, quantos callbacks de fila houve por lead. A meta é 1 em 200 (0,5%): verde até ela, âmbar até 1%, vermelho acima, cinza com pouca amostra (menos de 50 ligações). Dá para ver por status da URA. No topo fica o número do período (callbacks de fila a cada 200 leads); toque num quadrinho para ver o detalhe dele. Sem nenhum tocado, "Até onde ficou na meta" diz, para cada tanto de livres, até quantos robôs ficou no verde.',
+      'Callback com gente livre no momento é "invisível" (a ligação não chegou em quem estava livre: telefonia ou Argus). Fica à parte, porque não depende dos robôs. O mapa ainda não muda os robôs: com umas duas semanas de dados, o automático poderá ligar o máximo que fica no verde.',
     ],
   },
   {

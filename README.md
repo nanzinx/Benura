@@ -362,6 +362,15 @@ No painel, aba **Receptivo**, cada atendente tem um menu (⋮) com as ações do
          - a barra mostra o status da URA dia a dia; a **Planilha** baixa **Por dia**, **Totais** (com o período anterior) e **Por atendente**;
          - [NOVO] **"Ver tendência dia a dia"** (fechado por padrão) abre um gráfico de um indicador por vez (OPL, transbordos, TME ou leads), com a linha do fim da faixa verde;
          - [NOVO] nos 30 dias, a tabela mostra os **10 dias mais recentes** e um "Ver todos"; no celular, as tabelas do relatório viram **cartões**;
+         - [NOVO] **"Ver mapa de risco dos robôs"** (fechado por padrão), a etapa 1 da métrica dos robôs (`src/domain/mapa-risco.js`): só mede e mostra, não muda os robôs.
+           - **O que anota:** a cada ligação da URA que termina (lead ou callback), o BenURA registra a situação de quando o cliente entrou: quantos livres havia, quantos robôs estavam ligados e o status da URA.
+           - **O mapa:** livres (0, 1, 2, 3, 4+) × robôs ligados (0, 1-10, 11-20, 21-30, 31-40, 41+). Cada célula mostra quantos callbacks de fila houve por lead.
+           - **As cores:** verde até a meta de **1 em 200 (0,5%)**, âmbar até 1%, vermelho acima, cinza com menos de 50 ligações (pouca amostra).
+           - **Os invisíveis:** callback com gente livre no momento é "invisível" (a ligação não chegou em quem estava livre: telefonia ou Argus). Fica contado à parte e não entra na taxa, porque não depende dos robôs.
+           - **Seletor:** todos, calma, normal ou agressiva.
+           - **Na tela:** no topo, um número só (callbacks de fila a cada 200 leads, meta 1). Na grade, só a cor e o %; ao tocar num quadrinho, o detalhe aparece embaixo (leads, callbacks e invisíveis). Sem nenhum tocado, **"Até onde ficou na meta"** mostra, para cada tanto de livres, a maior faixa de robôs no verde antes da primeira fora da meta (`pontoSeguro` em `painel-web/src/mapa-risco.ts`). A explicação fica em "Como ler".
+           - **Etapa 2:** com umas duas semanas de dados, o automático poderá ligar, para cada tanto de livres, o máximo de robôs que fica no verde.
+           - Cada dia do histórico guarda o mapa dele. As fotos da URA ficam só em memória (15 min): logo depois de um reinício, as primeiras ligações ficam fora do mapa (contadas em `semFotoNoMapa`).
          - cada dia do histórico guarda também os minutos em normal, agressiva e medindo, a média de robôs ligados, o resumo por atendente, os números **por status** (cada hora conta para o status em que a URA passou mais da metade; horas com os robôs fora do automático ou com robôs por livre escolhido à mão não contam) e uma **foto da configuração** do começo do dia (cálculo, robôs por livre e espera alvo de cada status, "todos com N livres" da calma, `TEMPO_MIN` e os livres da URA cheia; nenhum segredo). Se a configuração muda no meio do dia (reinício com outro `.env`), o dia fica marcado e não entra nas sugestões.
        - [NOVO] **Sugestões** (`src/domain/sugestoes.js`), só sugerem, nunca mudam nada:
          - por status (calma, normal, agressiva), comparam a configuração atual com a anterior pelo **OPL** e pelos **transbordos por hora**, só das horas daquele status, contando só dias completos com **2 h ou mais** nele e só com **3 dias ou mais** de cada lado (usam todo o histórico, não só os dias da aba);
@@ -462,6 +471,26 @@ Para descobrir **quando** e **por que** os robôs geram callback:
 4. **Aviso no rodízio:** quem está no grupo da URA mas logado na telefonia em outro grupo gera um aviso no log (uma vez por ramal) e aparece em `uraLogadosEmOutroGrupo` no `/health`. Com `DRY_RUN=1` o rodízio só avisa e registra `[DRY_RUN] Relogaria ...`.
 
 Compare a hora de cada callback com a linha do tempo daquele minuto.
+
+5. **[NOVO] Ligações derivadas mudas ou que caem direto no pós-chamada, só leitura:**
+   ```bash
+   npm run diagnostico:mudas                        # hoje, desde a meia-noite
+   npm run diagnostico:mudas -- --minutos 240       # só os últimos 240 min
+   npm run diagnostico:mudas -- --ate-seg 10        # curta = até 10 s (padrão 15)
+   npm run diagnostico:mudas -- --janela-seg 30     # "perto" = até 30 s antes ou depois (padrão 20)
+   ```
+   - **O que faz:** busca as ligações do grupo da URA (`GRUPO_URA_ID`) no relatório de ligações da Argus. Separa as **curtas** (até `--ate-seg`, as mudas ou que caíram no pós-chamada) das normais.
+   - **O cruzamento:** para cada ligação, procura nos logs de hoje (`logs/AAAA-MM-DD/rodizio.txt` e `robos.txt`) o que o BenURA fez **no mesmo ramal** perto daquela hora:
+     - subiu para a URA ou voltou ao Ativo;
+     - foi relogado (`ALINHAR_LOGIN_APOS_TRANSFERIR`);
+     - foi movido à mão pelo painel;
+     - a telefonia trocou para a URA.
+     
+     Marca também as rajadas de robôs (10 ou mais ligados de uma vez).
+   - **Como ler:** compare a porcentagem das curtas com a das normais.
+     - **As curtas com bem mais evento por perto** (ex.: 17 de 40 com relogin, contra 2% das normais) indicam que o BenURA está no caminho. A correção é conferir o status de novo logo antes de trocar ou relogar, ou desligar o relogin.
+     - **Parecidas**, o problema está na Argus, na operadora ou na rede (SIP). Leve o resultado ao suporte da Argus.
+   - **Onde fica:** o resultado vai para `logs/diagnostico-mudas-AAAA-MM-DD.json`. Da ligação, guarda só a hora, o operador, o resultado e a duração; nada do cliente. Como os logs são os do dia, as ligações também são só as de hoje.
 
 ### Perfis de clientes e cliente de risco
 O BenURA monta um perfil de cada telefone das bases da URA a partir do relatório de ligações dos robôs (só leitura):
