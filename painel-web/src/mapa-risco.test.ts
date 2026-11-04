@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { celulasDoMapa, FAIXAS_LIVRES, FAIXAS_ROBOS, nivelDaCelula, pontoSeguro, resumoDoMapa, taxaEmTexto } from './mapa-risco';
+import { celulasDoMapa, FAIXAS_LIVRES, FAIXAS_ROBOS, foraDoMapa, nivelDaCelula, pontoSeguro, resumoDoMapa, taxaEmTexto } from './mapa-risco';
 
 const mapa = {
   '1|31-40|calma': { leads: 198, fila: 2, invisiveis: 1 },
@@ -53,5 +53,18 @@ describe('mapa de risco dos robôs', () => {
     expect(p.find((x) => x.livres === '3')).toEqual({ livres: '3', ate: null, parou: '1-10' });
     expect(p.find((x) => x.livres === '4+')).toEqual({ livres: '4+', ate: null, parou: null });
     expect(p.map((x) => x.livres)).toEqual(['1', '2', '3', '4+']); // com 0 livre não há ponto seguro: é sempre fila
+  });
+
+  it('célula só com invisíveis não some: vira pouca amostra, com a taxa "–"', () => {
+    const c = { livres: '2', robos: '11-20', leads: 0, fila: 0, invisiveis: 2 };
+    expect(nivelDaCelula(c)).toBe('pouca');
+    expect(taxaEmTexto(c)).toBe('–');
+    expect(nivelDaCelula({ ...c, invisiveis: 0 })).toBe('vazia');
+  });
+
+  it('fora do mapa: os transbordos do período que o mapa não tem (antes de ele começar ou sem foto)', () => {
+    expect(foraDoMapa(24, { fila: 0, invisiveis: 2 })).toBe(22);
+    expect(foraDoMapa(3, { fila: 2, invisiveis: 2 })).toBe(0);
+    expect(foraDoMapa(undefined, { fila: 0, invisiveis: 0 })).toBe(0);
   });
 });

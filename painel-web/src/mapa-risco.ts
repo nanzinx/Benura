@@ -42,7 +42,7 @@ export type NivelDaCelula = 'vazia' | 'pouca' | 'bom' | 'atencao' | 'ruim';
 
 export function nivelDaCelula(c: CelulaDoMapa): NivelDaCelula {
   const total = c.leads + c.fila;
-  if (!total) return 'vazia';
+  if (!total) return c.invisiveis ? 'pouca' : 'vazia'; // só invisíveis: aparece (não some), sem taxa
   if (total < AMOSTRA_MINIMA) return 'pouca';
   const t = taxa(c)!;
   return t <= META ? 'bom' : t <= ATENCAO ? 'atencao' : 'ruim';
@@ -77,6 +77,14 @@ export function pontoSeguro(celulas: CelulaDoMapa[]): PontoSeguro[] {
     }
     return { livres, ate, parou: null };
   });
+}
+
+/**
+ * Os transbordos do período que o mapa não tem: os de antes de ele começar a anotar (o quadro
+ * Transbordos já contava) e os logo depois de um reinício (sem foto da URA). Nunca menos que zero.
+ */
+export function foraDoMapa(transbordos: number | null | undefined, r: { fila: number; invisiveis: number }): number {
+  return Math.max(0, (transbordos ?? 0) - r.fila - r.invisiveis);
 }
 
 /** O período todo: leads, callbacks de fila, invisíveis e quantos de fila a cada 200 ligações. */
