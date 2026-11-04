@@ -7,7 +7,7 @@
 import { clsx } from 'clsx';
 import { CircleHelp, ShieldCheck, X } from 'lucide-react';
 import { useState } from 'react';
-import { celulasDoMapa, FAIXAS_LIVRES, FAIXAS_ROBOS, nivelDaCelula, pontoSeguro, resumoDoMapa, taxaEmTexto, type NivelDaCelula, type PontoSeguro } from '../mapa-risco';
+import { celulasDoMapa, FAIXAS_LIVRES, FAIXAS_ROBOS, foraDoMapa, nivelDaCelula, pontoSeguro, resumoDoMapa, taxaEmTexto, type NivelDaCelula, type PontoSeguro } from '../mapa-risco';
 import type { CelulaDoMapa, MapaDeRisco as Mapa, StatusDoMapa } from '../tipos';
 import { Segmentado } from '../ui/base';
 
@@ -30,7 +30,8 @@ const nomeDosRobos = (r: string) => (r === '0' ? 'nenhum robô' : r === '41+' ? 
 const teto = (r: string) => (r === '41+' ? '41 ou mais robôs' : `até ${r.split('-')[1]} robôs`);
 const virgula = (n: number) => String(n).replace('.', ',');
 
-export function MapaDeRisco({ mapa, semFoto = 0 }: { mapa: Mapa | undefined; semFoto?: number }) {
+/** transbordos: os do período (o quadro Transbordos), para mostrar quantos o mapa não tem. */
+export function MapaDeRisco({ mapa, transbordos }: { mapa: Mapa | undefined; transbordos?: number }) {
   const [status, setStatus] = useState<StatusDoMapa | 'todos'>('todos');
   const [escolhida, setEscolhida] = useState<{ livres: string; robos: string } | null>(null);
   const [comoLer, setComoLer] = useState(false);
@@ -40,6 +41,8 @@ export function MapaDeRisco({ mapa, semFoto = 0 }: { mapa: Mapa | undefined; sem
   const de = (livres: string, robos: string) => celulas.find((c) => c.livres === livres && c.robos === robos)!;
   const nivelGeral: NivelDaCelula = resumo.porDuzentos == null ? 'vazia' : resumo.porDuzentos <= 1 ? 'bom' : resumo.porDuzentos <= 2 ? 'atencao' : 'ruim';
   const atual = escolhida ? de(escolhida.livres, escolhida.robos) : null;
+  // os transbordos do período são de todos os status: "fora do mapa" só faz sentido em Todos
+  const fora = filtro == null && transbordos != null ? foraDoMapa(transbordos, resumo) : 0;
 
   return (
     <div className="grid gap-4">
@@ -54,12 +57,22 @@ export function MapaDeRisco({ mapa, semFoto = 0 }: { mapa: Mapa | undefined; sem
           })}>{resumo.porDuzentos == null ? '–' : virgula(resumo.porDuzentos)}</span>
           <span className="text-sm leading-tight text-slate-600 dark:text-slate-300">
             callback(s) de fila a cada 200 leads<br />
-            <span className="text-xs text-slate-500 dark:text-slate-400">meta: 1 · {resumo.leads} leads e {resumo.fila} callback(s) no período</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">meta: 1 · {resumo.leads} leads no período</span>
           </span>
         </div>
         <Segmentado rotulo="Status da URA no mapa" valor={status} aoMudar={(v) => { setStatus(v); setEscolhida(null); }}
           opcoes={[{ valor: 'todos', texto: 'Todos' }, { valor: 'calma', texto: 'Calma' }, { valor: 'normal', texto: 'Normal' }, { valor: 'agressiva', texto: 'Agressiva' }]} />
       </div>
+
+      {/* todos os callbacks do período, separados: só os de fila entram no % */}
+      <ul aria-label="Callbacks do período" className="-mt-1 flex flex-wrap gap-1.5 text-xs">
+        <Contagem cor="bg-slate-100 text-slate-700 dark:bg-noite-800 dark:text-slate-200" ponto="bg-red-500" n={resumo.fila}
+          texto="de fila (entram no %)" dica="Não havia ninguém livre quando o cliente entrou: faltou gente. É o que os robôs podem causar." mostrarZero />
+        <Contagem cor="bg-violet-50 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200" ponto="bg-violet-500" n={resumo.invisiveis}
+          texto="invisível(is), havia gente livre" dica="Tinha gente livre e a ligação não chegou nela (telefonia ou Argus). Não depende dos robôs, por isso fica fora do %. O pontinho roxo no quadrinho mostra onde caíram." />
+        <Contagem cor="bg-slate-100 text-slate-500 dark:bg-noite-800 dark:text-slate-400" ponto="bg-slate-400" n={fora}
+          texto="fora do mapa" dica="Callbacks do período que o mapa não tem: de antes de ele começar a anotar ou logo depois de um reinício (sem a foto da URA daquela hora). Estão no quadro Transbordos." />
+      </ul>
 
       {/* a grade: só a cor e o %; o detalhe aparece ao tocar */}
       <div role="grid" aria-label="Mapa de risco: livres × robôs ligados" className="grid grid-cols-[3.25rem_repeat(6,minmax(0,1fr))] gap-1 sm:grid-cols-[6.5rem_repeat(6,minmax(0,1fr))] sm:gap-1.5">
@@ -99,10 +112,7 @@ export function MapaDeRisco({ mapa, semFoto = 0 }: { mapa: Mapa | undefined; sem
         <div className="animate-entrar grid gap-1.5 text-sm text-slate-600 dark:text-slate-300">
           <p>Cada quadrinho é um momento da URA: quanta gente estava livre (linha) e quantos robôs estavam ligados (coluna) quando o cliente entrou. O % é quantas dessas ligações viraram callback de fila. A meta é 1 a cada 200 (0,5%).</p>
           <p>Ainda não muda os robôs: com umas duas semanas de dados, o automático poderá ligar o máximo que fica no verde.</p>
-          <p className="text-slate-500 dark:text-slate-400">
-            <b>{resumo.invisiveis}</b> callback(s) invisível(is) ficaram fora da conta: tinha gente livre e a ligação não chegou (telefonia ou Argus), então não depende dos robôs.
-            {semFoto > 0 && <> {semFoto} ligação(ões) logo depois de um reinício ficaram fora do mapa.</>}
-          </p>
+          <p>Callback <b>de fila</b>: não havia ninguém livre quando o cliente entrou. Só esses entram no %. <b>Invisível</b>: tinha gente livre e a ligação não chegou (telefonia ou Argus). <b>Fora do mapa</b>: de antes de o mapa começar a anotar ou logo depois de um reinício.</p>
         </div>
       )}
     </div>
@@ -126,12 +136,17 @@ function Linha({ livres, indice, de, escolhida, aoEscolher }: {
         if (nivel === 'vazia') return <span key={r} aria-hidden className={clsx('h-10 rounded-lg sm:h-12', COR.vazia)} />;
         return (
           <button key={r} type="button" onClick={() => aoEscolher(r)} aria-pressed={marcada}
-            aria-label={`${nomeDosLivres(livres)}, ${nomeDosRobos(r)}: ${taxaEmTexto(c)}, ${FRASE[nivel]}`}
+            aria-label={`${nomeDosLivres(livres)}, ${nomeDosRobos(r)}: ${taxaEmTexto(c)}, ${FRASE[nivel]}${c.invisiveis ? `, ${c.invisiveis} invisível(is)` : ''}`}
             style={{ animationDelay: `${(indice * 6 + ri) * 18}ms` }}
-            className={clsx('animate-entrar [animation-duration:0.3s] [animation-fill-mode:backwards] h-10 cursor-pointer rounded-lg text-[11px] font-bold tabular-nums transition duration-150 sm:h-12 sm:text-sm',
+            className={clsx('animate-entrar [animation-duration:0.3s] [animation-fill-mode:backwards] relative h-10 cursor-pointer rounded-lg text-[11px] font-bold tabular-nums transition duration-150 sm:h-12 sm:text-sm',
               'hover:scale-[1.06] hover:shadow-md focus-visible:outline-2 focus-visible:outline-azul-500',
               COR[nivel], marcada && 'scale-[1.06] shadow-md ring-2 ring-azul-500 dark:ring-azul-300', apagada && 'opacity-45')}>
             {taxaEmTexto(c)}
+            {c.invisiveis > 0 && (
+              <span aria-hidden className="absolute -top-1.5 -right-1.5 grid min-w-4 place-items-center rounded-full bg-violet-500 px-1 text-[9px] leading-4 font-bold text-white shadow-sm ring-2 ring-white sm:text-[10px] dark:ring-noite-900">
+                {c.invisiveis}
+              </span>
+            )}
           </button>
         );
       })}
@@ -155,10 +170,15 @@ function Detalhe({ c, aoFechar }: { c: CelulaDoMapa; aoFechar: () => void }) {
       </div>
       <p className="flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
         <span className={clsx('rounded-md px-2 py-0.5 font-bold tabular-nums', COR[nivel])}>{taxaEmTexto(c)}</span>
-        <span>{FRASE[nivel]}{nivel !== 'pouca' && <> · mais ou menos <b>{virgula(porDuzentos)}</b> a cada 200</>}</span>
+        <span>{total ? FRASE[nivel] : 'nenhum lead nem callback de fila aqui'}{nivel !== 'pouca' && <> · mais ou menos <b>{virgula(porDuzentos)}</b> a cada 200</>}</span>
       </p>
-      <p className="text-xs text-slate-500 dark:text-slate-400">
-        {c.leads} lead(s) · {c.fila} callback(s) de fila{c.invisiveis ? ` · ${c.invisiveis} invisível(is), fora da conta` : ''}
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+        <span>{c.leads} lead(s) · {c.fila} callback(s) de fila</span>
+        {c.invisiveis > 0 && (
+          <span className="rounded-md bg-violet-50 px-1.5 py-0.5 font-medium text-violet-800 dark:bg-violet-950/60 dark:text-violet-200">
+            {c.invisiveis} invisível(is): havia gente livre e a ligação não chegou (fora do %)
+          </span>
+        )}
       </p>
     </div>
   );
@@ -168,9 +188,9 @@ function PontosSeguros({ pontos }: { pontos: PontoSeguro[] }) {
   const algum = pontos.some((p) => p.ate || p.parou);
   return (
     <div className="grid gap-2">
-      <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+      <p className="flex flex-wrap items-center gap-x-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
         <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden /> Até onde ficou na meta
-        <span className="font-normal text-slate-500 dark:text-slate-400">· toque num quadrinho para ver o detalhe</span>
+        <span className="font-normal text-slate-500 max-sm:w-full max-sm:text-xs dark:text-slate-400"><span className="max-sm:hidden">· </span>toque num quadrinho para ver o detalhe</span>
       </p>
       {algum ? (
         <ul className="flex flex-wrap gap-1.5 text-xs">
@@ -185,5 +205,15 @@ function PontosSeguros({ pontos }: { pontos: PontoSeguro[] }) {
         <p className="text-xs text-slate-500 dark:text-slate-400">Ainda sem ligações suficientes (50 por quadrinho) para dizer. O mapa vai enchendo com os dias.</p>
       )}
     </div>
+  );
+}
+
+function Contagem({ n, texto, dica, cor, ponto, mostrarZero = false }: { n: number; texto: string; dica: string; cor: string; ponto: string; mostrarZero?: boolean }) {
+  if (!n && !mostrarZero) return null;
+  return (
+    <li title={dica} className={clsx('inline-flex animate-entrar items-center gap-1.5 rounded-full px-2.5 py-1', cor)}>
+      <span className={clsx('size-2 rounded-full', ponto)} aria-hidden />
+      <b className="tabular-nums">{n}</b> {texto}
+    </li>
   );
 }

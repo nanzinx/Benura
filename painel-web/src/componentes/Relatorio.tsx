@@ -463,7 +463,7 @@ function RelatorioDoPeriodoCartao({ dias, statusAtual, seletor }: { dias: 7 | 30
           </button>
           {mapaAberto && (
             <div className="mt-2 animate-entrar rounded-xl border border-slate-200 p-3 dark:border-noite-700">
-              <MapaDeRisco mapa={p.mapaRisco} semFoto={p.semFotoNoMapa} />
+              <MapaDeRisco mapa={p.mapaRisco} transbordos={t.transbordos} />
             </div>
           )}
         </div>

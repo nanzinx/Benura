@@ -90,11 +90,16 @@ test('painel: lê os logs do dia aos poucos e recomeça na virada do dia', () =>
 });
 
 /** Painel de verdade (porta aleatória) com os serviços respondendo por um fetch falso. */
-async function subir(cfgExtra = {}, usuarios = semUsuarios(), { robos = false, robosFora = false } = {}) {
+async function subir(cfgExtra = {}, usuarios = semUsuarios(), { robos = false, robosFora = false, alertas = null } = {}) {
   const chamadas = [];
   const fetchFalso = async (url, opcoes) => {
     chamadas.push({ url, metodo: opcoes.method, auth: opcoes.headers.Authorization, corpo: opcoes.body });
     if (url.startsWith('http://rotinas') || (robosFora && url.startsWith('http://robos'))) throw new TypeError('fetch failed');
+    // [NOVO] alertas de cliente de risco controlados pelo teste (null: a resposta genérica de sempre)
+    if (alertas && url.endsWith('/alertas')) {
+      if (alertas.fora) throw new DOMException('demorou', 'TimeoutError');
+      return { status: 200, text: async () => JSON.stringify({ ativo: true, alertas: [], perfis: { risco: alertas.risco } }) };
+    }
     // [NOVO] o benura-robos responde só o que é dele
     if (url === 'http://robos/health') {
       return { status: 200, text: async () => JSON.stringify({ papel: 'robos', robos: { ligados: 5, modo: 'automatico' }, panico: { ligado: true, tipo: 'saindo' }, ajusteRobos: { atual: 9 }, ultimoLivreSaindo: null }) };
@@ -399,4 +404,22 @@ test('[NOVO] serviço interno fora do ar: 503 com o motivo e o que fazer (o 502 
   const { erro } = await r.json();
   assert.match(erro, /Robôs da URA fora do ar/);
   assert.match(erro, /npx pm2 logs benura-robos/, 'diz o que fazer no PC do BenURA');
+});
+
+test('[NOVO] alertas de cliente de risco: uma resposta perdida não some com o bloco (vale a última por 2 min)', async (t) => {
+  const alertas = { fora: false, risco: 3 };
+  let agora = Date.parse('2026-11-04T12:00:00Z');
+  const { servidor, pedir } = await subir({ agora: () => agora }, semUsuarios(), { alertas });
+  t.after(() => servidor.close());
+  const cookie = (await pedir('POST', '/api/entrar', { corpo: { senha: SENHA } })).headers.get('set-cookie').split(';')[0];
+  const visao = async () => (await (await pedir('GET', '/api/visao', { cookie })).json()).alertas;
+  assert.equal((await visao()).perfis.risco, 3);
+  alertas.fora = true;
+  agora += 60_000;
+  assert.equal((await visao())?.perfis?.risco, 3, 'o serviço dos robôs demorou: fica a última resposta');
+  agora += 61_000;
+  assert.equal(await visao(), null, 'mais de 2 min sem resposta: some (o serviço está mesmo fora)');
+  alertas.fora = false;
+  alertas.risco = 4;
+  assert.equal((await visao()).perfis.risco, 4);
 });

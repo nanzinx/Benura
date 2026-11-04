@@ -50,6 +50,12 @@ class PerfisClientes {
     this.contadas = new Map();
     this.mudou = false;
     this.ultimoSalvo = 0;
+    /**
+     * [NOVO] O ranking de risco guardado (o painel pede a cada 5 s): os de risco por chave, a lista
+     * em ordem (refeita quando algum muda) e quantos clientes há. null: refazer tudo na próxima vez.
+     * @type {{ desde: string, porChave: Map<string, object>, lista: object[]|null, clientes: number }|null}
+     */
+    this.ranking = null;
   }
 
   carregar() {
@@ -68,6 +74,7 @@ class PerfisClientes {
     // O que o histórico acabou de ler não conta duas vezes.
     tirarPeriodo(this.perfis, this.historico.desde, this.historico.ate);
     this.mudou = true;
+    this.ranking = null; // o histórico mudou: refaz tudo
     this.log.info(`Perfis de clientes: histórico carregado (${Object.keys(this.historico.perfis).length} cliente(s), até ${this.historico.ate}).`);
   }
 
@@ -91,8 +98,10 @@ class PerfisClientes {
 
     this.contadas.set(id, agora);
     const chave = chaveDoCliente(telefone, this.segredo);
+    const novo = !this.perfis[chave] && !this.historico.perfis[chave];
     this.perfis[chave] = somar(this.perfis[chave], { mascara: mascarar(telefone), dia, tipo });
     this.mudou = true;
+    this.atualizarNoRanking(chave, novo, agora);
     return true;
   }
 
@@ -104,11 +113,11 @@ class PerfisClientes {
     return this.resumir(chave, agora) || { mascara: mascarar(telefone), atendeu: 0, callbacks: 0, motivos: [] };
   }
 
-  resumir(chave, agora = Date.now()) {
+  /** @param {string} [desde] - [NOVO] quem resume muitos passa o mesmo (calcular a data em cada um custava caro) */
+  resumir(chave, agora = Date.now(), desde = this.desde(agora)) {
     const vivo = this.perfis[chave];
     const antigo = this.historico.perfis[chave];
     if (!vivo && !antigo) return null;
-    const desde = this.desde(agora);
     const a = totais(antigo, desde);
     const b = totais(vivo, desde);
     const soma = { atendeu: a.atendeu + b.atendeu, callbacks: a.callbacks + b.callbacks };
@@ -118,9 +127,40 @@ class PerfisClientes {
 
   /** Os clientes de risco, mais callbacks primeiro. */
   maisArriscados(limite = 20, agora = Date.now()) {
-    const chaves = new Set([...Object.keys(this.historico.perfis), ...Object.keys(this.perfis)]);
-    return [...chaves].map((c) => this.resumir(c, agora)).filter((r) => r && r.motivos.length)
-      .sort((x, y) => y.callbacks - x.callbacks || y.atendeu - x.atendeu).slice(0, limite);
+    return this.rankingDeRisco(agora).lista.slice(0, limite);
+  }
+
+  /**
+   * [NOVO] Todos os de risco, guardado: o painel pede a cada 5 s e passar por todos os clientes
+   * (com o histórico, dezenas de milhares) chegava a segundos, travando o serviço dos robôs.
+   * Refaz tudo só quando o histórico muda ou vira o dia; cada ligação nova refaz só o cliente dela.
+   * @returns {{ lista: object[], clientes: number }}
+   */
+  rankingDeRisco(agora = Date.now()) {
+    const desde = this.desde(agora);
+    let r = this.ranking;
+    if (!r || r.desde !== desde) {
+      const chaves = new Set([...Object.keys(this.historico.perfis), ...Object.keys(this.perfis)]);
+      const porChave = new Map();
+      for (const c of chaves) {
+        const resumo = this.resumir(c, agora, desde);
+        if (resumo?.motivos.length) porChave.set(c, resumo);
+      }
+      r = this.ranking = { desde, porChave, lista: null, clientes: chaves.size };
+    }
+    r.lista ??= [...r.porChave.values()].sort((x, y) => y.callbacks - x.callbacks || y.atendeu - x.atendeu);
+    return r;
+  }
+
+  /** [NOVO] Uma ligação nova: refaz só aquele cliente no ranking guardado (se já houver um). */
+  atualizarNoRanking(chave, novo, agora) {
+    const r = this.ranking;
+    if (!r) return;
+    if (novo) r.clientes += 1;
+    const resumo = this.resumir(chave, agora, r.desde);
+    if (resumo?.motivos.length) r.porChave.set(chave, resumo);
+    else r.porChave.delete(chave);
+    r.lista = null;
   }
 
   /** Grava (no máximo a cada minuto), esquece ligações antigas e dias fora da janela. */
@@ -133,7 +173,7 @@ class PerfisClientes {
 
   /** Grava agora (também no desligamento do BenURA). @returns {Promise<void>} */
   salvar(agora = Date.now()) {
-    podar(this.perfis, this.desde(agora));
+    podar(this.perfis, this.desde(agora)); // só dias fora da janela: o ranking já não os contava
     this.mudou = false;
     this.ultimoSalvo = agora;
     this.repositorio.salvar({ perfis: this.perfis });
@@ -141,11 +181,8 @@ class PerfisClientes {
   }
 
   resumo(agora = Date.now()) {
-    return {
-      clientes: new Set([...Object.keys(this.historico.perfis), ...Object.keys(this.perfis)]).size,
-      historicoAte: this.historico.ate || null,
-      risco: this.maisArriscados(Infinity, agora).length,
-    };
+    const r = this.rankingDeRisco(agora);
+    return { clientes: r.clientes, historicoAte: this.historico.ate || null, risco: r.lista.length };
   }
 }
 
