@@ -74,6 +74,8 @@ const SEGURANCA = Object.freeze({
 const LIMITE_PADRAO_BYTES = 64 * 1024;
 /** O ciclo da URA roda a cada poucos segundos: sem ciclo há mais que isso, a Argus não está respondendo. */
 const CICLO_PARADO_MS = 90_000;
+/** [NOVO] Sem resposta do serviço dos robôs, a última dos alertas de cliente de risco vale por isto. */
+const ALERTAS_VALEM_MS = 2 * 60_000;
 
 class ErroPainel extends Error {
   constructor(status, mensagem) {
@@ -278,8 +280,20 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     throw new ErroPainel(404, 'Comando não encontrado');
   }
 
+  // [NOVO] a última resposta boa dos alertas de cliente de risco: um pedido que demorou não some com o bloco
+  let ultimosAlertas = null;
+  const agoraMs = () => (cfg.agora ? cfg.agora() : Date.now());
+  function alertasQueValem(resposta) {
+    if (resposta.status === 200) {
+      ultimosAlertas = { corpo: resposta.corpo, em: agoraMs() };
+      return resposta.corpo;
+    }
+    return ultimosAlertas && agoraMs() - ultimosAlertas.em <= ALERTAS_VALEM_MS ? ultimosAlertas.corpo : null;
+  }
+
   async function visao() {
-    const [saude, alertas] = await Promise.all([servicos.saude(), servicos.chamar('robos', '/alertas')]);
+    const [saude, respostaAlertas] = await Promise.all([servicos.saude(), servicos.chamar('robos', '/alertas')]);
+    const alertas = alertasQueValem(respostaAlertas);
     const { avisos } = dados.atualizar();
     const rodizio = saude.rodizio.dados;
     const agora = new Date();
@@ -293,7 +307,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     return {
       status: 200,
       corpo: {
-        agora: agora.toISOString(), servicos: saude, argus, alertas: alertas.status === 200 ? alertas.corpo : null, automacao: automacao.estado(),
+        agora: agora.toISOString(), servicos: saude, argus, alertas, automacao: automacao.estado(),
         doisPcs: trava?.ativa ? { trava: trava.resumo(), parceiro: parceiro?.resumo() ?? { ativo: false } } : null,
         // [NOVO] para onde vão os avisos (sem o endereço)
         notificacoes: notificador?.descricao?.() ?? null,

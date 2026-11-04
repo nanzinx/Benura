@@ -503,6 +503,7 @@ O BenURA monta um perfil de cada telefone das bases da URA a partir do relatóri
 **De onde vêm os dados:**
 - **Ao vivo:** o vigia de callbacks (`CALLBACKS_VERIFICAR_SEG`) conta cada ligação final em `state-perfis-clientes.json`.
 - **Histórico:** `npm run perfis:montar` lê os últimos 6 dias completos e grava `state-perfis-historico.json`. É o máximo que a Argus entrega: 7 dias por consulta, contando hoje. Com `--dias N` lê menos; pedir mais lê só os 6, com aviso. Pode rodar com o BenURA ligado, que relê sozinho e soma sem contar o mesmo dia duas vezes. Rodar de novo junta com o histórico anterior, sem perder os dias mais antigos. Os dias além dos 6 se completam com o BenURA ligado, até `PERFIS_DIAS`.
+- [NOVO] **Ranking de risco guardado:** a lista dos clientes de risco (o painel pede a cada 5 s) fica guardada: é refeita inteira só quando o histórico muda ou vira o dia, e cada ligação nova refaz só o cliente dela (entra na hora). Com o histórico grande, a conta antiga passava de 4 s, travava o serviço dos robôs e fazia o bloco "Clientes de risco" sumir do painel. Se o serviço dos robôs demorar a responder, o painel mostra a última resposta por até 2 min.
 
 **Cliente de risco em ligação:** a cada `PERFIS_VIGIA_SEG` (**10 s**), com robô ligado, o BenURA lê as ligações "em curso" do último minuto. Se o telefone for de risco:
 - registra no log `CLIENTE DE RISCO em ligação: Oper Virtual 7 com (11) 9****-1594 (2 callback(s))`, que vai para `avisos.txt`;

@@ -146,3 +146,36 @@ test('perfis:montar de novo não perde os dias antigos; o ao vivo de antes do pe
   assert.equal(p.consultar('11900000001', AGORA).atendeu, 1, 'fica só o dia 12');
   assert.equal(p.registrarLigacao(ligacao(3, 'ATENDIMENTO', { dia: '2026-10-16' }), AGORA), false, 'dia já coberto pelo histórico');
 });
+
+test('perfis: o ranking de risco é reaproveitado (o painel pede a cada 5 s); ligação nova entra na hora, refazendo só aquele cliente', () => {
+  const p = criar();
+  p.registrarLigacao(ligacao(1, 'OPER. VIRTUAL - ABANDONO EM FILA'), AGORA);
+  let contas = 0;
+  const original = p.resumir.bind(p);
+  p.resumir = (...a) => { contas += 1; return original(...a); };
+  assert.deepEqual(p.resumo(AGORA), { clientes: 1, historicoAte: null, risco: 1 });
+  const depois = contas;
+  p.resumo(AGORA + 5000);
+  p.maisArriscados(20, AGORA + 10_000);
+  assert.equal(contas, depois, 'sem ligação nova: nada recalculado');
+  p.registrarLigacao(ligacao(2, 'OPER. VIRTUAL - ABANDONO EM FILA', { tel: '11900000002' }), AGORA + 20_000);
+  p.registrarLigacao(ligacao(3, 'OPER. VIRTUAL - ABANDONO EM FILA', { tel: '11900000002' }), AGORA + 21_000);
+  assert.deepEqual(p.resumo(AGORA + 22_000), { clientes: 2, historicoAte: null, risco: 2 }, 'entrou na hora');
+  assert.equal(contas, depois + 2, 'só o cliente de cada ligação nova foi refeito');
+  assert.equal(p.maisArriscados(1, AGORA + 23_000)[0].callbacks, 2, 'mais callbacks primeiro');
+  p.salvar(AGORA + 80_000);
+  p.resumo(AGORA + 81_000);
+  assert.equal(contas, depois + 2, 'gravar (a cada minuto) não refaz o ranking');
+});
+
+test('perfis: o ranking de 100 mil clientes sai rápido (não trava o serviço dos robôs)', () => {
+  const { somar } = require('../../src/domain/perfis-clientes');
+  const p = criar();
+  const perfis = {};
+  for (let i = 0; i < 100_000; i++) perfis[`k${i}`] = somar(somar(undefined, { mascara: 'x', dia: '2026-10-15', tipo: 'atendeu' }), { mascara: 'x', dia: '2026-10-16', tipo: i % 50 ? 'atendeu' : 'callback' });
+  p.historico = { desde: '2026-09-01', ate: '2026-10-19', perfis };
+  const inicio = Date.now();
+  const r = p.resumo(AGORA);
+  assert.equal(r.risco, 2000);
+  assert.ok(Date.now() - inicio < 1500, `levou ${Date.now() - inicio} ms`);
+});
