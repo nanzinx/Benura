@@ -149,8 +149,11 @@ class VigiaCallbacks {
       const l = semDadosDeCliente(bruta);
       const tipo = ENCERRAMENTOS[tipoDaLigacao(l)];
       if (!tipo) continue;
+      const quando = instanteLocal(textoDaHora(l), this.cfg.fuso);
+      const duracaoS = duracaoDaLigacao(l);
       const contou = this.rodizio.registrarEncerramentoDoRelatorio({
-        chave: chaveDaLigacao(l), ...tipo, filaSeg: null, quando: instanteLocal(textoDaHora(l), this.cfg.fuso),
+        // [NOVO] fim: o mapa de risco olha os livres da espera toda (não só do início da discagem)
+        chave: chaveDaLigacao(l), ...tipo, filaSeg: null, quando, fim: quando != null && duracaoS != null ? quando + duracaoS * 1000 : null,
       });
       if (contou) novas += 1;
     }

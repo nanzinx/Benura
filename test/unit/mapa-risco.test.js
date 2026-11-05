@@ -46,3 +46,12 @@ test('somar e células: por status ou todos; taxa = fila / (leads + fila); pouca
   assert.deepEqual([calma.leads, calma.fila], [198, 2]);
   assert.equal(celulas(total, { status: 'normal' }).find((x) => x.livres === '3' && x.robos === '41+').amostra, 'pouca', '30 ligações');
 });
+
+test('[NOVO] mapa de risco: quem chama pode dizer se o callback foi invisível (os livres da espera toda, não só da foto)', () => {
+  const { anotar } = require('../../src/domain/mapa-risco');
+  const m = {};
+  anotar(m, { livres: 2, robos: 45, status: 'calma' }, { derivou: false, invisivel: false });
+  anotar(m, { livres: 2, robos: 45, status: 'calma' }, { derivou: false, invisivel: true });
+  anotar(m, { livres: 2, robos: 45, status: 'calma' }, { derivou: false }); // sem a informação: a foto decide
+  assert.deepEqual(m['2|41+|calma'], { leads: 0, fila: 1, invisiveis: 2 });
+});
