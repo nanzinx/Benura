@@ -601,7 +601,8 @@ Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado p
 
 | Aba | O que tem |
 | --- | --- |
-| **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; relatório do dia (ociosidade sem robô, pânico, termômetro, por hora); gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; vendas e filas do roteador |
+| **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; [NOVO] o relatório **só de hoje** (ociosidade sem robô, pânico, termômetro, por hora), com um link para a aba Relatórios; vendas e filas do roteador |
+| **[NOVO] Relatórios** (`/relatorios`) | Tudo de relatório: hoje, 7 dias e 30 dias, com a **Planilha**; os gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; os callbacks de hoje; vendas e filas do roteador |
 | **Receptivo URA** | Resumo (humanos, livres, pausa, fila, espera, leads derivados), status da URA, operadores com o tempo no status e os selos de fixo e de travado, pausas com limite (excedidas em vermelho) e o total do dia por tipo, o menu de ações de cada atendente (pausar, sair da pausa, ficar disponível, mandar para o Ativo / trazer para a URA com trava, deslogar), quem está no Ativo agora, o relatório do dia por atendente ([veja](#ações-por-atendente-e-trava-manual-aba-receptivo)) e o botão **Alocar Todos no Ativo**, que segura todos no Ativo até **Retomar rodízio da URA** ([veja](#todos-no-ativo-até-a-segunda-ordem)) |
 | **URA e robôs** | Pânico, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
 | **Esteira manual** | Colar ou escolher o CSV da esteira quando o Carrossel cair, ver o que ela decidiu, apagar e recarregar as vendas |
@@ -696,7 +697,7 @@ Cada passo fica no log do painel, com o endereço de quem pediu. Sem o painel, o
 
 **A interface** fica em `painel-web/`, feita com **React + TypeScript + Tailwind CSS** (Vite), Recharts nos gráficos e React Query para as atualizações:
 - **Interação:** filtros e busca nas tabelas e nos avisos, gráficos com dica ao passar o mouse e período (dia todo, 3 h, 1 h), confirmação antes dos comandos que pesam e avisos rápidos do resultado.
-- **Tela:** tema claro, escuro ou do sistema; botão **Ao vivo/Pausado**; atalhos `1`–`6` (abas) e `P` (pausa); CSV arrastado direto para a esteira.
+- **Tela:** tema claro, escuro ou do sistema; botão **Ao vivo/Pausado**; [NOVO] as abas num botão ao lado da logo que abre a lista com todas; atalhos `1`–`7` (abas) e `P` (pausa); o **Desligar automação** é o botão vermelho redondo só com o símbolo de desligar; a logo faz o equalizador de tempos em tempos (a cada ~45 s e ao passar o mouse; não anima com "reduzir movimento" no sistema); CSV arrastado direto para a esteira.
 - **Funciona sem internet:** a fonte (Inter) e tudo mais vão junto no build. Nada vem de CDN.
 - **Build:** vai para `src/painel/publico/` e entra no git, então o PC do BenURA não compila nada (o `git pull` de sempre basta). O CI confere que o build está em dia com o código.
 - **Mudar a interface:** `npm run painel:dev` abre em `http://localhost:5173` com o painel (3010) rodando por trás; `npm run painel:build` gera o build para o commit.

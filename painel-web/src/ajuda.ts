@@ -91,7 +91,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
   {
     id: 'relatorio',
     titulo: 'Relatório do dia (as siglas)',
-    onde: 'Visão geral → Relatório do dia',
+    onde: 'Visão geral → Relatório do dia (e a aba Relatórios)',
     itens: [
       'Transbordos: os callbacks ("Gerou Callback" da Argus). O cliente pediu um humano, esperou na fila e desistiu ou estourou o tempo.',
       'Leads derivados: ligações dos robôs que a Argus passou para um humano.',
@@ -109,8 +109,9 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
   {
     id: 'periodo',
     titulo: 'Relatório de 7 e 30 dias e as sugestões',
-    onde: 'Visão geral → Relatório → abas 7 dias e 30 dias',
+    onde: 'Relatórios → 7 dias e 30 dias',
     itens: [
+      'A Visão geral mostra só o relatório de hoje. A aba Relatórios tem tudo: hoje, 7 dias e 30 dias (com a Planilha), os livres e os robôs ao longo do dia, os callbacks de hoje e as vendas e filas do roteador.',
       'As abas 7 dias e 30 dias mostram um dia por linha, com hoje ainda parcial. A coluna de status segue o status da URA de agora, e "mais ocioso" marca o dia com o OPL mais alto.',
       'Nos quadros, TOR, TPA e transbordos aparecem em média por dia completo, para usar as mesmas cores do relatório do dia (hoje, ainda parcial, não entra na média). TME e OPL somam o período. Embaixo, a comparação com os 7 (ou 30) dias anteriores.',
       'Sugestões: comparam a configuração atual dos robôs com a anterior, em cada status da URA, pelo OPL e pelos transbordos por hora. Só contam as horas daquele status com os robôs no automático (sem robôs por livre escolhido à mão), em dias completos com 2 h ou mais nele, e só com 3 dias ou mais de cada configuração.',
@@ -131,12 +132,13 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'Vermelhas: pânico ativo, cliente de risco em ligação, automação desligada.',
       'Amarelas: rodízio pausado (todos no Ativo), robôs desligados pelo painel, um componente desligado à mão, serviço fora do ar, token da Argus recusado, rodízio sem falar com a Argus.',
       'Cada faixa diz o que fazer para voltar ao normal.',
+      'As abas ficam no botão ao lado da logo: ele mostra a aba atual e, ao clicar, abre a lista com todas. As teclas 1 a 7 trocam de aba.',
     ],
   },
   {
     id: 'desligar',
     titulo: 'Desligar automação, componentes e simulação',
-    onde: 'Topo (Desligar automação) e aba Serviços',
+    onde: 'Topo (o botão vermelho redondo com o símbolo de desligar) e aba Serviços',
     itens: [
       'Desligar automação (só administrador, pede para digitar DESLIGAR): desliga os robôs primeiro e depois para o roteador, o rodízio e as rotinas. Continua desligada mesmo se o PC reiniciar, até "Religar automação".',
       'Cada componente sozinho (cartão dele na aba Serviços): "Desligar" para só o roteador, só o rodízio ou só as rotinas; "Ligar o …" volta. Desligar o rodízio desliga os robôs antes, e sem ele não há pânico nem rodízio.',

@@ -1,6 +1,6 @@
 import { clsx } from 'clsx';
-import { Activity, ChevronDown, Headset, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ComponentType } from 'react';
+import { Activity, ChartColumn, ChevronDown, Headset, KeyRound, LayoutDashboard, LifeBuoy, LogOut, Monitor, Moon, Pause, Play, Server, Sun, Upload } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ComponentType, type KeyboardEvent as EventoDeTecla } from 'react';
 import { useVisao } from '../dados';
 import { falhasDaArgus, saudeDaArgus } from '../saude-argus';
 import { NOMES_PAPEIS, usePode, useSessao } from '../sessao';
@@ -12,9 +12,10 @@ import { TrocarSenha } from './Usuarios';
 import { aoClicarNaAba, CAMINHOS, NOMES_DAS_ABAS, type Aba } from '../rotas';
 
 export type { Aba };
-/** `curto`: o rótulo nas telas até 1536 px (com 6 abas, o completo quebraria o topo em duas linhas). */
+/** A ordem é a dos atalhos (1 a 7) e a do menu de abas. */
 export const ABAS: { id: Aba; texto: string; curto: string; Icone: ComponentType<{ className?: string }> }[] = [
   { id: 'visao', texto: NOMES_DAS_ABAS.visao, curto: 'Visão geral', Icone: LayoutDashboard },
+  { id: 'relatorios', texto: NOMES_DAS_ABAS.relatorios, curto: 'Relatórios', Icone: ChartColumn },
   { id: 'receptivo', texto: NOMES_DAS_ABAS.receptivo, curto: 'Receptivo', Icone: Headset },
   { id: 'ura', texto: NOMES_DAS_ABAS.ura, curto: 'Robôs', Icone: Activity },
   { id: 'esteira', texto: NOMES_DAS_ABAS.esteira, curto: 'Esteira', Icone: Upload },
@@ -96,6 +97,69 @@ function MenuUsuario({ sair }: { sair: () => void }) {
   );
 }
 
+/**
+ * [NOVO] As abas numa lista que expande: o botão mostra a aba atual; a lista tem todas, com o atalho.
+ * Fecha com clique fora, Esc ou ao escolher; as setas andam pela lista. Cada item é um link de verdade
+ * (Ctrl+clique abre em outra guia).
+ */
+function MenuDeAbas({ aba, argusFalhando }: { aba: Aba; argusFalhando: { pct: number } | null }) {
+  const [aberto, setAberto] = useState(false);
+  const raiz = useRef<HTMLElement>(null);
+  const botao = useRef<HTMLButtonElement>(null);
+  const idMenu = useId();
+  const atual = ABAS.find((a) => a.id === aba) ?? ABAS[0]!;
+  const itens = () => [...(raiz.current?.querySelectorAll<HTMLAnchorElement>('[role="menuitem"]') ?? [])];
+  useEffect(() => {
+    if (!aberto) return undefined;
+    itens().find((el) => el.getAttribute('aria-current') === 'page')?.focus();
+    const fora = (e: MouseEvent) => { if (!raiz.current?.contains(e.target as Node)) setAberto(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setAberto(false); botao.current?.focus(); } };
+    document.addEventListener('mousedown', fora);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); };
+  }, [aberto]);
+  const andar = (e: EventoDeTecla) => {
+    if (!aberto || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const lista = itens();
+    const i = lista.indexOf(document.activeElement as HTMLAnchorElement);
+    const proximo = e.key === 'Home' ? 0 : e.key === 'End' ? lista.length - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + lista.length) % lista.length;
+    lista[proximo]?.focus();
+  };
+  const ponto = (titulo: string) => (
+    <span className="size-2 flex-none rounded-full bg-amarelo-400" title={titulo}><span className="sr-only">(a Argus está falhando)</span></span>
+  );
+  const avisoArgus = argusFalhando ? `A Argus está falhando: ${argusFalhando.pct}% de erro nos últimos 15 min` : '';
+
+  return (
+    <nav ref={raiz} aria-label="Seções" className="relative" onKeyDown={andar}>
+      <button ref={botao} type="button" onClick={() => setAberto((a) => !a)} aria-haspopup="menu" aria-expanded={aberto} aria-controls={idMenu}
+        className={clsx('inline-flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors hover:bg-white/10', aberto && 'bg-white/10')}>
+        <atual.Icone className="size-4" aria-hidden />
+        <span>{atual.texto}</span>
+        {argusFalhando && aba !== 'servicos' && ponto(avisoArgus)}
+        <ChevronDown className={clsx('size-4 transition-transform', aberto && 'rotate-180')} aria-hidden />
+      </button>
+      {aberto && (
+        <div id={idMenu} role="menu" aria-label="Abas"
+          className="absolute left-0 z-40 mt-2 w-72 animate-entrar rounded-xl border border-slate-200 bg-white p-1.5 text-sm text-slate-800 shadow-xl max-sm:fixed max-sm:inset-x-4 max-sm:top-16 max-sm:w-auto dark:border-noite-700 dark:bg-noite-900 dark:text-slate-100">
+          {ABAS.map(({ id, texto, Icone }, i) => (
+            <a key={id} role="menuitem" href={CAMINHOS[id]} aria-current={aba === id ? 'page' : undefined}
+              onClick={(e) => { aoClicarNaAba(id)(e); setAberto(false); }}
+              className={clsx('flex items-center gap-3 rounded-lg px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-azul-500',
+                aba === id ? 'bg-azul-50 font-semibold text-azul-800 dark:bg-noite-800 dark:text-azul-200' : 'hover:bg-slate-100 focus:bg-slate-100 dark:hover:bg-noite-800 dark:focus:bg-noite-800')}>
+              <Icone className={clsx('size-4 flex-none', aba === id ? 'text-azul-600 dark:text-azul-300' : 'text-slate-400')} aria-hidden />
+              <span className="flex-1">{texto}</span>
+              {id === 'servicos' && argusFalhando && ponto(avisoArgus)}
+              <kbd className="rounded border border-slate-200 px-1.5 font-sans text-[11px] text-slate-400 dark:border-noite-700">{i + 1}</kbd>
+            </a>
+          ))}
+        </div>
+      )}
+    </nav>
+  );
+}
+
 interface Props {
   aba: Aba;
   tema: Tema;
@@ -118,26 +182,8 @@ export function Topo({ aba, tema, trocarTema, aoVivo, alternarAoVivo, sair }: Pr
   return (
     <header className="sticky top-0 z-30 border-b-[3px] border-amarelo-500 bg-gradient-to-b from-marinho-900 to-marinho-800 text-white">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 px-4 sm:px-6">
-        <a href={CAMINHOS.visao} onClick={aoClicarNaAba('visao')} className="py-3.5" aria-label="BenURA, visão geral"><Marca /></a>
-        <nav aria-label="Seções" className="order-3 -mb-[3px] flex basis-full gap-1 overflow-x-auto [scrollbar-width:none] lg:order-none lg:basis-auto lg:flex-1">
-          {ABAS.map(({ id, texto, curto, Icone }) => (
-            <a
-              key={id}
-              href={CAMINHOS[id]}
-              onClick={aoClicarNaAba(id)}
-              aria-current={aba === id ? 'page' : undefined}
-              className={clsx('flex items-center gap-2 whitespace-nowrap border-b-[3px] px-3 pt-3 pb-2.5 text-sm font-semibold transition-colors lg:py-5',
-                aba === id ? 'border-white text-white' : 'border-transparent text-azul-100/80 hover:text-white')}
-            >
-              <Icone className="size-4" aria-hidden /><span className="2xl:hidden">{curto}</span><span className="hidden 2xl:inline">{texto}</span>
-              {id === 'servicos' && argusFalhando && (
-                <span className="size-2 rounded-full bg-amarelo-400" title={`A Argus está falhando: ${argusFalhando.pct}% de erro nos últimos 15 min`}>
-                  <span className="sr-only">(a Argus está falhando)</span>
-                </span>
-              )}
-            </a>
-          ))}
-        </nav>
+        <a href={CAMINHOS.visao} onClick={aoClicarNaAba('visao')} className="py-3.5" aria-label="BenURA, visão geral"><Marca animada /></a>
+        <MenuDeAbas aba={aba} argusFalhando={argusFalhando} />
         <div className="ml-auto flex items-center gap-1.5 py-3 sm:gap-2">
           {dryRun && <a href={CAMINHOS.servicos} onClick={aoClicarNaAba('servicos')} title="Modo simulação (DRY_RUN): o BenURA só mostra o que faria. Clique para ver ou desligar." className="rounded-full bg-amarelo-500 px-2 py-0.5 text-xs font-bold text-marinho-950 hover:bg-amarelo-400 sm:px-2.5">Simulação</a>}
           <button
