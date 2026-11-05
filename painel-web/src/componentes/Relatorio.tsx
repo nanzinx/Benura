@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { CalendarDays, ChartLine, Check, Grid3x3, ChevronDown, Download, Hourglass, Lightbulb, Lock, TriangleAlert, Wand2 } from 'lucide-react';
+import { ArrowRight, CalendarDays, ChartLine, Check, Grid3x3, ChevronDown, Download, Hourglass, Lightbulb, Lock, TriangleAlert, Wand2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { duracao, minutos } from '../formatos';
 import { baixarXlsx } from '../planilha';
@@ -13,6 +13,7 @@ import type { EstadoTermometro, RelatorioDoDia, RelatorioDoPeriodo, StatusDaUra,
 import { Botao, Cartao, Esqueleto, Segmentado, Vazio, useAberto } from '../ui/base';
 import { GraficoTendencia } from './GraficoTendencia';
 import { MapaDeRisco } from './MapaDeRisco';
+import { aoClicarNaAba, CAMINHOS } from '../rotas';
 import { CORES_DA_URA, NOMES_DA_URA } from './StatusUra';
 
 const CORES_TERMOMETRO: Record<EstadoTermometro, string> = {
@@ -188,15 +189,27 @@ const ABAS_DO_RELATORIO: { valor: AbaDoRelatorio; texto: string }[] = [{ valor: 
  * Relatório: [NOVO] abas Hoje | 7 dias | 30 dias. Hoje é o relatório do dia, hora a hora; as outras
  * mostram um dia por linha, comparam com o período anterior e trazem as sugestões de ajuste.
  */
-export function Relatorio({ r, statusAtual }: { r: RelatorioDoDia | null | undefined; statusAtual?: EstadoTermometro | null }) {
+/**
+ * soHoje: [NOVO] a Visão geral mostra só o de hoje, sem a planilha; o 7 e 30 dias e a planilha ficam
+ * na aba Relatórios (um link leva até lá).
+ */
+export function Relatorio({ r, statusAtual, soHoje = false }: { r: RelatorioDoDia | null | undefined; statusAtual?: EstadoTermometro | null; soHoje?: boolean }) {
   const [aba, setAba] = useState<AbaDoRelatorio>('hoje');
+  if (soHoje) {
+    const link = (
+      <a href={CAMINHOS.relatorios} onClick={aoClicarNaAba('relatorios')} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-azul-700 hover:bg-azul-50 dark:text-azul-300 dark:hover:bg-noite-800">
+        7 e 30 dias e planilha<ArrowRight className="size-4" aria-hidden />
+      </a>
+    );
+    return <RelatorioDeHoje r={r} statusAtual={statusAtual} seletor={link} semPlanilha />;
+  }
   const seletor = <Segmentado rotulo="Período do relatório" opcoes={ABAS_DO_RELATORIO} valor={aba} aoMudar={setAba} />;
   if (aba !== 'hoje') return <RelatorioDoPeriodoCartao dias={aba === '30' ? 30 : 7} statusAtual={statusAtual} seletor={seletor} />;
   return <RelatorioDeHoje r={r} statusAtual={statusAtual} seletor={seletor} />;
 }
 
 /** Relatório do dia: transbordos, TOR, TME, OPL, TPA e o status da URA, também por hora. */
-function RelatorioDeHoje({ r, statusAtual, seletor }: { r: RelatorioDoDia | null | undefined; statusAtual?: EstadoTermometro | null; seletor: ReactNode }) {
+function RelatorioDeHoje({ r, statusAtual, seletor, semPlanilha = false }: { r: RelatorioDoDia | null | undefined; statusAtual?: EstadoTermometro | null; seletor: ReactNode; semPlanilha?: boolean }) {
   if (!r) {
     return <Cartao titulo="Relatório do dia" className="mb-5" extra={seletor}><Vazio>O relatório aparece quando o rodízio estiver rodando.</Vazio></Cartao>;
   }
@@ -223,11 +236,13 @@ function RelatorioDeHoje({ r, statusAtual, seletor }: { r: RelatorioDoDia | null
       <>
         {seletor}
         <span className="hidden sm:inline">no expediente, hora a hora</span>
-        <Botao variante="secundario" className="min-h-8 px-3 py-1" icone={<Download className="size-4" aria-hidden />}
-          title="Baixa o relatório de hoje (hora a hora, comparação e por atendente) para abrir no Excel"
-          onClick={() => baixarXlsx(`relatorio-benura-${r.dia}.xlsx`, abasDoRelatorio(r))}>
-          Planilha
-        </Botao>
+        {!semPlanilha && (
+          <Botao variante="secundario" className="min-h-8 px-3 py-1" icone={<Download className="size-4" aria-hidden />}
+            title="Baixa o relatório de hoje (hora a hora, comparação e por atendente) para abrir no Excel"
+            onClick={() => baixarXlsx(`relatorio-benura-${r.dia}.xlsx`, abasDoRelatorio(r))}>
+            Planilha
+          </Botao>
+        )}
       </>
     )}>
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">

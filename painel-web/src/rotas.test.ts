@@ -3,7 +3,7 @@ import { abaDoEndereco, CAMINHOS, definirTitulo, tituloDaAba } from './rotas';
 
 describe('endereços das abas, sem #', () => {
   it('cada aba tem o seu caminho; a visão geral é a raiz', () => {
-    expect(CAMINHOS).toEqual({ visao: '/', receptivo: '/receptivo', ura: '/robos', esteira: '/esteira', servicos: '/servicos', ajuda: '/ajuda' });
+    expect(CAMINHOS).toEqual({ visao: '/', relatorios: '/relatorios', receptivo: '/receptivo', ura: '/robos', esteira: '/esteira', servicos: '/servicos', ajuda: '/ajuda' });
   });
 
   it('lê a aba do caminho (com ou sem barra no fim, maiúsculas)', () => {
@@ -11,6 +11,7 @@ describe('endereços das abas, sem #', () => {
     expect(abaDoEndereco('/receptivo')).toBe('receptivo');
     expect(abaDoEndereco('/robos/')).toBe('ura');
     expect(abaDoEndereco('/Ajuda')).toBe('ajuda');
+    expect(abaDoEndereco('/relatorios')).toBe('relatorios');
     expect(abaDoEndereco('/nao-existe')).toBe('visao');
   });
 

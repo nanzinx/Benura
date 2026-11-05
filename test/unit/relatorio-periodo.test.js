@@ -190,3 +190,22 @@ test('[NOVO] mapa de risco: sem foto (logo depois de subir) a ligação conta no
   assert.deepEqual(e.estado.mapaRisco ?? {}, {});
   assert.equal(e.estado.semFotoNoMapa, 1);
 });
+
+test('[NOVO] mapa de risco: callback é "de fila" se os livres foram a 0 em algum momento da espera (não só na entrada)', () => {
+  const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE });
+  const t = (hhmm, s = 0) => em('2026-11-02', hhmm) + s * 1000;
+  // URA calma segura 4 a 6 livres: o robô começa a discar com 2 livres; durante a ligação os livres vão a 0
+  e.amostrar(t('09:00'), { livres: 2, robosLigados: 45, termometro: 'calma' });
+  e.amostrar(t('09:00', 30), { livres: 0, robosLigados: 45, termometro: 'calma' });
+  e.amostrar(t('09:01'), { livres: 3, robosLigados: 45, termometro: 'calma' });
+  // pelo relatório: início 09:00:05, durou 50 s (fim 09:00:55), lido só às 09:03
+  e.registrarEncerramento(t('09:03'), { chave: 'C1', derivou: false, motivo: 'abandono', filaSeg: null, quando: t('09:00', 5), fim: t('09:00', 55) }, 'relatório');
+  // pelo relatório, com gente livre a espera toda (09:01:05 a 09:01:40): invisível
+  e.registrarEncerramento(t('09:03'), { chave: 'C2', derivou: false, motivo: 'abandono', filaSeg: null, quando: t('09:01', 5), fim: t('09:01', 40) }, 'relatório');
+  // pelo webhook: entrou 09:00:20 (40 s de fila), terminou 09:01:00; passou pelos 0 livres das 09:00:30
+  e.registrarEncerramento(t('09:01'), { chave: 'C3', derivou: false, motivo: 'abandono', filaSeg: 40 });
+  assert.deepEqual(e.estado.mapaRisco, {
+    '2|41+|calma': { leads: 0, fila: 2, invisiveis: 0 }, // a célula é a da entrada; o tipo, o da espera
+    '3|41+|calma': { leads: 0, fila: 0, invisiveis: 1 },
+  });
+});

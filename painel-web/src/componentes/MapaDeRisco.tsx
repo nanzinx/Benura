@@ -69,7 +69,7 @@ export function MapaDeRisco({ mapa, transbordos }: { mapa: Mapa | undefined; tra
         <Contagem cor="bg-slate-100 text-slate-700 dark:bg-noite-800 dark:text-slate-200" ponto="bg-red-500" n={resumo.fila}
           texto="de fila (entram no %)" dica="Não havia ninguém livre quando o cliente entrou: faltou gente. É o que os robôs podem causar." mostrarZero />
         <Contagem cor="bg-violet-50 text-violet-800 dark:bg-violet-950/60 dark:text-violet-200" ponto="bg-violet-500" n={resumo.invisiveis}
-          texto="invisível(is), havia gente livre" dica="Tinha gente livre e a ligação não chegou nela (telefonia ou Argus). Não depende dos robôs, por isso fica fora do %. O pontinho roxo no quadrinho mostra onde caíram." />
+          texto="invisível(is), havia gente livre" dica="Tinha gente livre durante toda a espera e a ligação não chegou (telefonia ou Argus). Não depende dos robôs, por isso fica fora do %. O pontinho roxo no quadrinho mostra onde caíram." />
         <Contagem cor="bg-slate-100 text-slate-500 dark:bg-noite-800 dark:text-slate-400" ponto="bg-slate-400" n={fora}
           texto="fora do mapa" dica="Callbacks do período que o mapa não tem: de antes de ele começar a anotar ou logo depois de um reinício (sem a foto da URA daquela hora). Estão no quadro Transbordos." />
       </ul>

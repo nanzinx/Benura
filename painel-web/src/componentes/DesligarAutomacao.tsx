@@ -45,9 +45,10 @@ export function BotaoDesligarAutomacao() {
   if (!v || (v.automacao && v.automacao.estado !== 'ligada')) return null;
   return (
     <>
-      <button type="button" onClick={() => setAberto(true)} title="Desligar a automação (robôs e serviços)"
-        className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1.5 text-sm font-semibold text-white hover:bg-red-700 sm:px-3">
-        <Power className="size-4" aria-hidden /><span className="hidden md:inline xl:hidden">Desligar</span><span className="hidden xl:inline">Desligar automação</span>
+      {/* [NOVO] só o ícone (mais limpo); o nome fica na dica e no leitor de tela */}
+      <button type="button" onClick={() => setAberto(true)} title="Desligar a automação (robôs e serviços)" aria-label="Desligar automação"
+        className="grid size-9 cursor-pointer place-items-center rounded-full bg-red-600 text-white shadow-sm ring-red-400/40 transition hover:bg-red-700 hover:ring-4 focus-visible:ring-4 focus-visible:outline-none">
+        <Power className="size-4" aria-hidden />
       </button>
       {aberto && <Dialogo fechar={() => setAberto(false)} />}
     </>

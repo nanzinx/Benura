@@ -4,11 +4,12 @@
  * Os links antigos com # (…/#servicos) continuam abrindo a aba certa.
  */
 
-export type Aba = 'visao' | 'receptivo' | 'ura' | 'esteira' | 'servicos' | 'ajuda';
+export type Aba = 'visao' | 'relatorios' | 'receptivo' | 'ura' | 'esteira' | 'servicos' | 'ajuda';
 
 /** Se mudar um caminho aqui, mude também ROTAS_DA_PAGINA em src/painel/servidor.js (um teste confere). */
 export const CAMINHOS: Record<Aba, string> = {
   visao: '/',
+  relatorios: '/relatorios',
   receptivo: '/receptivo',
   ura: '/robos',
   esteira: '/esteira',
@@ -18,6 +19,7 @@ export const CAMINHOS: Record<Aba, string> = {
 
 export const NOMES_DAS_ABAS: Record<Aba, string> = {
   visao: 'Visão geral',
+  relatorios: 'Relatórios',
   receptivo: 'Receptivo URA',
   ura: 'URA e robôs',
   esteira: 'Esteira manual',

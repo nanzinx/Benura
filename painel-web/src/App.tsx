@@ -7,6 +7,7 @@ import { Entrada } from './componentes/Entrada';
 import { Faixas } from './componentes/Faixas';
 import { Topo, type Aba, ABAS } from './componentes/Topo';
 import { Visao } from './abas/Visao';
+import { Relatorios } from './abas/Relatorios';
 import { Ura } from './abas/Ura';
 import { Receptivo } from './abas/Receptivo';
 import { Esteira } from './abas/Esteira';
@@ -93,6 +94,7 @@ export function App() {
         {entradaNaTela && <BoasVindas aoSair={() => setEntrada('cascata')} aoTerminar={() => setEntradaNaTela(false)} />}
         <main className={clsx('mx-auto max-w-7xl px-4 pt-6 pb-10 sm:px-6', entrada === 'cascata' && 'cascata')}>
           {aba === 'visao' && <Visao escuro={escuro} />}
+          {aba === 'relatorios' && <Relatorios escuro={escuro} />}
           {aba === 'receptivo' && <Receptivo />}
           {aba === 'ura' && <Ura />}
           {aba === 'esteira' && <Esteira />}

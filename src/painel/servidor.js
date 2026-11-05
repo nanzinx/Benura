@@ -56,7 +56,7 @@ const PUBLICO = path.join(__dirname, 'publico');
  */
 const regraDeIps = import(pathToFileURL(path.join(__dirname, '..', '..', 'functions', '_middleware.js')).href).catch(() => null);
 /** [NOVO] O endereço de cada aba (sem #) entrega a mesma página. Os mesmos de painel-web/src/rotas.ts (um teste confere). */
-const ROTAS_DA_PAGINA = new Set(['/receptivo', '/robos', '/esteira', '/servicos', '/ajuda']);
+const ROTAS_DA_PAGINA = new Set(['/relatorios', '/receptivo', '/robos', '/esteira', '/servicos', '/ajuda']);
 const TIPOS = Object.freeze({
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',

@@ -159,6 +159,18 @@ class EstatisticasDia {
     this.fotos = [];
   }
 
+  /**
+   * [NOVO] Havia gente livre durante toda a espera (de `inicio` a `fim`)? A foto de antes do início
+   * e todas até o fim; null sem foto do início.
+   */
+  livresAEsperaToda(inicio, fim) {
+    if (!this.fotoEm(inicio)) return null;
+    let i = this.fotos.length - 1;
+    while (i > 0 && this.fotos[i].ts > inicio) i--; // a última foto até o início
+    for (; i < this.fotos.length && this.fotos[i].ts <= fim; i++) if (!(this.fotos[i].livres > 0)) return false;
+    return true;
+  }
+
   /** [NOVO] A foto mais recente até `instante` (null se não houver uma recente). */
   fotoEm(instante) {
     for (let i = this.fotos.length - 1; i >= 0; i--) {
@@ -327,12 +339,13 @@ class EstatisticasDia {
   /**
    * [NOVO] Uma ligação da URA terminou (webhook 4 ou 5, ou o relatório de ligações): lead
    * derivado ou transbordo (o "Gerou Callback" da Argus: abandonou a fila ou time-out na fila).
-   * @param {{ chave: string|null, derivou: boolean, motivo: string, filaSeg: number|null, quando?: number|null }} encerramento
+   * @param {{ chave: string|null, derivou: boolean, motivo: string, filaSeg: number|null, quando?: number|null, fim?: number|null }} encerramento
    *        quando: a hora da ligação (relatório), para a barra da hora certa; sem ela, agora
+   *        fim: [NOVO] quando a ligação terminou (relatório: início + duração); sem ele, agora
    * @param {'webhook'|'relatório'} [fonte]
    * @returns {boolean} false se já tinha sido contada (ou é de outro dia)
    */
-  registrarEncerramento(agora, { chave, derivou, motivo, filaSeg, quando = null }, fonte = 'webhook') {
+  registrarEncerramento(agora, { chave, derivou, motivo, filaSeg, quando = null, fim = null }, fonte = 'webhook') {
     this.virarDia(agora);
     const instante = quando ?? agora;
     if (dataLocal(this.fusoHorario, new Date(instante)) !== this.estado.dia) return false;
@@ -358,9 +371,12 @@ class EstatisticasDia {
       e.filaSegSoma += filaSeg;
       e.filaQtd += 1;
     }
-    // [NOVO] mapa de risco: a situação de quando o cliente entrou (o relatório traz o início; o webhook, o fim)
+    // [NOVO] mapa de risco: a célula é a situação de quando o cliente entrou (o relatório traz o início; o
+    // webhook, o fim). O callback só é invisível se havia gente livre a espera toda: a URA calma segura
+    // livres, então na entrada quase sempre há alguém, e os livres podem ir a 0 antes do time-out.
     const entrou = quando ?? agora - (filaSeg ?? 0) * 1000;
-    if (!anotar((e.mapaRisco ??= {}), this.fotoEm(entrou), { derivou })) e.semFotoNoMapa = (e.semFotoNoMapa ?? 0) + 1;
+    const invisivel = derivou ? undefined : this.livresAEsperaToda(entrou, Math.max(entrou, fim ?? agora)) ?? undefined;
+    if (!anotar((e.mapaRisco ??= {}), this.fotoEm(entrou), { derivou, invisivel })) e.semFotoNoMapa = (e.semFotoNoMapa ?? 0) + 1;
     return true;
   }
 

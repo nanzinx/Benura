@@ -221,7 +221,7 @@ test('painel: exige sessão, leva o token aos serviços e só passa os comandos 
   const fs = require('fs');
   const rotasDoPainel = fs.readFileSync(require('path').join(__dirname, '..', '..', 'painel-web', 'src', 'rotas.ts'), 'utf8');
   const caminhos = [...rotasDoPainel.matchAll(/^\s+\w+: '(\/[a-z]*)',$/gm)].map((m) => m[1]);
-  assert.deepEqual(caminhos, ['/', '/receptivo', '/robos', '/esteira', '/servicos', '/ajuda'], 'os mesmos caminhos do painel-web/src/rotas.ts');
+  assert.deepEqual(caminhos, ['/', '/relatorios', '/receptivo', '/robos', '/esteira', '/servicos', '/ajuda'], 'os mesmos caminhos do painel-web/src/rotas.ts');
   const html = await pagina.text();
   for (const c of caminhos) {
     const r = await pedir('GET', c);

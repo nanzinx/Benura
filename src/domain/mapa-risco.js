@@ -47,15 +47,16 @@ function chave({ livres, robos, status }) {
  * Soma uma ligação no mapa do dia.
  * @param {Record<string, { leads: number, fila: number, invisiveis: number }>} mapa
  * @param {{ livres: number, robos: number|null, status: string|null }|null} foto - a situação quando o cliente entrou
- * @param {{ derivou: boolean }} ligacao
+ * @param {{ derivou: boolean, invisivel?: boolean }} ligacao - [NOVO] invisivel: havia gente livre a espera
+ *        toda (quem chama olha as fotos da espera); sem ele, decide a foto da entrada
  * @returns {boolean} false sem foto (ex.: logo depois de um reinício)
  */
-function anotar(mapa, foto, { derivou }) {
+function anotar(mapa, foto, { derivou, invisivel }) {
   const k = foto ? chave(foto) : null;
   if (!k) return false;
   const c = (mapa[k] ??= { leads: 0, fila: 0, invisiveis: 0 });
   if (derivou) c.leads += 1;
-  else if (Number(foto.livres) > 0) c.invisiveis += 1;
+  else if (invisivel ?? Number(foto.livres) > 0) c.invisiveis += 1;
   else c.fila += 1;
   return true;
 }

@@ -145,7 +145,7 @@ function TabelaUra({ ura }: { ura: OperadorNaUra[] }) {
   );
 }
 
-function ListaCallbacks({ callbacks }: { callbacks: Callback[] }) {
+export function ListaCallbacks({ callbacks }: { callbacks: Callback[] }) {
   const [tipo, setTipo] = useState('todos');
   const tipos = useMemo(() => [...new Set(callbacks.map((c) => c.conclusao ?? 'callback'))], [callbacks]);
   const lista = [...callbacks].reverse().filter((c) => tipo === 'todos' || (c.conclusao ?? 'callback') === tipo);
@@ -178,7 +178,8 @@ function ListaCallbacks({ callbacks }: { callbacks: Callback[] }) {
 type Periodo = 'dia' | '3h' | '1h';
 const JANELAS: Record<Periodo, number | null> = { dia: null, '3h': 3 * 3600, '1h': 3600 };
 
-function Graficos({ escuro }: { escuro: boolean }) {
+/** O dia da URA: livres e robôs ao longo do dia (na aba Relatórios). */
+export function Graficos({ escuro }: { escuro: boolean }) {
   const { data: dia } = useDia();
   const [periodo, setPeriodo] = useState<Periodo>('dia');
   const [mostrarCallbacks, setMostrarCallbacks] = useState(true);
@@ -207,7 +208,7 @@ function Graficos({ escuro }: { escuro: boolean }) {
   );
 }
 
-function Roteador() {
+export function Roteador() {
   const { data: s, isError } = useRoteador();
   const subiram = subiramHoje(s);
   const metaOntem = metaBatidaOntem(s);
@@ -239,7 +240,7 @@ function Roteador() {
   );
 }
 
-export function Visao({ escuro }: { escuro: boolean }) {
+export function Visao(_props: { escuro: boolean }) {
   const { data: v, dataUpdatedAt } = useVisao();
   const { data: dia } = useDia();
   const { data: metricas } = useMetricasHoje();
@@ -258,8 +259,8 @@ export function Visao({ escuro }: { escuro: boolean }) {
         <TabelaUra ura={r?.uraAgora ?? []} />
         <ListaCallbacks callbacks={dia?.callbacks ?? []} />
       </div>
-      <Relatorio r={r?.relatorio} statusAtual={r?.statusUra?.status} />
-      <Graficos escuro={escuro} />
+      {/* [NOVO] só o de hoje; o 7 e 30 dias, a planilha e os gráficos do dia ficam na aba Relatórios */}
+      <Relatorio r={r?.relatorio} statusAtual={r?.statusUra?.status} soHoje />
       <Roteador />
     </>
   );
