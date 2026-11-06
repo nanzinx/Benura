@@ -199,3 +199,28 @@ test('[NOVO] vigia: o dia com dezenas de milhares de ligações não estoura a p
   assert.equal(pedidosDoDia, 2);
   assert.equal(estatisticas.resumo().leadsDerivados, 1800, '180.000 ligações lidas, 1 em cada 100 derivou');
 });
+
+test('[NOVO] o raio-x do callback corrige o tipo no mapa de risco (a mesma conclusão do callbacks.txt)', () => {
+  const { metodosDosRobos } = require('../../src/rodizio/rodizio.robos');
+  const t0 = Date.parse('2026-11-05T13:00:00Z');
+  const foto = (ts, classe) => ({ ts, robos: { ligados: 40, alvo: 40 }, ura: [{ ramal: '201', classe, grupo: 2, emCarencia: false }] });
+  const correcoes = [];
+  const svc = {
+    ...metodosDosRobos,
+    cfg: { fusoHorario: 'America/Sao_Paulo', grupoUraId: 2 },
+    log: loggerNulo,
+    registrarCallback() {},
+    estatisticas: { corrigirCallbackNoMapa: (chave, invisivel) => correcoes.push([chave, invisivel]) },
+  };
+  // livre no começo, ocupado no meio: não é invisível (é de fila)
+  svc.fotos = [foto(t0, Classe.LIVRE), foto(t0 + 20_000, Classe.ATENDIMENTO), foto(t0 + 40_000, Classe.LIVRE)];
+  svc.registrarCallbackDoRelatorio({ motivo: 'abandono em fila', chave: 'ligacao:1', inicio: t0, fim: t0 + 45_000, robo: 'Oper Virtual 1' });
+  // livre útil a ligação toda: invisível
+  svc.fotos = [foto(t0, Classe.LIVRE), foto(t0 + 20_000, Classe.LIVRE)];
+  svc.registrarCallbackDoRelatorio({ motivo: 'abandono em fila', chave: 'ligacao:2', inicio: t0, fim: t0 + 25_000, robo: null });
+  // sem histórico nem hora: não corrige
+  svc.fotos = [];
+  svc.registrarCallbackDoRelatorio({ motivo: 'abandono em fila', chave: 'ligacao:3', inicio: t0, fim: t0 + 25_000, robo: null });
+  svc.registrarCallbackDoRelatorio({ motivo: 'abandono em fila', chave: 'ligacao:4', inicio: null, fim: null, robo: null });
+  assert.deepEqual(correcoes, [['ligacao:1', false], ['ligacao:2', true]]);
+});

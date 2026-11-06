@@ -107,13 +107,6 @@
 .bv-barra:nth-of-type(4) { animation-delay: 0.38s; }
 .bv-barra:nth-of-type(5) { animation-delay: 0.26s; }
 .bv-barra:nth-of-type(6) { animation-delay: 0.44s; }
-/* [NOVO] a logo do topo: o equalizador de tempos em tempos (Marca.tsx liga a classe logo-eq) */
-@keyframes logo-eq { 0%, 100% { transform: scaleY(1); } 25% { transform: scaleY(0.4); } 50% { transform: scaleY(1.12); } 75% { transform: scaleY(0.6); } }
-.logo-eq .logo-barra { transform-box: fill-box; transform-origin: center; animation: logo-eq 0.75s ease-in-out 2; }
-.logo-eq .logo-barra:nth-of-type(3) { animation-delay: 0.09s; }
-.logo-eq .logo-barra:nth-of-type(4) { animation-delay: 0.04s; }
-.logo-eq .logo-barra:nth-of-type(5) { animation-delay: 0.13s; }
-.logo-eq .logo-barra:nth-of-type(6) { animation-delay: 0.07s; }
 .bv-abre { max-width: 0; animation: bv-abre 0.5s cubic-bezier(0.3, 0.7, 0.2, 1) 0.75s forwards; }
 .bv-palavra { animation: bv-deslizar 0.5s cubic-bezier(0.3, 0.7, 0.2, 1) 0.75s both; }
 .bv-surgir { animation: bv-surgir 0.4s ease-out both; }
@@ -154,7 +147,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .bv-icone, .bv-palavra, .bv-surgir, .bv-pulo, .bv-rodape, .cascata > * { animation: bv-esmaecer 0.2s ease-out both; animation-delay: 0s; }
-  .bv-onda, .bv-brilho, .bv-barra, .logo-eq .logo-barra { animation: none; }
+  .bv-onda, .bv-brilho, .bv-barra { animation: none; }
   .bv-onda { display: none; }
   .bv-abre { animation: none; max-width: none; }
   .bv-progresso { animation: none; transform: none; }

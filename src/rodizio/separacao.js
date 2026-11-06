@@ -213,6 +213,8 @@ function estatisticasRemotas(fila) {
       fila.por({ tipo: 'encerramento', ts, encerramento });
       return true;
     },
+    // [NOVO] o raio-x (aqui, no de robôs) corrige o tipo do callback no mapa de risco do de pessoas
+    corrigirCallbackNoMapa: (chave, invisivel) => fila.por({ tipo: 'callback-mapa', chave, invisivel, ts: Date.now() }),
     registrarDerivacao() {},
     amostrar() {},
     carregar() {},

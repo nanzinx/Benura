@@ -67,6 +67,7 @@ const metodosDaSeparacao = {
     if (e.tipo === 'panico') this.estatisticas?.registrarPanico(e.panico, e.ts);
     else if (e.tipo === 'encerramento' && e.encerramento) this.estatisticas?.registrarEncerramento(e.ts, e.encerramento, 'relatório');
     else if (e.tipo === 'callback') this.termometro?.registrarCallback(e.ts);
+    else if (e.tipo === 'callback-mapa') this.estatisticas?.corrigirCallbackNoMapa?.(e.chave, e.invisivel);
   },
 
   /** No de pessoas: manda o retrato ao de robôs. Chamadas juntas não se sobrepõem (vai mais uma depois). */
