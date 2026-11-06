@@ -302,3 +302,15 @@ test('[NOVO] papel pessoas: a primeira linha do tempo sai "livres ?→N", mesmo 
   const primeira = linhas.find((l) => /URA: livres/.test(l));
   assert.match(primeira, /^URA: livres \?→\d+ \|/);
 });
+
+test('[NOVO] separado: a correção do raio-x vai do de robôs ao mapa de risco do de pessoas', () => {
+  const { estatisticasRemotas } = require('../../src/rodizio/separacao');
+  const { metodosDaSeparacao } = require('../../src/rodizio/rodizio.separacao');
+  const eventos = [];
+  estatisticasRemotas({ por: (e) => eventos.push(e) }).corrigirCallbackNoMapa('ligacao:9', false);
+  assert.deepEqual(eventos.map(({ tipo, chave, invisivel }) => ({ tipo, chave, invisivel })), [{ tipo: 'callback-mapa', chave: 'ligacao:9', invisivel: false }]);
+  const aplicadas = [];
+  const pessoas = { ...metodosDaSeparacao, estatisticas: { corrigirCallbackNoMapa: (c, i) => aplicadas.push([c, i]) } };
+  pessoas.aplicarEventoDosRobos(eventos[0]);
+  assert.deepEqual(aplicadas, [['ligacao:9', false]]);
+});

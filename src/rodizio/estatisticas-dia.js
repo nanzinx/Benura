@@ -16,7 +16,7 @@
 const { dataLocal, horaLocal } = require('../utils/datas');
 const { sugestoes } = require('../domain/sugestoes');
 const { limitesMin: LIMITES_PAUSA } = require('../config/pausas');
-const { anotar, somarMapas } = require('../domain/mapa-risco');
+const { anotar, somarMapas, chave: chaveDoMapa } = require('../domain/mapa-risco');
 
 /** Entre dois ciclos, no máximo isto conta (o rodízio pode ter ficado parado). */
 const MAX_INTERVALO_MS = 30_000;
@@ -59,6 +59,8 @@ const diaNovo = (dia) => ({
   // [NOVO] mapa de risco dos robôs ("livres|robôs|status" → leads, callbacks de fila e invisíveis), domain/mapa-risco.js
   mapaRisco: {},
   semFotoNoMapa: 0,
+  // [NOVO] callback do dia → célula e tipo no mapa (o raio-x pode corrigir o tipo depois)
+  callbacksNoMapa: {},
   // [NOVO] tempo em pausa dos humanos da URA, por tipo (descricaoPausa da Argus)
   pausasMs: {},
   // [NOVO] por atendente (ramal → acumulados), veja atendente()
@@ -157,6 +159,8 @@ class EstatisticasDia {
     this.contadas = new Set();
     /** [NOVO] As fotos da URA dos últimos 15 min ({ ts, livres, robos, status }), para o mapa de risco. */
     this.fotos = [];
+    /** [NOVO] correções do raio-x que chegaram antes do encerramento (chave → invisível?) */
+    this.correcoes = new Map();
   }
 
   /**
@@ -375,8 +379,44 @@ class EstatisticasDia {
     // webhook, o fim). O callback só é invisível se havia gente livre a espera toda: a URA calma segura
     // livres, então na entrada quase sempre há alguém, e os livres podem ir a 0 antes do time-out.
     const entrou = quando ?? agora - (filaSeg ?? 0) * 1000;
-    const invisivel = derivou ? undefined : this.livresAEsperaToda(entrou, Math.max(entrou, fim ?? agora)) ?? undefined;
-    if (!anotar((e.mapaRisco ??= {}), this.fotoEm(entrou), { derivou, invisivel })) e.semFotoNoMapa = (e.semFotoNoMapa ?? 0) + 1;
+    // O raio-x do callback (a ligação inteira) manda no tipo: se a correção dele já chegou, vale ela.
+    const corrigido = !derivou && chave && this.correcoes.has(chave) ? this.correcoes.get(chave) : undefined;
+    if (corrigido !== undefined) this.correcoes.delete(chave);
+    const invisivel = derivou ? undefined : corrigido ?? this.livresAEsperaToda(entrou, Math.max(entrou, fim ?? agora)) ?? undefined;
+    const foto = this.fotoEm(entrou);
+    if (!anotar((e.mapaRisco ??= {}), foto, { derivou, invisivel })) e.semFotoNoMapa = (e.semFotoNoMapa ?? 0) + 1;
+    else if (!derivou && chave) {
+      (e.callbacksNoMapa ??= {})[chave] = { k: chaveDoMapa(foto), tipo: (invisivel ?? foto.livres > 0) ? 'invisivel' : 'fila' };
+    }
+    return true;
+  }
+
+  /**
+   * [NOVO] O raio-x do callback (callbacks.txt) concluiu se ele foi invisível (havia livre útil a
+   * ligação toda) ou não. O mapa segue a mesma conclusão: o primeiro aviso costuma ser o webhook, que
+   * pode vir sem o tempo de fila e só ver o instante do fim. Muda o tipo na mesma célula; se o
+   * encerramento ainda não chegou, guarda para quando chegar.
+   * @returns {boolean} true se mudou o mapa
+   */
+  corrigirCallbackNoMapa(chave, invisivel) {
+    if (!chave || typeof invisivel !== 'boolean') return false;
+    const e = this.estado;
+    const c = e.callbacksNoMapa?.[chave];
+    if (!c) {
+      if (!this.contadas.has(chave)) {
+        this.correcoes.set(chave, invisivel);
+        while (this.correcoes.size > 500) this.correcoes.delete(this.correcoes.keys().next().value);
+      }
+      return false;
+    }
+    const novo = invisivel ? 'invisivel' : 'fila';
+    const cel = e.mapaRisco?.[c.k];
+    if (c.tipo === novo || !cel) return false;
+    const campo = (t) => (t === 'invisivel' ? 'invisiveis' : 'fila');
+    cel[campo(c.tipo)] = Math.max(0, (cel[campo(c.tipo)] ?? 0) - 1);
+    cel[campo(novo)] = (cel[campo(novo)] ?? 0) + 1;
+    c.tipo = novo;
+    this.gravadoEm = 0;
     return true;
   }
 

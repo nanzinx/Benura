@@ -209,3 +209,24 @@ test('[NOVO] mapa de risco: callback é "de fila" se os livres foram a 0 em algu
     '3|41+|calma': { leads: 0, fila: 0, invisiveis: 1 },
   });
 });
+
+test('[NOVO] mapa de risco: o tipo do callback segue a conclusão do raio-x (webhook sem tempo de fila não decide sozinho)', () => {
+  const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE });
+  const t = (hhmm, s = 0) => em('2026-11-05', hhmm) + s * 1000;
+  e.amostrar(t('10:00'), { livres: 0, robosLigados: 45, termometro: 'calma' });
+  e.amostrar(t('10:01'), { livres: 2, robosLigados: 45, termometro: 'calma' });
+  // webhook sem tempoSegundosFila: só o instante do fim (2 livres) → sai invisível
+  e.registrarEncerramento(t('10:01', 10), { chave: 'ligacao:1', derivou: false, motivo: 'time-out na fila', filaSeg: null });
+  assert.deepEqual(e.estado.mapaRisco['2|41+|calma'], { leads: 0, fila: 0, invisiveis: 1 });
+  // o raio-x (a ligação inteira) diz que não: vira de fila na mesma célula
+  e.corrigirCallbackNoMapa('ligacao:1', false);
+  assert.deepEqual(e.estado.mapaRisco['2|41+|calma'], { leads: 0, fila: 1, invisiveis: 0 });
+  e.corrigirCallbackNoMapa('ligacao:1', false); // repetido: nada muda
+  assert.deepEqual(e.estado.mapaRisco['2|41+|calma'], { leads: 0, fila: 1, invisiveis: 0 });
+  e.corrigirCallbackNoMapa('ligacao:nao-existe', true); // desconhecida: ignora
+  // a correção antes do encerramento também vale
+  e.corrigirCallbackNoMapa('ligacao:2', false);
+  e.registrarEncerramento(t('10:01', 20), { chave: 'ligacao:2', derivou: false, motivo: 'abandonou a fila', filaSeg: null });
+  assert.deepEqual(e.estado.mapaRisco['2|41+|calma'], { leads: 0, fila: 2, invisiveis: 0 });
+  assert.equal(e.estado.transbordos, 2, 'a correção não conta o callback de novo');
+});

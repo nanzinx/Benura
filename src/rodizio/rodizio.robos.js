@@ -7,7 +7,7 @@
  */
 
 const { Classe, AcaoRobos, ultimoLivreQueSai, decidirRobos, alvoDeRobos, livresUteis, VALIDADE_STATUS_MS } = require('../domain/rodizio');
-const { raioXDoCallback, horaNoFuso } = require('../domain/raio-x-callback');
+const { raioXDoCallback, horaNoFuso, Conclusao } = require('../domain/raio-x-callback');
 const { robosPorLivrePelaTaxa, roboMinutos, CALCULO_PADRAO } = require('../domain/robos-por-taxa');
 const { dataLocal } = require('../utils/datas');
 
@@ -417,6 +417,8 @@ const metodosDosRobos = {
       ? { linha: `CALLBACK (hora não veio no relatório) ${robo ?? ''} | sem raio-x` }
       : raioXDoCallback({ fotos: this.fotos, inicio, fim: fim ?? inicio, grupoUraId: this.cfg.grupoUraId, fuso, robo });
     this.log.aviso(raioX.linha);
+    // [NOVO] o mapa de risco segue a mesma conclusão (sem histórico do BenURA, não dá para dizer)
+    if (raioX.conclusao && raioX.conclusao !== Conclusao.SEM_HISTORICO) this.estatisticas?.corrigirCallbackNoMapa?.(chave, raioX.conclusao === Conclusao.INVISIVEL);
     const quando = inicio == null ? '' : ` às ${horaNoFuso(inicio, fuso)}`;
     this.registrarCallback({ motivo, chave }, `relatório da Argus${quando}`, inicio ?? Date.now());
   },
