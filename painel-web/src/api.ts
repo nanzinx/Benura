@@ -80,6 +80,11 @@ export const api = {
   retomarRodizio: () => pedir<ResultadoRetomada>('POST', '/api/operadores/retomar-rodizio', {}),
   // [NOVO] modo dos robôs (aba URA e robôs)
   modoRobos: (modo: ModoRobos) => pedir<{ mudou: boolean; modo: ModoRobos }>('PUT', '/api/robos/modo', { modo }),
+  // [NOVO] seleção manual de grupo de robôs (null para todos/automático)
+  grupoRobos: (grupoId: number | null) => pedir<{ mudou: boolean; grupoId: number | null }>('PUT', '/api/robos/grupo', { grupoId }),
+  // [NOVO] transferência de robôs entre grupos
+  transferirGrupoRobos: (grupoOrigemId: number | null, grupoDestinoId: number) =>
+    pedir<{ ok: boolean; transferidos: number; total: number; erros: Array<{ ramal: string; erro: string }>; grupoDestinoId: number }>('POST', '/api/robos/transferir-grupo', { grupoOrigemId, grupoDestinoId }),
   // [NOVO] ações por atendente (aba Receptivo)
   pausasDisponiveis: (ramal: string) => pedir<{ pausas: PausaDaArgus[] }>('POST', '/api/operadores/pausas', { ramal }),
   acaoOperador: (pedido: PedidoAcao) => {

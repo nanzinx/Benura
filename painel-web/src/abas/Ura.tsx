@@ -5,16 +5,17 @@
  */
 
 import { clsx } from 'clsx';
-import { Bell, BellRing, Bot, Calculator, PowerOff, Search, ShieldAlert } from 'lucide-react';
+import { ArrowRightLeft, Bell, BellRing, Bot, Calculator, PowerOff, Search, ShieldAlert } from 'lucide-react';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import type { ComandoUra } from '../api';
-import { useComandoUra, useModoRobos, useRisco, useVisao } from '../dados';
+import { useComandoUra, useGrupoRobos, useModoRobos, useRisco, useTransferirGrupoRobos, useVisao } from '../dados';
 import { dataBr, horaCurta, motivoLegivel } from '../formatos';
 import { descreverCalculo } from '../calculo-robos';
 import { StatusUra } from '../componentes/StatusUra';
 import { ativarAvisos, avisosAtivos } from '../notificacoes';
 import type { ModoRobos, SaudeRodizio } from '../tipos';
 import { Botao, Cartao, ComoFunciona, Esqueleto, Recolhivel, Selo, Vazio, VerMais, type Tom } from '../ui/base';
+import { Campo, CAMPO, Dialogo } from '../ui/dialogo';
 import { useRetorno } from '../ui/retorno';
 import { semAcesso, usePode } from '../sessao';
 
@@ -77,6 +78,8 @@ const MODOS: { id: ModoRobos; titulo: string; linha: string; Icone: ComponentTyp
 /** [NOVO] "Rodízio dos robôs": escolhe o modo; desligar e voltar ao automático pedem confirmação. */
 function RodizioRobos({ r }: { r: SaudeRodizio }) {
   const mutacao = useModoRobos();
+  const mutacaoGrupo = useGrupoRobos();
+  const [modalTransferir, setModalTransferir] = useState(false);
   const { confirmar } = useRetorno();
   const pode = usePode('supervisor');
   const robos = r.robos;
@@ -86,6 +89,8 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
   const gruposTexto = r.gruposRobos?.length
     ? r.gruposRobos.map((g) => `${g.nome} (${g.robos})`).join(', ')
     : null;
+  const gruposDisponiveis = r.gruposRobosDisponiveis?.length ? r.gruposRobosDisponiveis : (r.gruposRobos || []);
+  const grupoEscolhido = r.grupoRobos?.grupoId ?? null;
 
   const escolher = async (novo: ModoRobos) => {
     if (novo === modo || mutacao.isPending) return;
@@ -126,6 +131,52 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
           )}
         </div>
       </header>
+      {gruposDisponiveis.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-noite-700 dark:bg-noite-800/40">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Grupo ativo:
+            </span>
+            <select
+              aria-label="Grupo de robôs ativo"
+              value={grupoEscolhido ?? 'todos'}
+              disabled={mutacaoGrupo.isPending || !pode}
+              onChange={(e) => mutacaoGrupo.mutate(e.target.value === 'todos' ? null : Number(e.target.value))}
+              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-400 dark:border-noite-600 dark:bg-noite-900 dark:text-slate-100 dark:hover:border-noite-500"
+            >
+              <option value="todos">Todos (automático)</option>
+              {gruposDisponiveis.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.nome} ({g.robos} {g.robos === 1 ? 'robô' : 'robôs'})
+                </option>
+              ))}
+            </select>
+            {r.grupoRobos?.escolhido && (
+              <span className="rounded-full bg-azul-50 px-2 py-0.5 text-[11px] font-semibold text-azul-700 dark:bg-noite-700 dark:text-azul-300">
+                filtro manual ativo
+              </span>
+            )}
+          </div>
+          <Botao
+            variante="secundario"
+            icone={<ArrowRightLeft className="size-3.5" />}
+            className="!min-h-8 px-3 py-1 text-xs"
+            onClick={() => setModalTransferir(true)}
+            disabled={!pode}
+            semAcesso={pode ? null : semAcesso('supervisor')}
+            title="Transferir robôs entre grupos URA PORT na Argus"
+          >
+            Mover robôs
+          </Botao>
+        </div>
+      )}
+      {modalTransferir && (
+        <ModalTransferirRobos
+          grupos={gruposDisponiveis}
+          grupoAtivoId={grupoEscolhido}
+          fechar={() => setModalTransferir(false)}
+        />
+      )}
       {modo === 'automatico' && calculo && (
         <p className="mb-4 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-noite-800/60 dark:text-slate-300">
           <Calculator className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
@@ -156,9 +207,119 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
           <p><b>Robôs por livre:</b> sai da taxa real dos últimos 30 min (derivações ÷ minutos de robô ligado) e da espera alvo do status da URA: calma 45 s, normal 90 s, agressiva 120 s. Cada status tem um piso e um teto (calma 20, normal 4 a 10, agressiva 2 a 6); com 1 livre vale o teto. Na calma com 2 livres ou mais, liga todos os robôs. No começo do dia, enquanto mede a taxa, vale o ajuste do dia. Escolher à mão vale até virar o dia.</p>
           <p><b>Só pânico:</b> como antes — quem liga é a supervisão, pela Argus; o BenURA só desliga nas regras do pânico (cartão abaixo).</p>
           <p><b>Desligados:</b> para quando os callbacks não param. Os parados desligam na hora, os em ligação ao terminar; se alguém ligar um robô pela Argus, o BenURA desliga de novo. O rodízio dos humanos, o roteador e as rotinas continuam.</p>
+          <p><b>Grupos e transferência:</b> o BenURA identifica todos os grupos URA PORT da Argus. Você pode selecionar um grupo específico no menu "Grupo ativo" para focar o controle e o vigia de callbacks apenas nele, ou usar "Mover robôs" para transferir os ramais virtuais de uma URA PORT para outra na Argus com efeito imediato.</p>
         </ComoFunciona>
       </div>
     </section>
+  );
+}
+
+/** [NOVO] Diálogo para transferir robôs entre grupos URA PORT da Argus. */
+function ModalTransferirRobos({
+  grupos,
+  grupoAtivoId,
+  fechar,
+}: {
+  grupos: Array<{ id: number; nome: string; robos: number }>;
+  grupoAtivoId: number | null;
+  fechar: () => void;
+}) {
+  const mutacao = useTransferirGrupoRobos();
+  const [origemId, setOrigemId] = useState<number>(() => {
+    if (grupoAtivoId != null && grupos.some((g) => g.id === grupoAtivoId)) return grupoAtivoId;
+    const comRobos = grupos.filter((g) => g.robos > 0);
+    return comRobos[0]?.id ?? grupos[0]?.id ?? 0;
+  });
+  const [destinoId, setDestinoId] = useState<number>(() => {
+    const idBase = grupoAtivoId ?? (grupos[0]?.id ?? 0);
+    const outro = grupos.find((g) => g.id !== idBase);
+    return outro?.id ?? 0;
+  });
+
+  const grupoOrigem = grupos.find((g) => g.id === origemId);
+  const grupoDestino = grupos.find((g) => g.id === destinoId);
+  const qtd = grupoOrigem?.robos ?? 0;
+
+  const confirmar = async () => {
+    if (!origemId || !destinoId || origemId === destinoId) return;
+    await mutacao.mutateAsync({ grupoOrigemId: origemId, grupoDestinoId: destinoId });
+    fechar();
+  };
+
+  return (
+    <Dialogo
+      titulo="Mover robôs entre grupos URA PORT"
+      icone={<ArrowRightLeft className="size-5" />}
+      fechar={fechar}
+      aoEnviar={confirmar}
+      largura={460}
+      rodape={
+        <>
+          <Botao variante="secundario" onClick={fechar} disabled={mutacao.isPending}>
+            Cancelar
+          </Botao>
+          <Botao
+            variante="primario"
+            onClick={confirmar}
+            carregando={mutacao.isPending}
+            disabled={!origemId || !destinoId || origemId === destinoId || qtd === 0}
+          >
+            Mover {qtd > 0 ? `${qtd} robô(s)` : 'robôs'}
+          </Botao>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p>
+          Transfira os operadores virtuais DTMF de uma URA PORT para outra na Argus. A mudança tem efeito imediato.
+        </p>
+        <Campo rotulo="Grupo de origem (de onde saem)">
+          <select
+            value={origemId}
+            onChange={(e) => {
+              const novo = Number(e.target.value);
+              setOrigemId(novo);
+              if (destinoId === novo) {
+                const outro = grupos.find((g) => g.id !== novo);
+                if (outro) setDestinoId(outro.id);
+              }
+            }}
+            className={CAMPO}
+          >
+            {grupos.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.nome} ({g.robos} {g.robos === 1 ? 'robô' : 'robôs'})
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <Campo rotulo="Grupo de destino (para onde vão)">
+          <select
+            value={destinoId}
+            onChange={(e) => setDestinoId(Number(e.target.value))}
+            className={CAMPO}
+          >
+            {grupos
+              .filter((g) => g.id !== origemId)
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.nome} ({g.robos} {g.robos === 1 ? 'robô' : 'robôs'})
+                </option>
+              ))}
+          </select>
+        </Campo>
+        {qtd === 0 && (
+          <p className="rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+            O grupo de origem selecionado não possui nenhum robô para transferir.
+          </p>
+        )}
+        {qtd > 0 && grupoDestino && (
+          <p className="rounded-lg bg-azul-50 p-2.5 text-xs text-azul-700 dark:bg-noite-800 dark:text-azul-300">
+            {qtd} robô(s) do grupo <b>{grupoOrigem?.nome}</b> serão transferidos para o grupo <b>{grupoDestino.nome}</b>.
+          </p>
+        )}
+      </div>
+    </Dialogo>
   );
 }
 

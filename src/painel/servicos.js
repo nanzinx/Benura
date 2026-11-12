@@ -23,6 +23,9 @@ const ACOES = Object.freeze([
   { metodo: 'GET', caminho: '/api/relatorio/mes', servico: 'rodizio', destino: '/relatorio/periodo?dias=30' },
   // [NOVO] modo dos robôs: automático, só pânico ou desligados
   { metodo: 'PUT', caminho: '/api/robos/modo', servico: 'robos', destino: '/robos/modo', nome: 'mudar o modo dos robôs', comQuem: true, limiteBytes: 1024 },
+  // [NOVO] seleção manual de grupo de robôs e transferência de robôs entre grupos
+  { metodo: 'PUT', caminho: '/api/robos/grupo', servico: 'robos', destino: '/robos/grupo', nome: 'mudar o grupo dos robôs', comQuem: true, limiteBytes: 1024 },
+  { metodo: 'POST', caminho: '/api/robos/transferir-grupo', servico: 'robos', destino: '/robos/transferir-grupo', nome: 'transferir robôs de grupo', comQuem: true, limiteBytes: 1024, timeoutMs: 30_000 },
   {
     metodo: 'POST', caminho: '/api/operadores/transferir-ura-ativo', servico: 'rodizio', destino: '/operadores/transferir-ura-ativo',
     nome: 'alocar todos da URA no Ativo', comQuem: true, limiteBytes: 1024, timeoutMs: 60_000,
@@ -65,7 +68,7 @@ const NOMES = Object.freeze({
 });
 
 /** [NOVO] Do /health do benura-robos, o que a tela lê no do rodízio (assim ela não muda). */
-const CAMPOS_DOS_ROBOS = ['robos', 'panico', 'ajusteRobos', 'ultimoLivreSaindo'];
+const CAMPOS_DOS_ROBOS = ['robos', 'panico', 'ajusteRobos', 'ultimoLivreSaindo', 'gruposRobos', 'gruposRobosDisponiveis', 'grupoRobos'];
 
 class Servicos {
   /**
