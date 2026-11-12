@@ -163,6 +163,8 @@ const metodosDaSeparacao = {
       desligandoAutomacao: r.desligandoAutomacao,
       ramaisRobos: [...this.ramaisRobos],
       gruposRobos: r.gruposRobos,
+      gruposRobosDisponiveis: r.gruposRobosDisponiveis,
+      grupoRobos: r.grupoRobos,
       saudeArgus: r.saudeArgus,
       retratoDaUra: {
         fresco: this.retratoFresco(agora),

@@ -31,6 +31,8 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'Com 2 ou mais livres não faz nada. Com a URA calma e 1 livre (fixo ou não), também não: os robôs seguem até ele atender ou ir para o Ativo, e aí sobra 0 livre.',
       'Cliente de risco em ligação (interruptor ligado): desliga os robôs parados e mostra uma faixa vermelha no topo.',
       'Os robôs podem estar em qualquer URA PORT (URA PORT 1, 2, 3…): o BenURA identifica os grupos virtuais DTMF pelo nome e o cartão "Rodízio dos robôs" mostra em quais grupos eles estão.',
+      'Filtro de grupo ativo: pelo menu "Grupo ativo" a supervisão pode focar o controle e o vigia de callbacks em uma URA PORT específica, ou deixar em "Todos (automático)".',
+      'Mover robôs entre URA PORTs: o botão "Mover robôs" permite transferir os robôs de uma URA PORT para outra na Argus diretamente pelo BenURA, com efeito imediato.',
     ],
   },
   {

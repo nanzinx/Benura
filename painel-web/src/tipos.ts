@@ -160,6 +160,10 @@ export interface SaudeRodizio {
   fixosPermanentes?: string[];
   /** [NOVO] Grupos de robôs da URA identificados (id, nome, quantidade de robôs) */
   gruposRobos?: Array<{ id: number; nome: string; robos: number }>;
+  /** [NOVO] Todos os grupos de robôs disponíveis para seleção */
+  gruposRobosDisponiveis?: Array<{ id: number; nome: string; robos: number }>;
+  /** [NOVO] Grupo de robôs manualmente selecionado (ou null para todos/automático) */
+  grupoRobos?: { grupoId: number | null; desde: string | null; por: string | null; escolhido: boolean } | null;
   robos?: {
     ligados: number | null; total?: number; alvo?: number | null;
     /** [NOVO] modo escolhido no painel (sem escolha: o ROBOS_MODO do .env) */

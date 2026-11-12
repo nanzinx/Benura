@@ -243,3 +243,32 @@ export function useModoRobos() {
     onError: (e) => avisar('erro', `Não foi possível: ${e.message}`),
   });
 }
+
+/** [NOVO] Seleção de grupo de robôs (null para todos/automático, ou id numérico). */
+export function useGrupoRobos() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: (grupoId: number | null) => api.grupoRobos(grupoId),
+    onSuccess: (r) => {
+      avisar('ok', r.mudou === false ? 'Grupo de robôs mantido.' : 'Grupo de robôs atualizado com sucesso.');
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Não foi possível mudar o grupo: ${e.message}`),
+  });
+}
+
+/** [NOVO] Transferência de robôs entre grupos na Argus. */
+export function useTransferirGrupoRobos() {
+  const cliente = useQueryClient();
+  const { avisar } = useRetorno();
+  return useMutation({
+    mutationFn: ({ grupoOrigemId, grupoDestinoId }: { grupoOrigemId: number | null; grupoDestinoId: number }) =>
+      api.transferirGrupoRobos(grupoOrigemId, grupoDestinoId),
+    onSuccess: (r) => {
+      avisar('ok', `${r.transferidos} robô(s) transferido(s) com sucesso na Argus.`);
+      cliente.invalidateQueries({ queryKey: ['visao'] });
+    },
+    onError: (e) => avisar('erro', `Falha ao transferir robôs: ${e.message}`),
+  });
+}

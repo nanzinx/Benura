@@ -23,6 +23,7 @@
 
 const { Classe, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, livresUteis, reconciliarMovidos, porAntiguidade, bonusDeAntiguidade, planoDosLivres, excessoDeLivres, saidaDaUra } = require('../domain/rodizio');
 const { gruposDosRobos } = require('../domain/grupos-robos');
+const { GrupoRobos } = require('./grupo-robos');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
 const { mapearComLimite } = require('../utils/concorrencia');
@@ -89,11 +90,14 @@ class RodizioService {
     client, transferencias, robos, repositorio, cfg, logger, diretorio = null, elegiveis = null, uraCheia = null, ajuste = null,
     panico = null, fixos = null, termometro = null, statusDaUra = null, estatisticas = null, retencao = null, travas = null,
     modoRobos = null, contasSupervisores = null, papel = 'tudo', ligacaoRobos = null, robosDeEmergencia = null,
+    grupoRobos = null,
   }) {
     Object.assign(this, {
       client, transferencias, robos, repositorio, cfg, log: logger, diretorio, elegiveis, uraCheia, ajuste, panico, fixos,
       termometro, statusDaUra, estatisticas, retencao, travas, modoRobos, contasSupervisores,
     });
+    this.grupoRobos = grupoRobos || new GrupoRobos({ arquivo: cfg?.arquivoGrupoRobos ?? null, logger: this.log });
+    this.gruposRobosDisponiveis = [];
     /**
      * [NOVO] tudo: pessoas e robôs aqui (ROBOS_SERVICO_PROPRIO=false). pessoas: o benura-rodizio, que manda
      * o retrato da URA ao benura-robos (separacao.js) e nunca comanda robô. robos: o benura-robos, que vê a
@@ -218,6 +222,7 @@ class RodizioService {
     this.retencao?.carregar();
     this.travas?.carregar();
     this.modoRobos?.carregar();
+    this.grupoRobos?.carregar();
     this.estatisticas?.carregar();
     return this;
   }
@@ -242,13 +247,26 @@ class RodizioService {
     this.esquecerMovidosForaDaUra(naUra);
     this.ramaisUra = new Set([...naUra, ...Object.keys(this.movidos)]);
 
-    const robos = gruposDosRobos(grupos, {
+    const todosRobos = gruposDosRobos(grupos, {
       ids: this.cfg.gruposRobosIds,
       nomes: this.cfg.gruposRobosNomes,
     });
-    this.ramaisRobos = robos.flatMap((g) => g.ramais).map(String);
+    this.gruposRobosDisponiveis = todosRobos.map((g) => ({ id: g.id, nome: g.nome, robos: g.ramais.length }));
 
-    const novosGrupos = robos.map((g) => ({ id: g.id, nome: g.nome, robos: g.ramais.length }));
+    const grupoEscolhidoId = this.grupoRobos?.grupoId ?? null;
+    let robosAtivos = todosRobos;
+    if (grupoEscolhidoId != null) {
+      const match = todosRobos.filter((g) => g.id === grupoEscolhidoId);
+      if (match.length > 0) {
+        robosAtivos = match;
+      } else {
+        this.log.aviso(`Grupo de robôs selecionado (${grupoEscolhidoId}) não encontrado entre os grupos de robôs; usando todos.`);
+      }
+    }
+
+    this.ramaisRobos = robosAtivos.flatMap((g) => g.ramais).map(String);
+
+    const novosGrupos = robosAtivos.map((g) => ({ id: g.id, nome: g.nome, robos: g.ramais.length }));
     const chaveAnterior = (this.gruposRobosAgora || []).map((g) => `${g.id}:${g.nome}`).sort().join('|');
     const chaveNova = novosGrupos.map((g) => `${g.id}:${g.nome}`).sort().join('|');
     const mudou = chaveAnterior !== chaveNova;
@@ -266,6 +284,109 @@ class RodizioService {
     this.log.debug(`Grupos: URA=${this.ramaisUra.size} robôs=${this.ramaisRobos.length} ativos=${this.gruposAtivos.length}`);
     await this.atualizarPermanentes();
     await this.sincronizarRobos();
+  }
+
+  /**
+   * [NOVO] Define o filtro de grupo dos robôs (null para todos/automático, ou id numérico).
+   *
+   * @param {number|string|null} grupoId
+   * @param {string|null} [por]
+   * @returns {Promise<{ mudou: boolean, grupoId: number|null, resumo: object }>}
+   */
+  async definirGrupoRobos(grupoId, por = null) {
+    if (!this.grupoRobos) throw new Error('seleção de grupo de robôs indisponível');
+    const antes = this.grupoRobos.grupoId;
+    const { mudou, grupoId: novo } = this.grupoRobos.definir(grupoId, por);
+    if (mudou) {
+      const descAntes = antes ? `grupo ${antes}` : 'todos (automático)';
+      const descNovo = novo ? `grupo ${novo}` : 'todos (automático)';
+      this.log.aviso(`Robôs: filtro de grupo ${descAntes} → ${descNovo} pelo painel${por ? ` (${por})` : ''}.`);
+      await this.atualizarGrupos();
+      if (this.ramaisRobos.length) await this.robos.sincronizar(this.ramaisRobos);
+      this.avaliarRobos?.().catch?.((e) => this.log.erro(`Falha ao avaliar robôs após mudar grupo: ${e.message}`));
+    }
+    return { mudou, grupoId: this.grupoRobos.grupoId, resumo: this.grupoRobos.resumo() };
+  }
+
+  /**
+   * [NOVO] Transfere robôs de um grupo para outro na Argus.
+   *
+   * @param {object} params
+   * @param {number|string} [params.grupoOrigemId]
+   * @param {number|string} params.grupoDestinoId
+   * @param {string[]} [params.ramais]
+   * @param {string} [params.por]
+   * @returns {Promise<{ ok: boolean, transferidos: number, total: number, erros: Array<{ ramal: string, erro: string }>, grupoDestinoId: number }>}
+   */
+  async transferirRobosDeGrupo({ grupoOrigemId = null, grupoDestinoId, ramais = null, por = null }) {
+    const destinoId = Number(grupoDestinoId);
+    if (!Number.isInteger(destinoId) || destinoId <= 0) {
+      throw new Error('grupoDestinoId inválido');
+    }
+    const origemId = grupoOrigemId != null && grupoOrigemId !== '' ? Number(grupoOrigemId) : null;
+    if (origemId != null && origemId === destinoId) {
+      throw new Error('Grupo de destino deve ser diferente do grupo de origem');
+    }
+
+    const grupos = await this.client.listarGrupos();
+    const destino = grupos.find((g) => Number(g.idGrupoUsuario ?? g.id) === destinoId);
+    if (!destino) {
+      throw new Error(`Grupo de destino (${destinoId}) não encontrado na Argus`);
+    }
+
+    const origem = origemId != null ? grupos.find((g) => Number(g.idGrupoUsuario ?? g.id) === origemId) : null;
+    if (origemId != null && !origem) {
+      throw new Error(`Grupo de origem (${origemId}) não encontrado na Argus`);
+    }
+
+    let ramaisParaMover = [];
+    if (Array.isArray(ramais) && ramais.length) {
+      ramaisParaMover = ramais.map(String);
+    } else if (origem) {
+      ramaisParaMover = (origem.ramaisOperadores ?? origem.ramais ?? []).map(String);
+    } else {
+      ramaisParaMover = [...this.ramaisRobos].map(String);
+    }
+
+    if (!ramaisParaMover.length) {
+      throw new Error('Nenhum robô encontrado no grupo de origem para transferir');
+    }
+
+    const movidos = [];
+    const erros = [];
+    for (const ramal of ramaisParaMover) {
+      if (this.cfg.dryRun) {
+        this.log.info(`[DRY_RUN] Transferiria robô ${ramal} → grupo ${destinoId}`);
+        movidos.push(ramal);
+        continue;
+      }
+      try {
+        await this.client.transferirOperador(ramal, destinoId);
+        movidos.push(ramal);
+      } catch (e) {
+        erros.push({ ramal, erro: e.message });
+      }
+    }
+
+    const nomeOrigem = origem?.descricao || origem?.nome || (origemId ? `grupo ${origemId}` : 'origem');
+    const nomeDestino = destino?.descricao || destino?.nome || `grupo ${destinoId}`;
+    this.log.aviso(`Robôs: ${movidos.length}/${ramaisParaMover.length} transferido(s) de ${nomeOrigem} para ${nomeDestino}${por ? ` por ${por}` : ''}${erros.length ? ` (${erros.length} erro(s))` : ''}.`);
+
+    // Se o grupo de origem era o grupo selecionado manualmente, migra a seleção para o destino
+    if (this.grupoRobos && this.grupoRobos.grupoId === origemId && movidos.length > 0) {
+      this.grupoRobos.definir(destinoId, por);
+    }
+
+    await this.atualizarGrupos();
+    if (this.ramaisRobos.length) await this.robos.sincronizar(this.ramaisRobos);
+
+    return {
+      ok: erros.length === 0,
+      transferidos: movidos.length,
+      total: ramaisParaMover.length,
+      erros,
+      grupoDestinoId: destinoId,
+    };
   }
 
   /** Relê os fixos (a equipe pode mudar na Argus); se a Argus não responder, mantém a última lista. */
@@ -1170,6 +1291,14 @@ class RodizioService {
         nome: g.nome,
         robos: g.robos ?? g.ramais?.length ?? 0,
       })),
+      // [NOVO] todos os grupos de robôs disponíveis para seleção
+      gruposRobosDisponiveis: (this.gruposRobosDisponiveis || []).map((g) => ({
+        id: g.id,
+        nome: g.nome,
+        robos: g.robos ?? g.ramais?.length ?? 0,
+      })),
+      // [NOVO] grupo de robôs manualmente selecionado (ou null para todos/automático)
+      grupoRobos: this.grupoRobos?.resumo() ?? this.grupoRobosRemoto ?? null,
       // [NOVO] no de pessoas, os robôs como o benura-robos disse na última resposta
       ...(this.papel === 'pessoas' && this.resumoDosRobosRemoto ? this.resumoDosRobosRemoto : {}),
       // [NOVO] a Argus vista por este serviço nos últimos 15 min (painel, aba Serviços)

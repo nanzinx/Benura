@@ -30,6 +30,7 @@ const { StatusUra } = require('./status-ura');
 const { RetencaoAtivo } = require('./retencao-ativo');
 const { TravasManuais } = require('./travas-manuais');
 const { ModoRobos } = require('./modo-robos');
+const { GrupoRobos } = require('./grupo-robos');
 const { AcoesOperador } = require('./acoes-operador');
 const { EstatisticasDia } = require('./estatisticas-dia');
 
@@ -156,6 +157,7 @@ function montarRodizio(overrides, { papel: pedido = null } = {}) {
     // "Alocar Todos no Ativo": segura todos no Ativo até "Retomar rodízio da URA" (o roteador lê o mesmo arquivo).
     retencao: comPessoas ? new RetencaoAtivo({ arquivo: cfg.automacao.arquivoRetencao, logger: log.filho('rodizio') }) : null,
     modoRobos: comRobos ? new ModoRobos({ arquivo: cfgRodizio.arquivoModoRobos, padrao: cfgRodizio.robosModo, logger: log.filho('robos') }) : null,
+    grupoRobos: comRobos ? new GrupoRobos({ arquivo: cfgRodizio.arquivoGrupoRobos, logger: log.filho('robos') }) : null,
     travas: comPessoas ? new TravasManuais({ arquivo: cfg.automacao.arquivoTravas, fusoHorario: cfg.agenda.fusoHorario, logger: log.filho('rodizio') }) : null,
     estatisticas: comPessoas ? new EstatisticasDia({
       repositorio: new ArquivoDeEstado({ arquivo: cfgRodizio.arquivoEstatisticas, logger: log.filho('estado') }), fusoHorario: cfg.agenda.fusoHorario,

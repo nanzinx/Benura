@@ -194,6 +194,32 @@ function criarRotasDoRodizio({
     }
   }
 
+  /** [NOVO] PUT /robos/grupo { grupoId: number|null } — seleção manual do grupo de robôs. */
+  async function definirGrupoRobos({ corpo }) {
+    try {
+      return { status: 200, corpo: await rodizio.definirGrupoRobos(corpo?.grupoId, quem(corpo)) };
+    } catch (e) {
+      return { status: 400, corpo: { erro: e.message } };
+    }
+  }
+
+  /** [NOVO] POST /robos/transferir-grupo { grupoOrigemId, grupoDestinoId, ramais? } — transferir robôs entre grupos. */
+  async function transferirRobos({ corpo }) {
+    try {
+      return {
+        status: 200,
+        corpo: await rodizio.transferirRobosDeGrupo({
+          grupoOrigemId: corpo?.grupoOrigemId,
+          grupoDestinoId: corpo?.grupoDestinoId,
+          ramais: corpo?.ramais,
+          por: quem(corpo),
+        }),
+      };
+    } catch (e) {
+      return { status: 400, corpo: { erro: e.message } };
+    }
+  }
+
   /** Quem pediu (o painel manda o e-mail/IP da supervisão); só texto curto, vai para o log. */
   const quem = (corpo) => (typeof corpo?.por === 'string' ? corpo.por.slice(0, 120) : null);
 
@@ -292,6 +318,8 @@ function criarRotasDoRodizio({
     { metodo: 'POST', caminho: '/webhook', handler: webhook, protegida: true, prefixo: true },
     { metodo: 'POST', caminho: '/robos/manual', handler: robosManual, protegida: true },
     { metodo: 'PUT', caminho: '/robos/modo', handler: definirModoRobos, protegida: true },
+    { metodo: 'PUT', caminho: '/robos/grupo', handler: definirGrupoRobos, protegida: true },
+    { metodo: 'POST', caminho: '/robos/transferir-grupo', handler: transferirRobos, protegida: true },
     { metodo: 'POST', caminho: '/robos/automatico', handler: robosAutomatico, protegida: true },
     { metodo: 'POST', caminho: '/robos/por-livre', handler: robosPorLivre, protegida: true },
   ];
@@ -299,7 +327,7 @@ function criarRotasDoRodizio({
 }
 
 /** [NOVO] As rotas que são dos robôs (no de pessoas, repassadas ao benura-robos). */
-const DOS_ROBOS = new Set(['/panico', '/robos/manual', '/robos/modo', '/robos/automatico', '/robos/por-livre', '/risco/desligar', '/perfis/risco', '/alertas']);
+const DOS_ROBOS = new Set(['/panico', '/robos/manual', '/robos/modo', '/robos/grupo', '/robos/transferir-grupo', '/robos/automatico', '/robos/por-livre', '/risco/desligar', '/perfis/risco', '/alertas']);
 
 /**
  * [NOVO] tudo: todas. robos: só as dos robôs, o encerrar da automação e o /interno/ura. pessoas: todas,
