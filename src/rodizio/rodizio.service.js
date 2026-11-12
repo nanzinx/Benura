@@ -22,6 +22,7 @@
  */
 
 const { Classe, classificarStatus, deveIrParaUra, deveVoltarAoAtivo, motivoDaVolta, livresUteis, reconciliarMovidos, porAntiguidade, bonusDeAntiguidade, planoDosLivres, excessoDeLivres, saidaDaUra } = require('../domain/rodizio');
+const { gruposDosRobos } = require('../domain/grupos-robos');
 const { TipoGrupo } = require('../integrations/argus/argus.client');
 const { alinharLogin } = require('../integrations/argus/alinhar-login');
 const { mapearComLimite } = require('../utils/concorrencia');
@@ -124,6 +125,7 @@ class RodizioService {
     this.gruposAtivos = []; // grupos do Ativo (whitelist) com seus ramais
     this.ramaisUra = new Set(); // humanos na URA (do grupo + movidos)
     this.ramaisRobos = [];
+    this.gruposRobosAgora = [];
     /** ramal → { classe, ts, doWebhook } */
     this.statusUra = new Map();
     /** ramais cuja última leitura de status falhou (para avisar uma vez só) */
@@ -240,8 +242,22 @@ class RodizioService {
     this.esquecerMovidosForaDaUra(naUra);
     this.ramaisUra = new Set([...naUra, ...Object.keys(this.movidos)]);
 
-    const robos = grupos.filter((g) => this.cfg.gruposRobosIds.includes(g.idGrupoUsuario));
-    if (robos.length) this.ramaisRobos = robos.flatMap((g) => g.ramaisOperadores || []).map(String);
+    const robos = gruposDosRobos(grupos, {
+      ids: this.cfg.gruposRobosIds,
+      nomes: this.cfg.gruposRobosNomes,
+    });
+    this.ramaisRobos = robos.flatMap((g) => g.ramais).map(String);
+
+    const novosGrupos = robos.map((g) => ({ id: g.id, nome: g.nome, robos: g.ramais.length }));
+    const chaveAnterior = (this.gruposRobosAgora || []).map((g) => `${g.id}:${g.nome}`).sort().join('|');
+    const chaveNova = novosGrupos.map((g) => `${g.id}:${g.nome}`).sort().join('|');
+    const mudou = chaveAnterior !== chaveNova;
+    this.gruposRobosAgora = novosGrupos;
+
+    if (mudou && novosGrupos.length) {
+      const desc = novosGrupos.map((g) => `${g.nome} (${g.robos})`).join(', ');
+      this.log.info(`robôs agora em: ${desc}`);
+    }
 
     this.gruposAtivos = grupos.filter((g) => g.idTipoGrupo === TipoGrupo.OPERACIONAL
       && g.idGrupoUsuario !== this.cfg.grupoUraId
@@ -1075,6 +1091,12 @@ class RodizioService {
     });
   }
 
+  /** IDs dos grupos de robôs ativos agora (ou os da configuração caso a Argus ainda não tenha sido lida). */
+  gruposRobosIds() {
+    if (this.gruposRobosAgora?.length) return this.gruposRobosAgora.map((g) => g.id);
+    return this.cfg.gruposRobosIds || [];
+  }
+
   // ───────────────────────────── [NOVO] Dois serviços: pessoas e robôs (separacao.js) ─────────────────────────────
 
   resumo() {
@@ -1142,6 +1164,12 @@ class RodizioService {
       ramaisUra: [...this.ramaisUra],
       movidos: this.movidos,
       gruposAtivos: this.gruposAtivos.map((g) => g.idGrupoUsuario),
+      // [NOVO] grupos de robôs identificados agora (id, nome, quantidade de robôs)
+      gruposRobos: (this.gruposRobosAgora || []).map((g) => ({
+        id: g.id,
+        nome: g.nome,
+        robos: g.robos ?? g.ramais?.length ?? 0,
+      })),
       // [NOVO] no de pessoas, os robôs como o benura-robos disse na última resposta
       ...(this.papel === 'pessoas' && this.resumoDosRobosRemoto ? this.resumoDosRobosRemoto : {}),
       // [NOVO] a Argus vista por este serviço nos últimos 15 min (painel, aba Serviços)

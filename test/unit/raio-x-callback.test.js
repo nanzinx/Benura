@@ -224,3 +224,25 @@ test('[NOVO] o raio-x do callback corrige o tipo no mapa de risco (a mesma concl
   svc.registrarCallbackDoRelatorio({ motivo: 'abandono em fila', chave: 'ligacao:4', inicio: null, fim: null, robo: null });
   assert.deepEqual(correcoes, [['ligacao:1', false], ['ligacao:2', true]]);
 });
+
+test('vigia de callbacks: consulta o relatório dos grupos atuais, que mudam entre leituras', async () => {
+  const pedidos = [];
+  let gruposAtuais = [3];
+  const vigia = new VigiaCallbacks({
+    client: {
+      listarCampanhas: async () => [{ idCampanha: 3, ativo: true }],
+      ligacoesDetalhadas: async (filtro) => { pedidos.push(filtro.idGrupoUsuario); return []; },
+    },
+    rodizio: { teveRoboLigado: () => true, registrarCallbackDoRelatorio: () => {} },
+    cfg: { gruposRobosIds: () => gruposAtuais, fuso: FUSO, janelaMin: 5 },
+    logger: loggerNulo,
+  });
+
+  await vigia.verificar();
+  assert.deepEqual(pedidos, [3]);
+
+  pedidos.length = 0;
+  gruposAtuais = [1, 2];
+  await vigia.verificar();
+  assert.deepEqual(pedidos, [1, 2], 'na segunda leitura consulta os novos grupos atuais');
+});

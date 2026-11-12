@@ -129,6 +129,7 @@ function montarRetrato(svc, agora) {
     ts: agora,
     ramaisUra: ramais,
     ramaisRobos: [...svc.ramaisRobos].map(String),
+    gruposRobos: (svc.gruposRobosAgora || []).map((g) => ({ id: g.id, nome: g.nome, robos: g.robos ?? g.ramais?.length ?? 0 })),
     permanentes: [...svc.permanentes].map(String),
     status: ramais.filter((r) => svc.statusUra.has(r)).map((r) => [r, statusParaOsRobos(svc.statusUra.get(r))]),
     saiEm: Object.fromEntries(ramais.map((r) => [r, svc.saidaPrevista(r, agora)]).filter(([, t]) => t != null)),
@@ -148,6 +149,7 @@ function aplicarRetrato(svc, retrato, recebidoEm) {
   svc.retratoRecebidoEm = recebidoEm;
   svc.ramaisUra = new Set(retrato.ramaisUra.map(String));
   if (Array.isArray(retrato.ramaisRobos) && retrato.ramaisRobos.length) svc.ramaisRobos = retrato.ramaisRobos.map(String);
+  if (Array.isArray(retrato.gruposRobos)) svc.gruposRobosAgora = retrato.gruposRobos;
   svc.permanentes = new Set((retrato.permanentes ?? []).map(String));
   svc.statusUra = new Map((retrato.status ?? []).map(([r, s]) => [String(r), s]));
   svc.saidas = new Map(Object.entries(retrato.saiEm ?? {}).map(([r, t]) => [String(r), Number(t)]));
@@ -156,7 +158,7 @@ function aplicarRetrato(svc, retrato, recebidoEm) {
 }
 
 /** Do resumo dos robôs, o que o /health do de pessoas (e a tela) mostra. */
-const CAMPOS_DO_RESUMO = ['robos', 'panico', 'ajusteRobos', 'ultimoLivreSaindo'];
+const CAMPOS_DO_RESUMO = ['robos', 'panico', 'ajusteRobos', 'ultimoLivreSaindo', 'gruposRobos'];
 function resumoParaPessoas(svc) {
   // Um erro aqui não pode derrubar a conversa (o de pessoas pararia os robôs achando que este caiu).
   try {

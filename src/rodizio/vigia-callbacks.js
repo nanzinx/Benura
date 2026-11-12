@@ -93,10 +93,17 @@ class VigiaCallbacks {
     return inicio != null && inicio >= (this.rodizio.iniciadoEm ?? Infinity);
   }
 
+  gruposRobosIds() {
+    const ids = typeof this.cfg.gruposRobosIds === 'function'
+      ? this.cfg.gruposRobosIds()
+      : this.cfg.gruposRobosIds;
+    return Array.isArray(ids) ? ids : [];
+  }
+
   async lerLigacoes(ultimosMinutos = this.cfg.janelaMin, maxPaginas = 5) {
     this.idCampanha ??= await escolherCampanha(this.client, this.cfg.idCampanha);
     const todas = [];
-    for (const idGrupoUsuario of this.cfg.gruposRobosIds) {
+    for (const idGrupoUsuario of this.gruposRobosIds()) {
       for (const l of await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos }, { maxPaginas })) todas.push(l);
     }
     return todas;
@@ -117,7 +124,7 @@ class VigiaCallbacks {
     try {
       // Página por página, sem juntar o dia inteiro na memória.
       this.idCampanha ??= await escolherCampanha(this.client, this.cfg.idCampanha);
-      for (const idGrupoUsuario of this.cfg.gruposRobosIds) {
+      for (const idGrupoUsuario of this.gruposRobosIds()) {
         await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos: h * 60 + m + 1 }, {
           maxPaginas: PAGINAS_DO_DIA,
           aoReceber: (pagina) => {

@@ -34,6 +34,7 @@ const configDoFimExpediente = (cfg) => ({
   horarioFim: cfg.agenda.horarioFim,
   fusoHorario: cfg.agenda.fusoHorario,
   gruposRobosIds: cfg.rodizio.gruposRobosIds,
+  gruposRobosNomes: cfg.rodizio.gruposRobosNomes,
   descricoesStatus: cfg.rodizio.descricoesStatus,
   concorrencia: cfg.rodizio.concorrencia,
   dryRun: cfg.argus.dryRun,

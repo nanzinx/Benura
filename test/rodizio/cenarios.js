@@ -547,6 +547,48 @@ const CENARIOS = {
     if (religados.join() !== '900,901') throw new Error(`religou ${religados}`);
   },
 
+  async 'Robôs: movidos do PORT 3 para o PORT 1 continuam sendo desligados e ligados'(r) {
+    // 1) Começa no PORT 3: humano 200 ocupado → desliga 900 e 901
+    r.argus.definirStatus('200', 'em atendimento');
+    await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'deslogar robôs do PORT 3' });
+    let deslogados = r.chamadas('deslogaroperador').map((c) => String(c.dados.ramal)).sort();
+    if (deslogados.join() !== '900,901') throw new Error(`deslogou ${deslogados}`);
+
+    // Humano 200 livre → religa 900 e 901
+    r.argus.definirStatus('200', 'livre');
+    await aguardar(() => r.chamadas('logaroperadorvirtual').length >= 2, { descricao: 'religar robôs do PORT 3' });
+
+    // 2) No meio do teste, robôs vão do PORT 3 para o PORT 1
+    const p3 = r.argus.estado.grupos.find((g) => g.idGrupoUsuario === 3);
+    const p1 = r.argus.estado.grupos.find((g) => g.idGrupoUsuario === 10);
+    p3.ramaisOperadores = [];
+    p1.ramaisOperadores = ['910', '911'];
+    r.argus.definirStatus('910', 'livre');
+    r.argus.definirStatus('911', 'livre');
+
+    // Aguarda o BenURA reler os grupos e registrar a mudança
+    await aguardar(async () => {
+      const saude = await r.saude();
+      const grupos = saude.gruposRobos || [];
+      return grupos.some((g) => g.id === 10 && g.robos === 2);
+    }, { timeoutMs: 8000, descricao: 'reler grupos com URA PORT 1' });
+
+    const chamadasAntesDesligar = r.chamadas('deslogaroperador').length;
+    const chamadasAntesReligar = r.chamadas('logaroperadorvirtual').length;
+
+    // 3) Humano 200 ocupado → BenURA desliga os robôs do PORT 1 (910 e 911)
+    r.argus.definirStatus('200', 'em atendimento');
+    await aguardar(() => r.chamadas('deslogaroperador').length >= chamadasAntesDesligar + 2, { descricao: 'deslogar robôs do PORT 1' });
+    const novosDeslogados = r.chamadas('deslogaroperador').slice(chamadasAntesDesligar).map((c) => String(c.dados.ramal)).sort();
+    if (novosDeslogados.join() !== '910,911') throw new Error(`deslogou no PORT 1: ${novosDeslogados}`);
+
+    // Humano 200 livre → BenURA religa os robôs do PORT 1 (910 e 911)
+    r.argus.definirStatus('200', 'livre');
+    await aguardar(() => r.chamadas('logaroperadorvirtual').length >= chamadasAntesReligar + 2, { descricao: 'religar robôs do PORT 1' });
+    const novosReligados = r.chamadas('logaroperadorvirtual').slice(chamadasAntesReligar).map((c) => String(c.dados.ramal)).sort();
+    if (novosReligados.join() !== '910,911') throw new Error(`religou no PORT 1: ${novosReligados}`);
+  },
+
   async 'Robôs proporcionais: 3 por livre, reduz poupando quem está em ligação, aumenta e zera'(r) {
     const ligados = () => ROBOS_10.filter((x) => r.argus.estado.status[x]); // desligado = sem status ("Deslogado" na Argus)
     // 1 livre (200) → alvo 3: dos 10 ligados, desliga 7 e poupa o 900, que está em ligação.
@@ -1047,6 +1089,16 @@ const URA_VAZIA_ROBOS_DESLIGADOS = {
 };
 
 const VARIACOES = {
+  'Robôs: movidos do PORT 3 para o PORT 1 continuam sendo desligados e ligados': {
+    grupos: [
+      { idGrupoUsuario: 1, idTipoGrupo: 1, ramaisOperadores: ['100'] },
+      { idGrupoUsuario: 2, idTipoGrupo: 1, ramaisOperadores: ['200'] },
+      { idGrupoUsuario: 3, descricao: 'URA PORT 3', idTipoGrupo: 2, ramaisOperadores: ['900', '901'] },
+      { idGrupoUsuario: 10, descricao: 'URA PORT 1', idTipoGrupo: 2, ramaisOperadores: [] },
+    ],
+    status: { 100: 'livre', 200: 'livre', 900: 'livre', 901: 'livre' },
+    env: { REFRESH_GRUPOS_MS: '400' },
+  },
   'URA: movido que pisca offline não volta; offline que continua volta depois de OFFLINE_VOLTA_APOS_MS': {
     env: { OFFLINE_VOLTA_APOS_MS: '2000', TEMPO_MIN: '1' },
   },

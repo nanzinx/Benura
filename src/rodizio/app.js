@@ -167,8 +167,8 @@ function montarRodizio(overrides, { papel: pedido = null } = {}) {
     }) : null,
   });
   const retornoFila = comPessoas ? montarRetornoFila(cfg, client, log.filho('retorno-fila')) : null;
-  const haRobos = comRobos && cfgRodizio.gruposRobosIds.length > 0;
-  const cfgVigias = { gruposRobosIds: cfgRodizio.gruposRobosIds, idCampanha: cfgRodizio.idCampanhaRobos || undefined, fuso: cfg.agenda.fusoHorario };
+  const haRobos = comRobos && (cfgRodizio.gruposRobosIds.length > 0 || (cfgRodizio.gruposRobosNomes && cfgRodizio.gruposRobosNomes.length > 0));
+  const cfgVigias = { gruposRobosIds: () => rodizio.gruposRobosIds(), idCampanha: cfgRodizio.idCampanhaRobos || undefined, fuso: cfg.agenda.fusoHorario };
   const risco = haRobos && cfgRodizio.perfis.ativo ? montarRisco({ cfgRodizio, cfgVigias, client, rodizio, log }) : null;
   const vigia = cfgRodizio.callbacksVerificarMs > 0 && haRobos ? new VigiaCallbacks({
     client, rodizio, cfg: cfgVigias, logger: log.filho('callbacks'), perfis: risco?.perfis ?? null,
