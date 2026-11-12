@@ -60,10 +60,17 @@ class VigiaRisco {
     return null;
   }
 
+  gruposRobosIds() {
+    const ids = typeof this.cfg.gruposRobosIds === 'function'
+      ? this.cfg.gruposRobosIds()
+      : this.cfg.gruposRobosIds;
+    return Array.isArray(ids) ? ids : [];
+  }
+
   async lerUltimoMinuto() {
     this.idCampanha ??= await escolherCampanha(this.client, this.cfg.idCampanha);
     const todas = [];
-    for (const idGrupoUsuario of this.cfg.gruposRobosIds) {
+    for (const idGrupoUsuario of this.gruposRobosIds()) {
       for (const l of await this.client.ligacoesDetalhadas({ idCampanha: this.idCampanha, idGrupoUsuario, ultimosMinutos: 1 }, { maxPaginas: 3 })) todas.push(l);
     }
     return todas;

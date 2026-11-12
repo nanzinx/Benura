@@ -14,6 +14,7 @@ const { classificarStatus, Classe } = require('../domain/rodizio');
 const {
   Situacao, horarioComMargem, deveExecutar, operadoresParaVerificar, quemFicouLogado,
 } = require('../domain/fim-expediente');
+const { gruposDosRobos } = require('../domain/grupos-robos');
 const { mapearUsuario } = require('../integrations/argus/diretorio-operadores.service');
 const { mapearComLimite } = require('../utils/concorrencia');
 const { dataLocal, horaLocal } = require('../utils/datas');
@@ -64,10 +65,17 @@ class FimExpedienteService {
 
   async operadoresHumanos() {
     const [usuarios, grupos] = await Promise.all([this.client.listarUsuarios(), this.client.listarGrupos()]);
-    const ramaisRobos = grupos
-      .filter((g) => this.cfg.gruposRobosIds.includes(g.idGrupoUsuario) || (g.idTipoGrupo && g.idTipoGrupo !== GRUPO_OPERACIONAL))
-      .flatMap((g) => g.ramaisOperadores || []);
-    return operadoresParaVerificar(usuarios.map(mapearUsuario), { ignorarRamais: this.cfg.ignorarRamais, ramaisRobos });
+    const robos = gruposDosRobos(grupos, {
+      ids: typeof this.cfg.gruposRobosIds === 'function' ? this.cfg.gruposRobosIds() : this.cfg.gruposRobosIds,
+      nomes: this.cfg.gruposRobosNomes,
+    });
+    const ramaisRobos = new Set([
+      ...robos.flatMap((g) => g.ramais),
+      ...grupos
+        .filter((g) => g.idTipoGrupo && g.idTipoGrupo !== GRUPO_OPERACIONAL)
+        .flatMap((g) => g.ramaisOperadores || []),
+    ]);
+    return operadoresParaVerificar(usuarios.map(mapearUsuario), { ignorarRamais: this.cfg.ignorarRamais, ramaisRobos: [...ramaisRobos] });
   }
 
   async verificar({ ramal, nome }) {

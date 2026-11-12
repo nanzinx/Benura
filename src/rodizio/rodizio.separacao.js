@@ -162,6 +162,7 @@ const metodosDaSeparacao = {
       dryRun: r.dryRun,
       desligandoAutomacao: r.desligandoAutomacao,
       ramaisRobos: [...this.ramaisRobos],
+      gruposRobos: r.gruposRobos,
       saudeArgus: r.saudeArgus,
       retratoDaUra: {
         fresco: this.retratoFresco(agora),

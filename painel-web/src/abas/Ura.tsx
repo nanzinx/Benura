@@ -83,6 +83,9 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
   const modo: ModoRobos = robos?.modo ?? 'panico';
   const atual = MODOS.find((m) => m.id === modo)!;
   const calculo = descreverCalculo(robos?.calculo);
+  const gruposTexto = r.gruposRobos?.length
+    ? r.gruposRobos.map((g) => `${g.nome} (${g.robos})`).join(', ')
+    : null;
 
   const escolher = async (novo: ModoRobos) => {
     if (novo === modo || mutacao.isPending) return;
@@ -107,6 +110,11 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {atual.linha}{robos?.modoDesde ? ` · desde ${horaCurta(robos.modoDesde)}${robos.modoPor ? ` (${robos.modoPor})` : ''}` : ''}
           </p>
+          {gruposTexto && (
+            <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+              nos grupos: {gruposTexto}
+            </p>
+          )}
         </div>
         <div className="flex gap-6 text-right">
           <div><span className="rotulo block">Ligados agora</span><b className="text-2xl tabular-nums">{robos?.ligados ?? '–'}</b><span className="text-sm text-slate-500"> / {robos?.total ?? '–'}</span></div>

@@ -30,6 +30,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'Pânico com 1 fixo livre há menos de 3 min (URA não calma): desliga a metade dos robôs ligados, de novo a cada 60 s (8 → 4 → 2 → 1).',
       'Com 2 ou mais livres não faz nada. Com a URA calma e 1 livre (fixo ou não), também não: os robôs seguem até ele atender ou ir para o Ativo, e aí sobra 0 livre.',
       'Cliente de risco em ligação (interruptor ligado): desliga os robôs parados e mostra uma faixa vermelha no topo.',
+      'Os robôs podem estar em qualquer URA PORT (URA PORT 1, 2, 3…): o BenURA identifica os grupos virtuais DTMF pelo nome e o cartão "Rodízio dos robôs" mostra em quais grupos eles estão.',
     ],
   },
   {

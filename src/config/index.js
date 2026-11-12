@@ -48,7 +48,13 @@ const envBool = (nome, padrao = false) => {
 };
 const semBarraFinal = (url) => url.replace(/\/+$/, '');
 const envListaNum = (nome) => env(nome, '').split(',').map((x) => x.trim()).filter(Boolean).map(Number);
-const envLista = (nome, padrao) => env(nome, padrao).split(',').map((x) => x.trim()).filter(Boolean);
+const envLista = (nome, padrao = '') => {
+  const v = process.env[nome];
+  const doEnv = v !== undefined;
+  const str = doEnv ? v : padrao;
+  lidas.set(nome, { nome, valor: String(str), padrao: String(padrao), doEnv: doEnv && v !== '' });
+  return (str || '').split(',').map((x) => x.trim()).filter(Boolean);
+};
 const envListaTexto = (nome, padrao) => env(nome, padrao).toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);
 
 /** Raiz do projeto: padrão dos arquivos do rodízio (mesmo lugar do argus-automacao.js original). */
@@ -130,6 +136,8 @@ function carregarConfig(overrides = {}) {
       gruposRobosIds: envListaNum('GRUPOS_ROBOS_URA_IDS').length
         ? envListaNum('GRUPOS_ROBOS_URA_IDS')
         : envListaNum('GRUPO_ROBOS_URA_ID').filter(Boolean),
+      // [NOVO] Grupos dos robôs por nome (começo do nome, DTMF apenas). Padrão: URA PORT.
+      gruposRobosNomes: envLista('GRUPOS_ROBOS_URA_NOMES', 'URA PORT'),
       // panico (padrão): a supervisão liga os robôs pelo painel; o BenURA só os desliga quando a URA
       // fica com 1 livre ou menos (interruptor na página /ura). automatico: o BenURA liga e desliga
       // os robôs proporcionalmente aos livres (regras abaixo).
@@ -581,8 +589,11 @@ function validarRodizio(cfg) {
 
   if (!a.token) fatais.push('ARGUS_TOKEN é obrigatório.');
   if (!r.grupoUraDefinido) fatais.push('GRUPO_URA_ID é obrigatório.');
-  if (!r.gruposRobosIds.length || r.gruposRobosIds.some((id) => !Number.isInteger(id))) {
-    fatais.push('GRUPOS_ROBOS_URA_IDS é obrigatório (grupos dos robôs da URA, ex.: 6).');
+  const temRobos = (r.gruposRobosIds && r.gruposRobosIds.length > 0) || (r.gruposRobosNomes && r.gruposRobosNomes.length > 0);
+  if (!temRobos) {
+    fatais.push('GRUPOS_ROBOS_URA_IDS ou GRUPOS_ROBOS_URA_NOMES é obrigatório (grupos dos robôs da URA, ex.: 6 ou URA PORT).');
+  } else if (r.gruposRobosIds.some((id) => !Number.isInteger(id))) {
+    fatais.push('GRUPOS_ROBOS_URA_IDS deve conter apenas números inteiros.');
   }
   if (!(r.robosPorLivre >= 1)) fatais.push('ROBOS_POR_LIVRE deve ser 1 ou mais.');
   for (const [status, { esperaS, min, max, todosComLivres, comUmLivre }] of Object.entries(r.robosTaxa.porStatus)) {

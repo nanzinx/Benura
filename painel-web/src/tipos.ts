@@ -158,6 +158,8 @@ export interface SaudeRodizio {
   /** [NOVO] quem está no Ativo agora */
   noAtivo?: OperadorNoAtivo[];
   fixosPermanentes?: string[];
+  /** [NOVO] Grupos de robôs da URA identificados (id, nome, quantidade de robôs) */
+  gruposRobos?: Array<{ id: number; nome: string; robos: number }>;
   robos?: {
     ligados: number | null; total?: number; alvo?: number | null;
     /** [NOVO] modo escolhido no painel (sem escolha: o ROBOS_MODO do .env) */
