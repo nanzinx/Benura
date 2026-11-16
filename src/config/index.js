@@ -267,6 +267,10 @@ function carregarConfig(overrides = {}) {
       intervaloSubidaMs: envNum('ROBOS_SUBIDA_INTERVALO_MS', 10_000),
       concorrencia: envNum('CONCORRENCIA', 20),
       carenciaWebhookMs: envNum('WEBHOOK_GRACE_MS', 1500),
+      // [NOVO] Quem estava logado só vira offline depois de 2 leituras "não logado" seguidas, com pelo
+      // menos isto entre a primeira e a última (a Argus às vezes responde "não logado" para quem está
+      // livre, por um instante). 0 = na primeira leitura, como antes.
+      offlineConfirmarMs: envNum('OFFLINE_CONFIRMAR_MS', 10_000),
       descricoesStatus: {
         livres: envListaTexto('STATUS_LIVRE', 'livre,disponivel'),
         atendimento: envListaTexto('STATUS_ATENDIMENTO', 'atendimento,em atendimento,falando,conversa'),
