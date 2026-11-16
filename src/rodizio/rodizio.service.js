@@ -134,6 +134,8 @@ class RodizioService {
     this.statusUra = new Map();
     /** ramais cuja última leitura de status falhou (para avisar uma vez só) */
     this.ramaisComFalha = new Set();
+    /** [NOVO] ramal → { desde, leituras }: leu "não logado" quem estava logado; ainda não confirmado */
+    this.offlineSuspeito = new Map();
     /** ramal → { grupoLogado, grupo }: no grupo da URA, mas logado na telefonia em outro grupo */
     this.logadosEmOutroGrupo = new Map();
     /** ramais sendo relogados agora (o status pisca "deslogado": não é para agir) */
@@ -590,6 +592,7 @@ class RodizioService {
     if (this.alinhandoLogin.has(ramal)) return; // relogando: o "deslogado" de agora é passageiro
     const lido = await this.lerStatus(ramal);
     if (lido.classe === Classe.ERRO) return; // mantém o último status; a validade dele decide os robôs
+    if (this.offlineAindaSuspeito(ramal, lido.classe)) return;
     // Na lista da URA, mas a telefonia ainda em outro grupo: não recebe derivação,
     // então não conta como livre (nem liga robô para ela) até a troca acontecer.
     const preso = this.conferirGrupoLogado(ramal, lido.classe, lido.status);
@@ -614,6 +617,45 @@ class RodizioService {
       this.registrarDerivacao(agora, anterior?.livreDesde != null ? agora - anterior.livreDesde : null, ramal);
     }
     this.statusUra.set(ramal, { classe, ts: agora, livreDesde, presoLivreDesde, offlineDesde, emCarencia, detalhe });
+  }
+
+  /**
+   * [NOVO] A Argus às vezes responde "não logado" (HTTP 500) para quem está livre, por um instante
+   * (16/11: o número de livres pulava 1→2→1 a cada leitura e uma leitura com 0 derrubou os robôs).
+   * Quem estava logado só vira offline depois de 2 leituras seguidas, com OFFLINE_CONFIRMAR_MS entre
+   * a primeira e a última. Até lá vale o último status (com o horário renovado, para os robôs não
+   * acharem que perderam a visão da URA). Quem já estava offline, ou é visto pela primeira vez, não espera.
+   * @returns {boolean} true se a leitura "não logado" ainda não vale
+   */
+  offlineAindaSuspeito(ramal, classe) {
+    const suspeita = this.offlineSuspeito.get(ramal);
+    if (classe !== Classe.OFFLINE) {
+      if (suspeita) {
+        this.offlineSuspeito.delete(ramal);
+        this.log.info(`Ramal ${ramal}: a Argus voltou a mostrar o status; o "não logado" de antes foi só uma leitura.`);
+      }
+      return false;
+    }
+    const anterior = this.statusUra.get(ramal);
+    const confirmarMs = this.cfg.offlineConfirmarMs ?? 0;
+    if (!confirmarMs || !anterior || anterior.classe === Classe.OFFLINE) {
+      this.offlineSuspeito.delete(ramal);
+      return false;
+    }
+    const agora = Date.now();
+    if (!suspeita) {
+      this.offlineSuspeito.set(ramal, { desde: agora, leituras: 1 });
+      this.log.aviso(`Ramal ${ramal}: a Argus disse "não logado", mas ele estava ${anterior.classe}. Confirmando antes de tirar da conta dos robôs.`);
+    } else {
+      suspeita.leituras += 1;
+      if (suspeita.leituras >= 2 && agora - suspeita.desde >= confirmarMs) {
+        this.offlineSuspeito.delete(ramal);
+        this.log.info(`Ramal ${ramal}: offline confirmado (${suspeita.leituras} leituras "não logado" em ${Math.round((agora - suspeita.desde) / 1000)} s).`);
+        return false;
+      }
+    }
+    this.statusUra.set(ramal, { ...anterior, ts: agora });
+    return true;
   }
 
   /**

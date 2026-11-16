@@ -860,6 +860,19 @@ const CENARIOS = {
     if (espalhado < 900) throw new Error(`ligou 6 robôs em ${espalhado} ms: devia subir 2 por vez, a cada 500 ms`);
   },
 
+  async 'Robôs: a Argus diz "não logado" por um instante para quem está livre: os robôs não caem'(r) {
+    await esperar(1500);
+    const antes = r.chamadas('deslogaroperador').length;
+    r.argus.definirStatus('200', null); // uma leitura "não logado" (HTTP 500), como em 16/11
+    await esperar(1200);
+    r.argus.definirStatus('200', 'livre');
+    await esperar(2500);
+    if (r.chamadas('deslogaroperador').length !== antes) throw new Error('desligou robôs por uma leitura "não logado" isolada');
+    // Offline de verdade (continua): depois de confirmar, os robôs caem.
+    r.argus.definirStatus('200', null);
+    await aguardar(() => r.chamadas('deslogaroperador').length > antes, { timeoutMs: 15000, descricao: 'offline confirmado desliga robôs' });
+  },
+
   async 'Robôs: humano da URA em pausa conta como ocupado'(r) {
     r.argus.definirStatus('200', 'pausa');
     await aguardar(() => r.chamadas('deslogaroperador').length >= 2, { descricao: 'deslogar robôs' });
@@ -1100,7 +1113,10 @@ const VARIACOES = {
     env: { REFRESH_GRUPOS_MS: '400' },
   },
   'URA: movido que pisca offline não volta; offline que continua volta depois de OFFLINE_VOLTA_APOS_MS': {
-    env: { OFFLINE_VOLTA_APOS_MS: '2000', TEMPO_MIN: '1' },
+    env: { OFFLINE_VOLTA_APOS_MS: '2000', TEMPO_MIN: '1', OFFLINE_CONFIRMAR_MS: '1000' },
+  },
+  'Robôs: todos os humanos da URA offline → desliga': {
+    env: { OFFLINE_CONFIRMAR_MS: '1000' },
   },
   'Robôs: quem acabou de trocar a telefonia para a URA só liga robô depois da carência': {
     ...URA_VAZIA_ROBOS_DESLIGADOS, env: { CARENCIA_TROCA_GRUPO_MS: '3000' },
