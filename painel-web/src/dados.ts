@@ -91,6 +91,7 @@ export function useRisco() {
 const DESCRICAO: Record<ComandoUra, [string, string]> = {
   panico: ['Pânico ligado.', 'Pânico desligado.'],
   'ura/cheia': ['URA cheia: os operadores do Ativo vão para a URA em até 5 s.', 'Rodízio de volta ao normal.'],
+  'ura/cheia/sem-saida': ['Rodízio de saída desligado: quem está na URA não volta ao Ativo.', 'Rodízio de saída de volta: a regra do ocioso vale de novo.'],
   'risco/desligar': ['Os robôs desligam quando um cliente de risco estiver em ligação.', 'Cliente de risco: só avisa.'],
 };
 

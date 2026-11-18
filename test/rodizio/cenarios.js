@@ -276,6 +276,30 @@ const CENARIOS = {
     if (idas100 !== 1) throw new Error('quem voltou pelo ocioso subiu de novo sem atender no Ativo');
   },
 
+  async 'URA cheia sem saída: quem entra na URA não volta ao Ativo (nem pelo ocioso); ao religar o rodízio, o ocioso volta a valer'(r) {
+    const chamar = (caminho, method) => fetch(`${r.base}${caminho}`, { method, headers: { Authorization: `Bearer ${TOKEN}` } });
+    const vezes = (t) => r.transferencias().filter((x) => x === t).length;
+    if ((await chamar('/ura/cheia/sem-saida', 'POST')).status !== 409) throw new Error('travou a saída sem a URA cheia ligada');
+    if (!(await chamar('/ura/cheia', 'POST')).ok) throw new Error('não ligou a URA cheia');
+    if (!(await chamar('/ura/cheia/sem-saida', 'POST')).ok) throw new Error('não desligou o rodízio de saída');
+    const { uraCheia: estado } = await r.saude();
+    if (!estado.semSaida) throw new Error('/health não mostra a URA sem saída');
+    // O 100 atende no Ativo e sobe; depois fica livre bem mais que o TEMPO_MIN (6 s): não volta.
+    r.argus.definirStatus('100', 'em atendimento');
+    await esperar(1000);
+    r.argus.definirStatus('100', 'livre');
+    await aguardar(() => vezes('100→2') === 1, { descricao: '100 atendeu no Ativo → URA' });
+    await esperar(10_000);
+    if (vezes('100→1')) throw new Error('devolveu ao Ativo com o rodízio de saída desligado');
+    // Religando o rodízio de saída, o ocioso volta a valer.
+    if (!(await chamar('/ura/cheia/sem-saida', 'DELETE')).ok) throw new Error('não religou o rodízio de saída');
+    await aguardar(() => vezes('100→1') === 1, { timeoutMs: 15_000, descricao: 'ocioso → Ativo depois de religar' });
+    // Desligar a URA cheia também desliga o "sem saída".
+    await chamar('/ura/cheia/sem-saida', 'POST').catch(() => {});
+    if (!(await chamar('/ura/cheia', 'DELETE')).ok) throw new Error('não desligou a URA cheia');
+    if ((await r.saude()).uraCheia.semSaida) throw new Error('o sem saída ficou ligado sem a URA cheia');
+  },
+
   async 'URA cheia: ninguém sobe só por estar no Ativo; quem atender sobe mesmo sem ser elegível; a regra do ocioso vale'(r) {
     const uraCheia = (method) => fetch(`${r.base}/ura/cheia`, { method, headers: { Authorization: `Bearer ${TOKEN}` } });
     const vezes = (t) => r.transferencias().filter((x) => x === t).length;
@@ -578,14 +602,17 @@ const CENARIOS = {
 
     // 3) Humano 200 ocupado → BenURA desliga os robôs do PORT 1 (910 e 911)
     r.argus.definirStatus('200', 'em atendimento');
-    await aguardar(() => r.chamadas('deslogaroperador').length >= chamadasAntesDesligar + 2, { descricao: 'deslogar robôs do PORT 1' });
-    const novosDeslogados = r.chamadas('deslogaroperador').slice(chamadasAntesDesligar).map((c) => String(c.dados.ramal)).sort();
+    const desligados = () => new Set(r.chamadas('deslogaroperador').slice(chamadasAntesDesligar).map((c) => String(c.dados.ramal)));
+    await aguardar(() => desligados().has('910') && desligados().has('911'), { descricao: 'deslogar robôs do PORT 1' });
+    // No modo separado o mesmo robô pode receber o pedido duas vezes (inofensivo): vale quais foram, sem repetição.
+    const novosDeslogados = [...new Set(r.chamadas('deslogaroperador').slice(chamadasAntesDesligar).map((c) => String(c.dados.ramal)))].sort();
     if (novosDeslogados.join() !== '910,911') throw new Error(`deslogou no PORT 1: ${novosDeslogados}`);
 
     // Humano 200 livre → BenURA religa os robôs do PORT 1 (910 e 911)
     r.argus.definirStatus('200', 'livre');
-    await aguardar(() => r.chamadas('logaroperadorvirtual').length >= chamadasAntesReligar + 2, { descricao: 'religar robôs do PORT 1' });
-    const novosReligados = r.chamadas('logaroperadorvirtual').slice(chamadasAntesReligar).map((c) => String(c.dados.ramal)).sort();
+    const religados = () => new Set(r.chamadas('logaroperadorvirtual').slice(chamadasAntesReligar).map((c) => String(c.dados.ramal)));
+    await aguardar(() => religados().has('910') && religados().has('911'), { descricao: 'religar robôs do PORT 1' });
+    const novosReligados = [...new Set(r.chamadas('logaroperadorvirtual').slice(chamadasAntesReligar).map((c) => String(c.dados.ramal)))].sort();
     if (novosReligados.join() !== '910,911') throw new Error(`religou no PORT 1: ${novosReligados}`);
   },
 
@@ -1310,6 +1337,10 @@ const VARIACOES = {
     ],
     status: { ...Object.fromEntries(['100', '101', '102', '103', '104', '105', '106', '107'].map((x) => [x, 'livre'])), 900: 'livre', 901: 'livre' },
     env: { URA_CHEIA_LIMITAR_LIVRES: '1' },
+  },
+  'URA cheia sem saída: quem entra na URA não volta ao Ativo (nem pelo ocioso); ao religar o rodízio, o ocioso volta a valer': {
+    env: { RODIZIO_SO_ELEGIVEIS: '1' },
+    preparar: ({ pasta }) => escreverVendas(pasta, { 100: 'ATIVO', 101: 'URA' }),
   },
   'URA cheia: ninguém sobe só por estar no Ativo; quem atender sobe mesmo sem ser elegível; a regra do ocioso vale': {
     env: { RODIZIO_SO_ELEGIVEIS: '1' },

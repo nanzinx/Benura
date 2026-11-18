@@ -25,7 +25,7 @@ test('UraCheia: liga, sobrevive a reinício no mesmo dia e desliga sozinha na vi
     await ura.repositorio.aguardar();
 
     const depoisDoReinicio = criar().carregar(HOJE);
-    assert.deepEqual(depoisDoReinicio.resumo(HOJE), { ligada: true, desde: HOJE.toISOString() });
+    assert.deepEqual(depoisDoReinicio.resumo(HOJE), { ligada: true, desde: HOJE.toISOString(), semSaida: false, semSaidaDesde: null });
     assert.match(avisos.at(-1), /continua ligada/);
 
     assert.equal(depoisDoReinicio.ativa(AMANHA), false);
@@ -127,4 +127,27 @@ test('[NOVO] prioridade por ramal: sobe do menor para o maior; o último livre a
   svc.verificarOperadorDoAtivo = async ({ ramal }) => { ordem.push(ramal); };
   await svc.cicloAtivo();
   assert.deepEqual(ordem, ['101', '210', '305']);
+});
+
+test('[NOVO] UraCheia sem saída: só com a URA cheia ligada; desligar a URA cheia (ou virar o dia) desliga junto', async () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { UraCheia } = require('../../src/rodizio/ura-cheia');
+  const { loggerNulo } = require('../../src/utils/logger');
+  const arquivo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cheia-')), 'ura-cheia.json');
+  const hoje = new Date('2026-11-18T13:00:00Z');
+  const u = new UraCheia({ arquivo, fusoHorario: 'America/Sao_Paulo', logger: loggerNulo });
+  assert.throws(() => u.definirSemSaida(true, hoje), /Ligue a URA cheia/);
+  u.ligar(hoje);
+  assert.equal(u.definirSemSaida(true, hoje), true);
+  assert.equal(u.definirSemSaida(true, hoje), false, 'já estava');
+  assert.equal(u.semSaida(hoje), true);
+  await u.repositorio.aguardar();
+  assert.equal(new UraCheia({ arquivo, fusoHorario: 'America/Sao_Paulo', logger: loggerNulo }).carregar(hoje).semSaida(hoje), true, 'sobrevive a reinício');
+  u.desligar();
+  assert.equal(u.semSaida(hoje), false);
+  u.ligar(hoje);
+  u.definirSemSaida(true, hoje);
+  assert.equal(u.semSaida(new Date('2026-11-19T13:00:00Z')), false, 'virou o dia');
 });
