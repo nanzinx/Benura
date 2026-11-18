@@ -57,6 +57,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
       'Ninguém sobe só por estar no Ativo: quem está ocioso lá fica até atender.',
       'A regra do ocioso continua: quem fica livre 2 minutos seguidos na URA volta ao Ativo.',
       'Vale até desligar ou até virar o dia. A URA cheia não liga robô.',
+      'Com a URA cheia ligada aparece o cartão "Rodízio de saída": desligado, quem entra na URA fica (ninguém volta ao Ativo sozinho, nem pelo ocioso). Mover à mão continua valendo. Desligar a URA cheia religa o rodízio de saída.',
       'Com a URA calma e a URA cheia ligada ao mesmo tempo: a URA fica com 4 a 6 humanos livres (fixos contam). Faltando, sobem os mais antigos (ramal menor) livres no Ativo, sem precisar ter atendido; passando de 6, voltam ao Ativo os livres há mais tempo. Quem volta só sobe de novo depois de atender no Ativo.',
     ],
   },

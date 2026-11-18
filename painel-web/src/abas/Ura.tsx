@@ -450,6 +450,16 @@ export function Ura() {
           <p>A regra do ocioso continua valendo: quem fica livre o tempo todo volta ao Ativo e sobe de novo ao atender lá.</p>
           <p>Voltar ao normal: só sobe quem é elegível (meta de ontem, venda hoje ou fixo). Vale até desligar ou virar o dia.</p>
         </Interruptor>
+        {/* [NOVO] junto da URA cheia: desligar o rodízio de saída (ninguém volta ao Ativo sozinho) */}
+        {cheia?.ligada && (
+          <Interruptor comando="ura/cheia/sem-saida" titulo="Rodízio de saída"
+            estado={cheia.semSaida ? { texto: `desligado desde ${horaCurta(cheia.semSaidaDesde ?? cheia.desde)}`, tom: 'alerta' } : { texto: 'ligado (regra do ocioso)', tom: 'ok' }}
+            resumo={cheia.semSaida ? 'Ninguém volta ao Ativo sozinho: quem entrou na URA fica.' : 'Quem fica livre tempo demais volta ao Ativo (regra do ocioso).'}
+            ligar={{ texto: 'Desligar o rodízio de saída', confirmar: { titulo: 'Ninguém sai da URA?', texto: 'Com a URA cheia ligada, quem entrar na URA fica: o BenURA não devolve ninguém ao Ativo (nem pelo ocioso, nem por ficar offline). Mover à mão pelo painel continua valendo.' } }}
+            desligar={{ texto: 'Religar o rodízio de saída' }}>
+            <p>Só existe com a URA cheia ligada. Desligar a URA cheia, ou virar o dia, religa o rodízio de saída.</p>
+          </Interruptor>
+        )}
         {risco?.ativo && (
           <Interruptor comando="risco/desligar" titulo="Clientes de risco"
             estado={risco.desligaRobos?.ligado ? { texto: 'desliga os robôs', tom: 'perigo' } : { texto: 'só avisa', tom: 'ok' }}

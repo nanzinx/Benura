@@ -111,6 +111,24 @@ function criarRotasDoRodizio({
     return { status: 200, corpo: rodizio.desligarUraCheia() };
   }
 
+  /** [NOVO] POST /ura/cheia/sem-saida — com a URA cheia ligada, ninguém volta ao Ativo sozinho. */
+  async function ligarSemSaida() {
+    try {
+      return { status: 200, corpo: rodizio.definirSemSaidaDaUra(true) };
+    } catch (e) {
+      return { status: 409, corpo: { erro: e.message } };
+    }
+  }
+
+  /** [NOVO] DELETE /ura/cheia/sem-saida — o rodízio de saída (regra do ocioso) volta. */
+  async function desligarSemSaida() {
+    try {
+      return { status: 200, corpo: rodizio.definirSemSaidaDaUra(false) };
+    } catch (e) {
+      return { status: 409, corpo: { erro: e.message } };
+    }
+  }
+
   /** POST /panico — liga a regra de pânico (com 1 livre ou menos, desliga os robôs). */
   async function ligarPanico() {
     return { status: 200, corpo: rodizio.definirPanico(true) };
@@ -315,6 +333,8 @@ function criarRotasDoRodizio({
     { metodo: 'GET', caminho: '/ura', handler: paginaUra },
     { metodo: 'POST', caminho: '/ura/cheia', handler: ligarUraCheia, protegida: true },
     { metodo: 'DELETE', caminho: '/ura/cheia', handler: desligarUraCheia, protegida: true },
+    { metodo: 'POST', caminho: '/ura/cheia/sem-saida', handler: ligarSemSaida, protegida: true },
+    { metodo: 'DELETE', caminho: '/ura/cheia/sem-saida', handler: desligarSemSaida, protegida: true },
     { metodo: 'POST', caminho: '/webhook', handler: webhook, protegida: true, prefixo: true },
     { metodo: 'POST', caminho: '/robos/manual', handler: robosManual, protegida: true },
     { metodo: 'PUT', caminho: '/robos/modo', handler: definirModoRobos, protegida: true },

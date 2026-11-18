@@ -438,7 +438,7 @@ class RodizioService {
 
   /** Status calma E URA cheia ligada, com a regra dos livres ligada (URA_CHEIA_LIMITAR_LIVRES). */
   emUraCheiaComLimite(agora = Date.now()) {
-    return Boolean(this.cfg.cheiaLimitarLivres) && this.emUraCheia(agora) && this.statusAtualDaUra() === 'calma';
+    return Boolean(this.cfg.cheiaLimitarLivres) && this.emUraCheia(agora) && this.statusAtualDaUra() === 'calma' && !this.semSaidaDaUra(agora);
   }
 
   /** Livres na URA (fixos inclusive) mais quem já subiu e está a caminho. */
@@ -775,6 +775,8 @@ class RodizioService {
     }
     const info = this.statusUra.get(ramal);
     if (!info || this.emTransferencia.has(ramal)) return false;
+    // [NOVO] URA cheia sem saída: ninguém volta ao Ativo sozinho (mover à mão continua valendo).
+    if (this.semSaidaDaUra(agora)) return false;
     // [NOVO] Conta de supervisor: sai assim que não estiver em ligação (nem fixa fica), a não ser posta à mão.
     if (this.ehContaDeSupervisor(ramal) && this.travadoEm(ramal) !== 'ura') {
       return info.classe === Classe.LIVRE || info.classe === Classe.OUTRO;
@@ -1215,6 +1217,19 @@ class RodizioService {
   ligarUraCheia() {
     if (this.retencao?.ativa) throw new Error('Rodízio pausado (todos no Ativo): retome o rodízio da URA antes de ligar a URA cheia.');
     const mudou = this.uraCheia.ligar();
+    return { ...this.uraCheia.resumo(), mudou };
+  }
+
+  /** [NOVO] URA cheia com o rodízio de saída desligado (ninguém volta ao Ativo sozinho). */
+  semSaidaDaUra(agora = Date.now()) {
+    if (this.papel === 'robos') return false; // quem sai é decidido no de pessoas (vem no retrato)
+    return Boolean(this.uraCheia?.semSaida?.(new Date(agora)));
+  }
+
+  /** [NOVO] POST/DELETE /ura/cheia/sem-saida. @throws {Error} ligar sem a URA cheia */
+  definirSemSaidaDaUra(ligar) {
+    if (!this.uraCheia) throw new Error('URA cheia indisponível neste serviço.');
+    const mudou = this.uraCheia.definirSemSaida(ligar);
     return { ...this.uraCheia.resumo(), mudou };
   }
 

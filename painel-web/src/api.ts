@@ -39,7 +39,7 @@ export async function pedir<T>(metodo: Metodo, url: string, corpo?: unknown): Pr
 }
 
 /** Comandos da URA (lista fechada no servidor: src/painel/servicos.js). */
-export type ComandoUra = 'panico' | 'ura/cheia' | 'risco/desligar';
+export type ComandoUra = 'panico' | 'ura/cheia' | 'ura/cheia/sem-saida' | 'risco/desligar';
 
 export const api = {
   sessao: () => pedir<{ ok: true; usuario: UsuarioDaSessao; emergencia: boolean }>('GET', '/api/sessao'),
