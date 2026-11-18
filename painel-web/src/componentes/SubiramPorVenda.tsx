@@ -1,5 +1,5 @@
 /**
- * [NOVO] "Subiram por venda hoje": quem saiu do Ativo para a URA porque vendeu. Cada um vira um
+ * [NOVO] "Bateram a meta hoje": quem saiu do Ativo para a URA porque passou da meta hoje. Cada um vira um
  * cartãozinho com as iniciais, a equipe, a venda e a hora. Quem chega com a tela aberta entra
  * deslizando, com um brilho e um confete rápido; quem subiu nos últimos 15 min leva o selo "novo".
  * A maior venda do dia ganha o troféu. "Meta batida ontem" usa o mesmo cartão (MetaBatidaOntem).
@@ -162,7 +162,7 @@ export function SubiramPorVenda({ s }: { s: StatusRoteador | undefined }) {
 
   return (
     <div className="min-w-0">
-      <TopoDaLista Icone={Sparkles} titulo="Subiram por venda hoje" total={lista.length}>
+      <TopoDaLista Icone={Sparkles} titulo="Bateram a meta hoje" total={lista.length}>
         {lista.length > 1 && (
           <Segmentado rotulo="Ordem de quem subiu" valor={ordem} aoMudar={setOrdem}
             opcoes={[{ valor: 'recentes', texto: 'Mais recentes' }, { valor: 'valor', texto: 'Maior venda' }]} />
@@ -171,7 +171,7 @@ export function SubiramPorVenda({ s }: { s: StatusRoteador | undefined }) {
       {lista.length ? (
         <>
           <p className="mb-2.5 text-xs text-slate-500 dark:text-slate-400">
-            <b className="font-semibold text-slate-700 dark:text-slate-200">{valor(somaDasVendas(lista))}</b> nas vendas que fizeram subir
+            <b className="font-semibold text-slate-700 dark:text-slate-200">{valor(somaDasVendas(lista))}</b> somados
             {ultimo?.promovidoEm && <> · o último às {horaCurta(ultimo.promovidoEm)}</>}
           </p>
           <ul ref={corpo} className="grid grid-cols-1 gap-2">
@@ -184,7 +184,7 @@ export function SubiramPorVenda({ s }: { s: StatusRoteador | undefined }) {
           </ul>
           <VerTodos total={lista.length} todos={todos} alternar={() => setTodos((t) => !t)} />
         </>
-      ) : <Vazio>Ninguém subiu por venda hoje ainda.</Vazio>}
+      ) : <Vazio>Ninguém do Ativo passou da meta hoje ainda.</Vazio>}
       <p className="sr-only" aria-live="polite">{anuncio}</p>
     </div>
   );

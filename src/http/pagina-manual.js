@@ -110,7 +110,7 @@ const PAGINA_MANUAL = `<!doctype html>
       + ' · dia anterior: ' + (r.diaAnterior || 'não encontrado (cole também a esteira do dia anterior)');
     destino.append(p);
     secao(destino, 'Acima da meta no dia anterior (' + reais(r.metaDiaria) + ') → URA', r.acimaDaMeta, 'Ninguém passou da meta.');
-    secao(destino, 'Venderam hoje (' + r.hoje + ') → sobem para a URA', r.vendeuHoje, 'Nenhuma venda de hoje na esteira colada.');
+    secao(destino, 'Passaram da meta hoje (' + r.hoje + ') → sobem para a URA', r.vendeuHoje, 'Ninguém passou da meta hoje na esteira colada.');
   }
 
   /** Chama /manual com o token; mostra o andamento e o erro em #situacao. */

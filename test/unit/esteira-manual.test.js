@@ -96,10 +96,13 @@ test('unirDias: a colagem nova substitui só os dias que contém e guarda os mai
   assert.deepEqual(unidos, { '2026-10-09': { b: 2 }, [HOJE]: { c: 3 } });
 });
 
-test('resumoDaEsteira: quem passou da meta no dia anterior e quem vendeu hoje', () => {
-  const dias = { '2026-10-09': { A: { nome: 'A', total: 50_000 }, B: { nome: 'B', total: 50_000.01 } }, [HOJE]: { C: { nome: 'C', total: 10 } } };
+test('resumoDaEsteira: quem passou da meta no dia anterior e quem passou da meta hoje', () => {
+  const dias = {
+    '2026-10-09': { A: { nome: 'A', total: 50_000 }, B: { nome: 'B', total: 50_000.01 } },
+    [HOJE]: { C: { nome: 'C', total: 10 }, D: { nome: 'D', total: 50_000 }, E: { nome: 'E', total: 61_000 } },
+  };
   assert.deepEqual(resumoDaEsteira(dias, HOJE, 50_000), {
-    diaAnterior: '09/10/2026', acimaDaMeta: [{ nome: 'B', total: 50_000.01 }], vendeuHoje: [{ nome: 'C', total: 10 }],
+    diaAnterior: '09/10/2026', acimaDaMeta: [{ nome: 'B', total: 50_000.01 }], vendeuHoje: [{ nome: 'E', total: 61_000 }],
   });
 });
 
@@ -204,7 +207,10 @@ test('com o Carrossel fora do ar, a esteira colada faz a carga pela meta e o gat
   await svc.executarCargaInicial();
   assert.deepEqual(movimentos, [['1', 'URA'], ['2', 'ATIVO']]);
 
+  // [NOVO] venda de hoje abaixo da meta não sobe; passou da meta, sobe
   await esteira.colar(esteiraCsv([['3', '13/10/2026', 'V2', '1.500,00']]), HOJE);
+  assert.equal((await svc.monitorarVendas()).promovidos, 0);
+  await esteira.colar(esteiraCsv([['4', '13/10/2026', 'V2', '60.000,00']]), HOJE);
   assert.equal((await svc.monitorarVendas()).promovidos, 1);
   assert.deepEqual(movimentos.at(-1), ['2', 'URA']);
 });
@@ -228,7 +234,7 @@ test('GET /manual devolve a página; POST /manual exige token, aceita esteira gr
   assert.equal((await enviar('x', {})).status, 401);
   assert.equal((await enviar('Agente;Valor Contrato\nV1;1,00')).status, 422);
 
-  const linhas = Array.from({ length: 5000 }, (_, i) => [String(i), i % 2 ? '13/10/2026' : '09/10/2026', `V${i % 3}`, '20,00']);
+  const linhas = Array.from({ length: 5000 }, (_, i) => [String(i), i % 2 ? '13/10/2026' : '09/10/2026', `V${i % 3}`, '100,00']);
   const resposta = await enviar(esteiraCsv(linhas));
   assert.equal(resposta.status, 200);
   const corpo = await resposta.json();
@@ -249,7 +255,7 @@ test('GET /manual devolve a página; POST /manual exige token, aceita esteira gr
 test('a carga e cada promoção registram de onde vieram as vendas (Carrossel ou esteira)', async () => {
   const relogio = { hoje: () => HOJE };
   const esteira = new EsteiraManualRepository({ arquivo: tmp(), logger: loggerNulo });
-  await esteira.colar(esteiraCsv([['1', '09/10/2026', 'V1', '60.000,00'], ['2', '13/10/2026', 'V2', '10,00']]), HOJE);
+  await esteira.colar(esteiraCsv([['1', '09/10/2026', 'V1', '60.000,00'], ['2', '13/10/2026', 'V2', '60.000,00']]), HOJE);
   const caido = { async buscarRankingVendedores() { throw new Error('ECONNREFUSED'); } };
   const client = new CarrosselComRedundancia({ client: caido, esteira, relogio, metrica: 'vendaConcluida', logger: loggerNulo });
   const diretorio = {

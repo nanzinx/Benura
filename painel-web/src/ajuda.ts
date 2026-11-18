@@ -78,7 +78,7 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     itens: [
       '"Alocar todos no Ativo" tira da URA todos os humanos que não são fixos e pausa o rodízio: ninguém sobe para a URA, nem quem vender.',
       'A pausa vale até alguém clicar em "Retomar rodízio da URA", mesmo de um dia para o outro. Uma faixa no topo avisa.',
-      '"Retomar rodízio da URA" leva na hora para a URA quem vendeu hoje, bateu a meta ontem ou é fixo; os outros seguem no Ativo.',
+      '"Retomar rodízio da URA" leva na hora para a URA quem passou da meta hoje, bateu a meta ontem ou é fixo; os outros seguem no Ativo.',
     ],
   },
   {

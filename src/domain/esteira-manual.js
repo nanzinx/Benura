@@ -173,7 +173,8 @@ function resumoDaEsteira(dias, hoje, metaDiaria, extras = SEM_EXTRAS) {
   return {
     diaAnterior: formatarDia(anterior),
     acimaDaMeta: listaDoDia(anterior && dias[anterior]).filter((v) => v.total > metaDiaria),
-    vendeuHoje: listaDoDia(dias[hoje]),
+    // [NOVO] sobe hoje só quem passou da meta hoje (a mesma régua de ontem)
+    vendeuHoje: listaDoDia(dias[hoje]).filter((v) => v.total > metaDiaria),
   };
 }
 

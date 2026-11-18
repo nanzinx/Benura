@@ -93,7 +93,7 @@ npm run test:cenarios    # cenários do rodízio contra uma Argus falsa
    - **Fora dos fixos** (`FORA_DOS_FIXOS_URA`, ramais ou nomes): quem saiu da equipe mas ainda aparece com o supervisor antigo na Argus. Quem entrou na equipe e ainda não foi trocado de supervisor na Argus vai em `OPERADORES_FIXOS_URA`. `npm run conferir:supervisores` lista os fixos com nome e ramal, para conferir.
    - **[NOVO] Contas de supervisores não ficam na URA** (`CONTAS_SUPERVISORES_FORA_DA_URA=true`, o padrão): o ramal de operador de um supervisor (ex.: "Ariel Souza da Conceicao", cuja supervisora na Argus é a própria "Ariel Conceicao") não sobe para a URA, nem com venda, meta, fixo ou equipe fixa, nem na URA cheia. Se estiver na URA, o rodízio a devolve ao Ativo assim que não estiver em ligação (livre ou em pausa). Só a supervisão, com "Trazer para a URA" no painel, a põe na URA (fica até liberarem).
      - Quem é: automático pelo nome (primeiro e último nome iguais aos de um supervisor da Argus), mais `CONTAS_SUPERVISORES_RAMAIS` e menos `CONTAS_SUPERVISORES_EXCETO` (ramais separados por vírgula). O `/health` do rodízio mostra `contasSupervisores`.
-2. **Gatilho**: quem está no Ativo e faz qualquer venda hoje sobe para a URA e fica lá até o fim do dia.
+2. **Gatilho**: quem está no Ativo e passa da meta hoje (`META_DIARIA`, a mesma régua de ontem) sobe para a URA e fica lá até o fim do dia. [NOVO] Antes bastava qualquer venda.
 3. **Reset**: no dia seguinte (no fuso `FUSO_HORARIO`) o ciclo recomeça.
 
 ### Como rodar
@@ -132,7 +132,7 @@ Quando o Carrossel volta, ele volta a ser a fonte.
 
 1. Na esteira, filtre **Etapa = Andamento** e o período por **data de cadastro**, incluindo o **dia anterior trabalhado e hoje**.
 2. Abra `http://localhost:3001/manual` e escolha o CSV exportado, **ou** copie a tabela (com o cabeçalho) e cole.
-3. Clique em **Enviar**. A página mostra quem passou da meta no dia anterior e quem vendeu hoje.
+3. Clique em **Enviar**. A página mostra quem passou da meta no dia anterior e quem passou da meta hoje.
    - Durante o dia, cole de novo para atualizar as vendas de hoje.
 4. Para apagar tudo o que foi colado, clique em **Limpar esteiras coladas** (pede confirmação e o token).
 
@@ -244,7 +244,7 @@ O rodízio de pessoas e o controle dos robôs rodam em processos separados. Um p
 
 ### Regras
 1. **Ativo → URA**: operador **elegível** do Ativo que **atendeu** uma ligação e ficou **livre** vai para a URA. Se ficar offline antes, perde esse histórico.
-   - **Elegível** = quem o roteador pôs na URA hoje: bateu a meta ontem, vendeu hoje ou é fixo (fila `URA` no `state-vendas.json` do roteador). Quem vende durante o dia passa a ser elegível na hora. Os demais ficam só no Ativo.
+   - **Elegível** = quem o roteador pôs na URA hoje: bateu a meta ontem, passou da meta hoje ou é fixo (fila `URA` no `state-vendas.json` do roteador). Quem passa da meta durante o dia passa a ser elegível na hora. Os demais ficam só no Ativo.
    - Sem a lista do dia (roteador desligado, carga adiada porque o Carrossel falhou, arquivo de outro dia), **só os fixos** (`OPERADORES_FIXOS_URA` e `EQUIPES_FIXAS_URA`) sobem, e o log avisa uma vez. Quem não bateu meta nem vendeu não vai para a URA por falta de informação; para pôr todo mundo, use a URA cheia.
    - O `/health` mostra `elegiveisUra: { disponivel, total }`. Para voltar a girar todos sempre: `RODIZIO_SO_ELEGIVEIS=0`.
 2. **URA → Ativo**: **qualquer** humano do RECEPTIVO - URA **ocioso (Livre) há `TEMPO_MIN` minutos seguidos** (padrão **2**) volta ao Ativo, **sem exceção**: nem o último livre, nem na URA cheia.
@@ -281,7 +281,7 @@ No painel, aba **Receptivo**, o botão **Alocar Todos no Ativo** tira da URA tod
 - **Durante a pausa, ninguém sobe para a URA**: nem o rodízio (mesmo quem atender no Ativo e for elegível) nem o roteador. A venda nova fica registrada (`ultimoResultado: RETIDO_NO_ATIVO`) e a pessoa sobe ao retomar. A carga da manhã também respeita.
 - **Os fixos continuam na URA.** A URA cheia fica recusada enquanto o rodízio estiver pausado.
 - **Vale até retomarem**, inclusive de um dia para o outro e depois de reiniciar: a pausa fica em `RETENCAO_ATIVO_FILE` (`state-retencao-ativo.json`). O painel mostra uma faixa no topo, em qualquer aba, com a hora e quem pausou.
-- **Retomar rodízio da URA**: quem vendeu hoje, bateu a meta ontem ou é fixo vai para a URA **na hora**; os outros ficam no Ativo e o rodízio volta ao normal. Sem a lista de elegíveis (`RODIZIO_SO_ELEGIVEIS=0`), ninguém é movido e o rodízio volta a girar todo mundo.
+- **Retomar rodízio da URA**: quem passou da meta hoje, bateu a meta ontem ou é fixo vai para a URA **na hora**; os outros ficam no Ativo e o rodízio volta ao normal. Sem a lista de elegíveis (`RODIZIO_SO_ELEGIVEIS=0`), ninguém é movido e o rodízio volta a girar todo mundo.
 - Pela API: `POST /operadores/transferir-ura-ativo` aloca e pausa; `POST /operadores/retomar-rodizio` retoma (com token). O `/health` mostra `retencaoAtivo: { ativa, desde, por, elegiveisParaVoltar }`.
 
 ### Ações por atendente e trava manual (aba Receptivo)
@@ -759,7 +759,7 @@ O roteador, o rodízio, as rotinas e a supervisão (pelo painel) mexem nos mesmo
 
 | | Conflito | Proteção |
 |---|---|---|
-| C1 | Roteador e rodízio decidiam sobre o mesmo vendedor sem se falar | Regra única na URA: todo ocioso há `TEMPO_MIN` volta ao Ativo; só os elegíveis do roteador (meta ontem, venda hoje, fixo) retornam à URA ao atender no Ativo |
+| C1 | Roteador e rodízio decidiam sobre o mesmo vendedor sem se falar | Regra única na URA: todo ocioso há `TEMPO_MIN` volta ao Ativo; só os elegíveis do roteador (meta ontem, meta hoje, fixo) retornam à URA ao atender no Ativo |
 | C2 | Duas cópias (PM2 + janela, dois PCs, script antigo) brigam pelos robôs | Trava de instância em roteador, rodízio e rotinas; aviso de robôs mexidos por fora |
 | C3 | Sem webhook, os robôs ficavam até 5 s ligados depois que o último livre atende | URA em alerta (lê a cada 1 s com 1 a 2 livres); aviso quando nenhum webhook chega |
 | C4 | Robôs sobem e descem a cada oscilação de livres; religar em rajada gera derivações juntas | Redução parcial só após 10 s de queda confirmada (ninguém livre segue imediato); subida em degraus de 7 a cada 10 s |

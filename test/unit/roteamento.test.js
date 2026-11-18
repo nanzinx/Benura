@@ -150,14 +150,19 @@ test('carga inicial é adiada (sem marcar o dia) se o Carrossel falhar ou vier v
   assert.ok(!b.svc.cargaInicialFeitaHoje());
 });
 
-test('monitoramento promove quem está no Ativo e vendeu hoje, uma única vez', async () => {
+test('monitoramento promove quem está no Ativo e passou da meta hoje, uma única vez', async () => {
   const ctx = montar({ ontem: [v('1', 72_500), v('2', 100)], hoje: [v('1', 900), v('2', 0)] });
   await ctx.svc.executarCargaInicial();
   ctx.movimentos.length = 0;
 
   assert.equal((await ctx.svc.monitorarVendas()).promovidos, 0);
 
-  ctx.vendas.hoje = [v('1', 900), v('2', 1)];
+  // [NOVO] vender não basta: precisa passar da meta (R$ 50.000 exatos não sobem)
+  ctx.vendas.hoje = [v('1', 900), v('2', 30_000)];
+  assert.equal((await ctx.svc.monitorarVendas()).promovidos, 0);
+  ctx.vendas.hoje = [v('1', 900), v('2', 50_000)];
+  assert.equal((await ctx.svc.monitorarVendas()).promovidos, 0);
+  ctx.vendas.hoje = [v('1', 900), v('2', 50_000.01)];
   assert.equal((await ctx.svc.monitorarVendas()).promovidos, 1);
   assert.deepEqual(ctx.movimentos, [['2', 'URA']]);
   assert.equal(ctx.svc.estado.vendedores['2'].promovidoNoDia, true);
@@ -167,7 +172,7 @@ test('monitoramento promove quem está no Ativo e vendeu hoje, uma única vez', 
   assert.equal(ctx.svc.resumo().ura.find((x) => x.ramal === '2').promovidoEm, subiuEm, 'vai no resumo');
 
   // Já está na URA: nova venda não gera nova transferência.
-  ctx.vendas.hoje = [v('2', 5000)];
+  ctx.vendas.hoje = [v('2', 65_000)];
   assert.equal((await ctx.svc.monitorarVendas()).promovidos, 0);
   assert.equal(ctx.movimentos.length, 1);
 });
@@ -194,9 +199,10 @@ test('webhook valida entrada e promove vendedor do Ativo', async () => {
   await ctx.svc.executarCargaInicial();
 
   assert.equal((await ctx.svc.registrarVenda({ ramal: '4', valor: 0 })).aceito, false);
-  const r = await ctx.svc.registrarVenda({ ramal: 4, valor: '1.500,00' });
+  assert.deepEqual(await ctx.svc.registrarVenda({ ramal: 4, valor: '1.500,00' }), { aceito: true, promovido: false }, 'abaixo da meta: fica no Ativo');
+  const r = await ctx.svc.registrarVenda({ ramal: 4, valor: '60.000,00' });
   assert.deepEqual(r, { aceito: true, promovido: true });
-  assert.equal(ctx.svc.estado.vendedores['4'].vendaQueDisparou, 1500);
+  assert.equal(ctx.svc.estado.vendedores['4'].vendaQueDisparou, 60_000);
 });
 
 test('vendedor do Carrossel sem ramal na Argus é ignorado', async () => {
@@ -205,8 +211,8 @@ test('vendedor do Carrossel sem ramal na Argus é ignorado', async () => {
   assert.deepEqual(r, { ura: 0, ativo: 1, falhas: 0 });
 });
 
-test('vendedor novo (fora da carga) que vende é promovido', async () => {
-  const ctx = montar({ ontem: [v('1', 10)], hoje: [v('99', 300)] });
+test('vendedor novo (fora da carga) que passa da meta é promovido', async () => {
+  const ctx = montar({ ontem: [v('1', 10)], hoje: [v('99', 51_000)] });
   await ctx.svc.executarCargaInicial();
   ctx.movimentos.length = 0;
   await ctx.svc.monitorarVendas();
@@ -229,7 +235,7 @@ test('[NOVO] rodízio pausado (todos no Ativo): venda e carga registram a URA, m
   assert.equal(ctx.svc.estado.vendedores['1'].ultimoResultado, 'RETIDO_NO_ATIVO');
 
   ctx.movimentos.length = 0;
-  ctx.vendas.hoje = [v('2', 900)];
+  ctx.vendas.hoje = [v('2', 55_000)];
   await ctx.svc.monitorarVendas();
   await ctx.svc.monitorarVendas();
   assert.deepEqual(ctx.movimentos, [], 'venda nova não sobe ninguém');
@@ -260,7 +266,7 @@ test('[NOVO] trava manual do painel: venda de quem está travado no Ativo fica r
   assert.deepEqual(ctx.movimentos.filter(([, fila]) => fila === 'URA'), [], 'travado no Ativo: nem o fixo sobe');
   assert.equal(ctx.svc.estado.vendedores['9'].ultimoResultado, 'RETIDO_NO_ATIVO');
 
-  ctx.vendas.hoje = [v('2', 900)];
+  ctx.vendas.hoje = [v('2', 55_000)];
   await ctx.svc.monitorarVendas();
   assert.deepEqual(ctx.movimentos.filter(([, fila]) => fila === 'URA'), [], 'venda nova não sobe quem está travado');
   assert.equal(ctx.svc.estado.vendedores['2'].tentativasSync ?? 0, 0, 'não gasta tentativa');
