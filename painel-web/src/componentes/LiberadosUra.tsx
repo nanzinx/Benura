@@ -74,7 +74,7 @@ function Cabecalho({ r, reg }: { r: ResumoLiberados; reg: RegistroLiberados | nu
       </p>
       <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Liberados da <span className="text-amarelo-500">URA</span></h2>
       <p className="mt-1 max-w-[62ch] text-sm opacity-90">
-        Iniciam na URA os fixos e quem fez <b className="rounded bg-white/15 px-1.5">{reaisInteiros(meta)}</b> ou mais em ANDAMENTO no último dia com operação.
+        Iniciam na URA os fixos e quem fez <b className="rounded bg-white/15 px-1.5">{reaisInteiros(meta)}</b> ou mais no último dia com operação.
       </p>
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Kpi rotulo="Na URA hoje" valor={ok ? String(ok.liberados?.length ?? 0) : '–'} detalhe={ok ? `${ok.fixosNaUra} fixo(s) + ${ok.pelaMeta} pela meta` : 'sem dados'} />

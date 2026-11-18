@@ -106,7 +106,7 @@ function comunicado({ diaUra, diaVendas, meta, fixos, bateram }) {
     `📢 *URA — Lista de hoje (${ddmm(diaUra)})*`,
     '',
     'Bom dia, time! Seguimos com a *regra padrão da URA*:',
-    `👉 Para iniciar na URA, é preciso ter vendido *${reaisInteiros(meta)} em ANDAMENTO no dia anterior*.`,
+    `👉 Para iniciar na URA, é preciso ter vendido *${reaisInteiros(meta)} no dia anterior*.`,
     '',
     '📌 *Fixos na URA:*',
     ...fixos.map((f) => `• ${f.nome}`),

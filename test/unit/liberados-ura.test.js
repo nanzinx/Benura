@@ -49,7 +49,7 @@ test('liberados: o comunicado no formato combinado', () => {
   assert.equal(texto, `📢 *URA — Lista de hoje (18/11)*
 
 Bom dia, time! Seguimos com a *regra padrão da URA*:
-👉 Para iniciar na URA, é preciso ter vendido *R$ 50.000 em ANDAMENTO no dia anterior*.
+👉 Para iniciar na URA, é preciso ter vendido *R$ 50.000 no dia anterior*.
 
 📌 *Fixos na URA:*
 • Stephanny
