@@ -2,7 +2,7 @@
 
 import type {
   ClienteDeRisco, ClienteWebhook, Componente, ConfiguracaoEmUso, Dia, EstadoAutomacao, MetricasHoje, ModoRobos, OndeTravado, PausaDaArgus, RespostaInterruptor, RelatorioDoPeriodo, ResultadoAcao, ResultadoEsteira, ResultadoRetomada, ResultadoTesteAviso,
-  ResultadoTransferencia, StatusDaUra, StatusRoteador, StatusUra, Visao,
+  ResultadoTransferencia, ResumoLiberados, StatusDaUra, StatusRoteador, StatusUra, Visao,
 } from './tipos';
 import type { Papel, UsuarioDaSessao } from './sessao';
 
@@ -85,6 +85,11 @@ export const api = {
   // [NOVO] transferência de robôs entre grupos
   transferirGrupoRobos: (grupoOrigemId: number | null, grupoDestinoId: number) =>
     pedir<{ ok: boolean; transferidos: number; total: number; erros: Array<{ ramal: string; erro: string }>; grupoDestinoId: number }>('POST', '/api/robos/transferir-grupo', { grupoOrigemId, grupoDestinoId }),
+  // [NOVO] Liberados da URA (aba Relatórios)
+  liberadosUra: (data?: string) => pedir<ResumoLiberados>('GET', `/api/liberados-ura${data ? `?data=${data}` : ''}`),
+  gerarLiberados: (data: string) => pedir<ResumoLiberados>('POST', '/api/liberados-ura/gerar', { data }),
+  configLiberados: (c: { meta?: number; fixos?: string; horario?: string; data?: string }) => pedir<ResumoLiberados>('PUT', '/api/liberados-ura/config', c),
+  enviarLiberados: (data: string) => pedir<{ ok: boolean; erro: string | null }>('POST', '/api/liberados-ura/enviar', { data }),
   // [NOVO] ações por atendente (aba Receptivo)
   pausasDisponiveis: (ramal: string) => pedir<{ pausas: PausaDaArgus[] }>('POST', '/api/operadores/pausas', { ramal }),
   acaoOperador: (pedido: PedidoAcao) => {

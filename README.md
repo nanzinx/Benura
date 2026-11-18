@@ -606,12 +606,23 @@ Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado p
 | Aba | O que tem |
 | --- | --- |
 | **Visão geral** | Livres, humanos e robôs na URA agora; quem está na URA (status, há quanto tempo livre, fixos); callbacks do dia com o raio-x; [NOVO] o relatório **só de hoje** (ociosidade sem robô, pânico, termômetro, por hora), com um link para a aba Relatórios; vendas e filas do roteador |
-| **[NOVO] Relatórios** (`/relatorios`) | Tudo de relatório: hoje, 7 dias e 30 dias, com a **Planilha**; os gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; os callbacks de hoje; vendas e filas do roteador |
+| **[NOVO] Relatórios** (`/relatorios`) | [NOVO] **Liberados da URA** no topo ([veja](#liberados-da-ura)); tudo de relatório: hoje, 7 dias e 30 dias, com a **Planilha**; os gráficos dos livres (com os callbacks marcados) e dos robôs ao longo do dia; os callbacks de hoje; vendas e filas do roteador |
 | **Receptivo URA** | Resumo (humanos, livres, pausa, fila, espera, leads derivados), status da URA, operadores com o tempo no status e os selos de fixo e de travado, pausas com limite (excedidas em vermelho) e o total do dia por tipo, o menu de ações de cada atendente (pausar, sair da pausa, ficar disponível, mandar para o Ativo / trazer para a URA com trava, deslogar), quem está no Ativo agora, o relatório do dia por atendente ([veja](#ações-por-atendente-e-trava-manual-aba-receptivo)) e o botão **Alocar Todos no Ativo**, que segura todos no Ativo até **Retomar rodízio da URA** ([veja](#todos-no-ativo-até-a-segunda-ordem)) |
 | **URA e robôs** | Pânico, URA cheia, cliente de risco (desligar ou só avisar, som e notificação) e os 20 clientes de maior risco |
 | **Esteira manual** | Colar ou escolher o CSV da esteira quando o Carrossel cair, ver o que ela decidiu, apagar e recarregar as vendas |
 | **Serviços** | Roteador, rodízio, rotinas e atualizador no ar ou não (e, [NOVO], o liga/desliga de cada um), a Argus respondendo (ou recusando o token), DRY_RUN, os avisos do dia e, para administrador, usuários, avisos (BenHub) e configuração em uso |
 | **[NOVO] Ajuda** | O manual da supervisão, com busca: o dia do BenURA, robôs e pânico, URA cheia, status da URA, todos no Ativo, ações por atendente, as siglas do relatório, as faixas, desligar, avisos, papéis e o que fazer quando algo dá errado. O conteúdo fica em `painel-web/src/ajuda.ts`; mudou uma regra, mude lá também |
+
+### Liberados da URA
+
+[NOVO] No topo da aba **Relatórios**: quem inicia na URA hoje e o comunicado do grupo.
+- **Regra:** entram os fixos (`LIBERADOS_URA_FIXOS`, padrão Stephanny, Jamily, Renato e Eduardo, que é CLT) e quem vendeu `LIBERADOS_URA_META` (**R$ 50.000**) ou mais em ANDAMENTO no último dia com operação (`LIBERADOS_URA_DIAS_OPERACAO`, seg a sáb: na segunda conta o sábado). Fixo que bateu aparece nas duas listas. O fixo casa pelo primeiro nome, sem acento.
+- **Vendas:** do Carrossel, como o roteador (`/ranking/vendedores`, `CARROSSEL_METRICA`). O "ontem" do Carrossel pula o fim de semana, então o painel guarda a cada 10 min uma foto do ranking "hoje" (`VENDAS_POR_DIA_FILE`, 15 dias). Na geração, vale o "ontem" do Carrossel se for o mesmo dia; senão a foto; senão "sem dados", com o motivo na tela. Nunca sai comunicado vazio. A fonte fica em `src/integrations/vendas/fonte-carrossel.js`, para trocar depois sem mexer no resto.
+- **Agenda:** às `LIBERADOS_URA_HORARIO` (**08:30**) nos dias com operação; sem dados, tenta de novo a cada 10 min até o meio-dia. Cada geração fica no histórico por dia (`LIBERADOS_URA_FILE`, 90 dias).
+- **Tela:** cabeçalho com a regra e os indicadores, cards (coroa na maior venda, quanto faltou ao fixo), ranking com os filtros Todos, Bateram, Quase lá (80%+) e Abaixo, prévia do WhatsApp com **Copiar** e a contagem até as 09:00.
+- **Quem pode:** ver e copiar, todos; **Gerar agora**, **Configurar** (meta, fixos, horário, gravados por cima do `.env`) e **Enviar no BenHub**, supervisor ou administrador.
+- **BenHub:** só com `LIBERADOS_URA_WEBHOOK_URL` (e o token), e só pelo botão, depois da confirmação. A agenda nunca envia sozinha.
+- Rotas: `GET /api/liberados-ura[?data=AAAA-MM-DD]`, `POST /api/liberados-ura/gerar`, `PUT /api/liberados-ura/config`, `POST /api/liberados-ura/enviar`.
 
 As faixas do topo avisam em qualquer aba: cliente de risco em ligação, pânico ativo, rodízio pausado (todos no Ativo), serviço fora do ar e token da Argus recusado.
 

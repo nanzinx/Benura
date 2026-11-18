@@ -16,6 +16,8 @@
  *   GET  /api/dia           linha do tempo, callbacks e avisos do dia (logs)
  *   GET  /api/configuracao  [NOVO] só administrador: opções lidas do .env e o padrão de cada (sem segredos)
  *   POST /api/notificacoes/testar [NOVO] só administrador: manda um aviso de teste (log ou BenHub)
+ *   GET  /api/liberados-ura[?data=] [NOVO] os Liberados da URA do dia (todos)
+ *   POST /api/liberados-ura/gerar | /enviar, PUT /api/liberados-ura/config [NOVO] supervisor
  *   POST /api/automacao/desligar | religar   botão "Desligar automação" (automacao.js)
  *   POST /api/automacao/componente           [NOVO] { app, ligar }: roteador, rodízio ou rotinas sozinho (administrador)
  *   POST /api/simulacao     { ligada } — botão "Modo simulação" (DRY_RUN)
@@ -199,7 +201,7 @@ function conferirOrigemDoPedido(req, origensPermitidas = []) {
  * @param {object} deps.logger
  * @returns {http.Server}
  */
-function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger, trava = null, parceiro = null, configuracao = null, notificador = null }) {
+function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logger, trava = null, parceiro = null, configuracao = null, notificador = null, liberadosUra = null }) {
   const estaticos = Object.fromEntries(fs.readdirSync(PUBLICO).filter((nome) => TIPOS[path.extname(nome)]).map((nome) => [
     nome === 'index.html' ? '/' : `/${nome}`, { tipo: TIPOS[path.extname(nome)], conteudo: fs.readFileSync(path.join(PUBLICO, nome)) },
   ]));
@@ -401,6 +403,7 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
       logger.info(`Painel: teste de aviso por ${quem} — ${r.ok ? `enviado (${r.destino})` : `falhou (${r.erro})`}.`);
       return { status: 200, corpo: r };
     }
+    if (pathname.startsWith('/api/liberados-ura')) return rotaLiberadosUra(req, pathname, sessao);
     if (req.method === 'GET' && pathname === '/api/configuracao') {
       exigir(sessao, 'administrador');
       if (!configuracao) throw new ErroPainel(404, 'Configuração em uso indisponível.');
@@ -464,6 +467,44 @@ function criarServidorDoPainel({ sessoes, servicos, dados, automacao, cfg, logge
     const acao = ACOES.find((a) => a.metodo === req.method && a.caminho === pathname);
     if (!acao) throw new ErroPainel(404, 'Comando não encontrado');
     return encaminhar(req, acao, sessao);
+  }
+
+  /** [NOVO] Liberados da URA (aba Relatórios): ver é para todos; gerar, configurar e enviar, supervisor. */
+  async function rotaLiberadosUra(req, pathname, sessao) {
+    if (!liberadosUra) throw new ErroPainel(404, 'Liberados da URA indisponível.');
+    const dataValida = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d ?? ''));
+    if (req.method === 'GET' && pathname === '/api/liberados-ura') {
+      const dia = new URL(req.url, 'http://localhost').searchParams.get('data');
+      if (dia && !dataValida(dia)) throw new ErroPainel(400, 'Data inválida (use AAAA-MM-DD).');
+      return { status: 200, corpo: liberadosUra.resumo(dia || undefined) };
+    }
+    exigir(sessao, 'supervisor');
+    conferirOrigem(req);
+    const quem = quemPediu(req, sessao.usuario);
+    const corpo = await lerObjeto(req);
+    if (req.method === 'POST' && pathname === '/api/liberados-ura/gerar') {
+      if (corpo.data !== undefined && !dataValida(corpo.data)) throw new ErroPainel(400, 'Data inválida (use AAAA-MM-DD).');
+      const registro = await liberadosUra.gerar({ diaUra: corpo.data || undefined, por: quem });
+      return { status: 200, corpo: liberadosUra.resumo(registro.diaUra) };
+    }
+    if (req.method === 'PUT' && pathname === '/api/liberados-ura/config') {
+      try {
+        liberadosUra.definirConfig({ meta: corpo.meta, fixos: corpo.fixos, horario: corpo.horario }, quem);
+      } catch (e) {
+        throw new ErroPainel(400, e.message);
+      }
+      return { status: 200, corpo: liberadosUra.resumo(dataValida(corpo.data) ? corpo.data : undefined) };
+    }
+    if (req.method === 'POST' && pathname === '/api/liberados-ura/enviar') {
+      if (!dataValida(corpo.data)) throw new ErroPainel(400, 'Envie { "data": "AAAA-MM-DD" }.');
+      try {
+        return { status: 200, corpo: await liberadosUra.enviar(corpo.data, quem) };
+      } catch (e) {
+        if (e.status) throw new ErroPainel(e.status, e.message);
+        throw e;
+      }
+    }
+    throw new ErroPainel(404, 'Comando não encontrado');
   }
 
   function responder(res, { status, corpo, bruto, cookie }) {

@@ -273,3 +273,8 @@ export function useTransferirGrupoRobos() {
     onError: (e) => avisar('erro', `Falha ao transferir robôs: ${e.message}`),
   });
 }
+
+/** [NOVO] Liberados da URA do dia escolhido (null = hoje). Muda pouco: confere a cada minuto. */
+export function useLiberadosUra(data: string | null) {
+  return useQuery({ queryKey: ['liberados-ura', data], queryFn: () => api.liberadosUra(data ?? undefined), refetchInterval: intervalo(60_000, useContext(AoVivo)) });
+}
