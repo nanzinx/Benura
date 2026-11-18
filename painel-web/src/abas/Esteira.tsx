@@ -124,7 +124,7 @@ export function Esteira() {
         </span>} className="animate-entrar">
           <div className="grid gap-6 md:grid-cols-2">
             <Tabela titulo={`Acima da meta no dia anterior (${reais(resultado.metaDiaria)}) → URA`} lista={resultado.acimaDaMeta} vazio="Ninguém passou da meta." />
-            <Tabela titulo={`Venderam hoje (${resultado.hoje}) → sobem para a URA`} lista={resultado.vendeuHoje} vazio="Nenhuma venda de hoje na esteira colada." />
+            <Tabela titulo={`Passaram da meta hoje (${resultado.hoje}) → sobem para a URA`} lista={resultado.vendeuHoje} vazio="Ninguém passou da meta hoje na esteira colada." />
           </div>
         </Cartao>
       )}

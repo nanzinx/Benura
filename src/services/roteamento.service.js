@@ -356,7 +356,8 @@ class RoteamentoService {
   }
 
   /**
-   * Registra uma venda recebida por webhook.
+   * Registra uma venda recebida por webhook. [NOVO] O `valor` é o total do dia do vendedor:
+   * sobe para a URA só se passar da meta (o mesmo gatilho do monitoramento).
    *
    * @param {{ ramal: string|number, valor: number|string, vendedor?: string }} venda
    * @returns {Promise<{ aceito: boolean, promovido: boolean, motivo?: string }>}
@@ -385,13 +386,13 @@ class RoteamentoService {
    */
   async aplicarGatilho(ramal, vendaHoje, { nome, equipe, origem }) {
     const registro = this.estado.vendedores[ramal] ?? this.registrarNovoVendedor(ramal, { nome, equipe });
-    if (!deveSubirParaUra(registro.fila, vendaHoje)) return false;
+    if (!deveSubirParaUra(registro.fila, vendaHoje, this.regras.metaDiaria)) return false;
 
-    this.log.info(`Gatilho: ${registro.nome} (ramal ${ramal}) vendeu ${formatarReais(vendaHoje)} hoje [${origem}]. Ativo → URA.`);
+    this.log.info(`Gatilho: ${registro.nome} (ramal ${ramal}) passou da meta hoje: ${formatarReais(vendaHoje)} [${origem}]. Ativo → URA.`);
     Object.assign(registro, {
       fila: Fila.URA, promovidoNoDia: true, promovidoEm: new Date().toISOString(), vendaQueDisparou: vendaHoje, fonteDaVenda: origem, sincronizado: false, tentativasSync: 0,
     });
-    await this.sincronizar(ramal, registro, `venda hoje (${formatarReais(vendaHoje)})`);
+    await this.sincronizar(ramal, registro, `meta batida hoje (${formatarReais(vendaHoje)})`);
     return true;
   }
 

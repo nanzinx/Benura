@@ -5,8 +5,9 @@
  *  1. CARGA INICIAL: venda de ontem > meta → URA; caso contrário → Ativo.
  *     (R$ 50.000,00 exatos NÃO qualificam: o critério é "superior a".)
  *     Operadores fixos (OPERADORES_FIXOS_URA) começam na URA com ou sem venda.
- *  2. GATILHO: vendedor no Ativo com qualquer venda hoje (> 0) → URA,
- *     permanecendo lá pelo resto do dia.
+ *  2. GATILHO: vendedor no Ativo cuja venda de hoje passou da meta → URA,
+ *     permanecendo lá pelo resto do dia (o mesmo "superior a" da carga inicial).
+ *     [NOVO] Antes bastava qualquer venda (> 0).
  *  3. RESET: no dia seguinte o ciclo recomeça.
  */
 
@@ -28,7 +29,7 @@ function distribuirCargaInicial(vendedores, metaDiaria) {
   return { ura, ativo };
 }
 
-/** Gatilho de mudança: quem está no Ativo e vendeu hoje sobe para a URA. */
-const deveSubirParaUra = (filaAtual, vendaHoje) => filaAtual === Fila.ATIVO && vendaHoje > 0;
+/** Gatilho de mudança: quem está no Ativo e passou da meta hoje sobe para a URA. */
+const deveSubirParaUra = (filaAtual, vendaHoje, metaDiaria) => filaAtual === Fila.ATIVO && vendaHoje > metaDiaria;
 
 module.exports = { filaInicial, distribuirCargaInicial, deveSubirParaUra };

@@ -14,9 +14,9 @@
  *     "1004": {
  *       nome, equipe, vendaOntem,
  *       fila: "URA" | "ATIVO",          // fila decidida pelo roteador
- *       promovidoNoDia: boolean,        // subiu para a URA por venda hoje
+ *       promovidoNoDia: boolean,        // subiu para a URA: passou da meta hoje
  *       vendaQueDisparou: number|null,
- *       promovidoEm?: ISOString,       // quando subiu por venda
+ *       promovidoEm?: ISOString,       // quando subiu
  *       sincronizado: boolean,          // false = transferência pendente na Argus
  *       ultimoResultado: string,        // resultado da última ação na discadora
  *       grupoAtivoAnterior?: number,    // grupo de onde saiu ao ir para a URA (volta do rodízio)

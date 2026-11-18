@@ -222,7 +222,7 @@ export function Roteador() {
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         {mini('Na URA pelo roteador', s?.ura?.length ?? '–')}
         {mini('No Ativo', s?.ativo?.length ?? '–')}
-        {mini('Subiram por venda hoje', s ? <span key={subiram.length} className="venda-pulo inline-block">{subiram.length}</span> : '–')}
+        {mini('Bateram a meta hoje', s ? <span key={subiram.length} className="venda-pulo inline-block">{subiram.length}</span> : '–')}
         {mini(`Meta batida ${dia ? `em ${dia}` : 'ontem'}`, s ? metaOntem.length : '–')}
         <div className="col-span-2 md:col-span-1">{mini('Meta diária', s ? reais(s.meta) : '–')}</div>
       </div>

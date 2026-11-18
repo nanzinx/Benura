@@ -14,7 +14,7 @@ const porValor = (a: Vendedor, b: Vendedor) => (b.vendaQueDisparou ?? 0) - (a.ve
 const hora = (v: Vendedor) => (v.promovidoEm ? Date.parse(v.promovidoEm) : -Infinity);
 
 /**
- * Quem subiu do Ativo para a URA por venda hoje: do maior para o menor, ou os mais recentes primeiro
+ * Quem subiu do Ativo para a URA porque passou da meta hoje: do maior para o menor, ou os mais recentes primeiro
  * (quem subiu antes de o roteador guardar a hora fica no fim, pelo valor).
  */
 export function subiramHoje(s: StatusRoteador | undefined, ordem: 'valor' | 'recentes' = 'valor'): Vendedor[] {
