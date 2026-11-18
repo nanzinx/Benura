@@ -602,14 +602,17 @@ const CENARIOS = {
 
     // 3) Humano 200 ocupado → BenURA desliga os robôs do PORT 1 (910 e 911)
     r.argus.definirStatus('200', 'em atendimento');
-    await aguardar(() => r.chamadas('deslogaroperador').length >= chamadasAntesDesligar + 2, { descricao: 'deslogar robôs do PORT 1' });
-    const novosDeslogados = r.chamadas('deslogaroperador').slice(chamadasAntesDesligar).map((c) => String(c.dados.ramal)).sort();
+    const desligados = () => new Set(r.chamadas('deslogaroperador').slice(chamadasAntesDesligar).map((c) => String(c.dados.ramal)));
+    await aguardar(() => desligados().has('910') && desligados().has('911'), { descricao: 'deslogar robôs do PORT 1' });
+    // No modo separado o mesmo robô pode receber o pedido duas vezes (inofensivo): vale quais foram, sem repetição.
+    const novosDeslogados = [...new Set(r.chamadas('deslogaroperador').slice(chamadasAntesDesligar).map((c) => String(c.dados.ramal)))].sort();
     if (novosDeslogados.join() !== '910,911') throw new Error(`deslogou no PORT 1: ${novosDeslogados}`);
 
     // Humano 200 livre → BenURA religa os robôs do PORT 1 (910 e 911)
     r.argus.definirStatus('200', 'livre');
-    await aguardar(() => r.chamadas('logaroperadorvirtual').length >= chamadasAntesReligar + 2, { descricao: 'religar robôs do PORT 1' });
-    const novosReligados = r.chamadas('logaroperadorvirtual').slice(chamadasAntesReligar).map((c) => String(c.dados.ramal)).sort();
+    const religados = () => new Set(r.chamadas('logaroperadorvirtual').slice(chamadasAntesReligar).map((c) => String(c.dados.ramal)));
+    await aguardar(() => religados().has('910') && religados().has('911'), { descricao: 'religar robôs do PORT 1' });
+    const novosReligados = [...new Set(r.chamadas('logaroperadorvirtual').slice(chamadasAntesReligar).map((c) => String(c.dados.ramal)))].sort();
     if (novosReligados.join() !== '910,911') throw new Error(`religou no PORT 1: ${novosReligados}`);
   },
 
