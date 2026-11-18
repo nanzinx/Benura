@@ -72,7 +72,9 @@ async function iniciarRodizio({ grupos = GRUPOS_BASE, status = STATUS_BASE, usua
   const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'rodizio-'));
   preparar?.({ argus, pasta });
   const porta = await portaLivre();
-  const portaRobos = await portaLivre();
+  // O sistema pode devolver a mesma porta livre duas vezes seguidas: os robôs não subiriam (EADDRINUSE).
+  let portaRobos = await portaLivre();
+  while (portaRobos === porta) portaRobos = await portaLivre();
   const saida = [];
 
   const envDoTeste = {
