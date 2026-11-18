@@ -129,6 +129,19 @@ export const SECOES_DA_AJUDA: SecaoDaAjuda[] = [
     ],
   },
   {
+    id: 'liberados-ura',
+    titulo: 'Liberados da URA (o comunicado das 09:00)',
+    onde: 'Relatórios → Liberados da URA (no topo)',
+    itens: [
+      'Quem pode iniciar na URA hoje: os fixos (Stephanny, Jamily, Renato e Eduardo, que é CLT) e quem vendeu R$ 50.000 ou mais no último dia com operação. Fixo que bateu a meta aparece nas duas listas do comunicado.',
+      'O dia anterior é o último dia com operação: na segunda conta o sábado; o domingo não conta. As vendas são as do Carrossel, as mesmas que o roteador usa. O painel guarda uma foto do ranking de cada dia, por isso consegue pegar o sábado na segunda.',
+      'Sai sozinho às 08:30, de segunda a sábado. Sem as vendas, a tela mostra o motivo e não gera comunicado vazio; a agenda tenta de novo a cada 10 min até o meio-dia. "Gerar agora" (com a data) refaz na hora.',
+      'O comunicado aparece como no WhatsApp: "Copiar" e cole no grupo até as 09:00 (a contagem mostra quanto falta). "Enviar no BenHub" só aparece com o envio configurado e sempre pede confirmação.',
+      'Cards: a coroa marca a maior venda; a barra mostra quanto da meta a pessoa fez, e o fixo que não bateu mostra quanto faltou. No ranking completo, os filtros Todos, Bateram, Quase lá (80% da meta ou mais) e Abaixo; a linha amarela é a meta.',
+      'O histórico guarda cada dia (escolha a data em "Histórico"). Supervisor e administrador podem gerar, enviar e, em "Configurar", trocar a meta, os fixos e o horário. Quem tem visualização só vê e copia.',
+    ],
+  },
+  {
     id: 'faixas',
     titulo: 'As faixas do topo',
     onde: 'Topo, em qualquer aba',

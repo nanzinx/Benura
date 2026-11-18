@@ -5,8 +5,8 @@
  *   node painel.js      (PM2: benura-painel, porta PAINEL_PORT, padrão 3010)
  *
  * Uma página só com os controles da URA, a esteira manual, a saúde dos serviços
- * e o dia da URA. Não fala com a Argus nem com o Carrossel: só com os outros
- * serviços do BenURA (localhost) e com os logs do dia.
+ * e o dia da URA. Não fala com a Argus: só com os outros serviços do BenURA (localhost),
+ * com os logs do dia e, [NOVO] para os Liberados da URA, com o ranking do Carrossel (só leitura).
  */
 
 const { carregarConfig, validarConfig, opcoesEmUso } = require('../config');
@@ -28,6 +28,12 @@ const { criarExecutor } = require('../atualizador/executor');
 const { criarNotificador } = require('../notificacoes');
 const { textoDoResumo } = require('../notificacoes/resumo-do-dia');
 const { VigiaSaude } = require('./vigia-saude');
+const { LiberadosUra } = require('./liberados-ura');
+const { FonteVendasCarrossel } = require('../integrations/vendas/fonte-carrossel');
+const { CarrosselClient } = require('../integrations/carrossel/carrossel.client');
+const { CarrosselMockClient } = require('../integrations/carrossel/carrossel.mock-client');
+const { CarrosselService } = require('../integrations/carrossel/carrossel.service');
+const { NotificadorWebhook } = require('../notificacoes/notificador-webhook');
 
 /** Monta as dependências (nada é iniciado aqui). */
 function montarPainel(overrides) {
@@ -63,9 +69,11 @@ function montarPainel(overrides) {
   // [NOVO] Alertas de OPL alto e TOR subindo: lidos do mesmo /health que o vigia de saúde já busca.
   const indicadores = new VigiaIndicadores({ automacao, notificador, cfg: cfg.notificacoes.alertas, logger: log });
   const vigiaSaude = new VigiaSaude({ servicos, automacao, notificador, fuso: cfg.agenda.fusoHorario, logger: log, indicadores });
+  const liberadosUra = montarLiberadosUra({ cfg, log, notificador });
   const servidor = criarServidorDoPainel({
     sessoes,
     notificador,
+    liberadosUra,
     servicos,
     automacao,
     trava,
@@ -79,7 +87,22 @@ function montarPainel(overrides) {
     automacao, cfg: { ...cfg.automacao.agenda, fuso: cfg.agenda.fusoHorario }, logger: log,
     aoFimDoDia: () => enviarResumoDoDia({ servicos, automacao, notificador, log }),
   });
-  return { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda, vigiaSaude, notificador };
+  return { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda, vigiaSaude, notificador, liberadosUra };
+}
+
+/** [NOVO] Liberados da URA: as vendas do Carrossel (com a foto de cada dia) e, se configurado, o webhook do grupo. */
+function montarLiberadosUra({ cfg, log, notificador }) {
+  const lg = log.filho ? log.filho('liberados-ura') : log;
+  // As novas tentativas do cliente vão para o debug: a foto de 10 em 10 min não enche o log do painel.
+  const quieto = { ...lg, aviso: (m) => lg.debug?.(m) };
+  const client = cfg.usarMock ? new CarrosselMockClient(quieto) : new CarrosselClient(cfg.carrossel, quieto);
+  const carrossel = new CarrosselService({ client, metrica: cfg.carrossel.metrica, logger: lg });
+  const c = cfg.liberadosUra;
+  const fonte = new FonteVendasCarrossel({ carrossel, arquivo: c.arquivoVendas, fuso: cfg.agenda.fusoHorario, logger: lg });
+  // O registro no log é o mesmo dos outros avisos (o NotificadorWebhook usa `registro` ou ele mesmo).
+  const registro = notificador.registro ?? notificador;
+  const grupo = c.webhook.url ? new NotificadorWebhook({ url: c.webhook.url, token: c.webhook.token, registro, logger: lg }) : null;
+  return new LiberadosUra({ fonte, cfg: c, fuso: cfg.agenda.fusoHorario, logger: lg, grupo });
 }
 
 /** [NOVO] Às 18:00, antes de a agenda desligar: o relatório do dia (do rodízio, ainda no ar) vira aviso. */
@@ -118,10 +141,10 @@ function retratoDaConfiguracao(cfg) {
 }
 
 async function iniciarPainel() {
-  const { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda, vigiaSaude } = montarPainel();
+  const { cfg, log, servidor, sessoes, trava, parceiro, automacao, agenda, vigiaSaude, liberadosUra } = montarPainel();
   ativarLogsEmArquivo(cfg, 'painel', {
     segredos: [cfg.argus?.token, cfg.http?.tokenAdmin, cfg.carrossel?.token, cfg.painel.senha, cfg.painel.proxySegredo, cfg.trava.segredo, cfg.trava.segredoLocal, cfg.trava.accessSegredo,
-      cfg.notificacoes.webhook.url, cfg.notificacoes.webhook.token],
+      cfg.notificacoes.webhook.url, cfg.notificacoes.webhook.token, cfg.liberadosUra.webhook.url, cfg.liberadosUra.webhook.token],
   });
   // Sem usuários nem senha o painel sobe assim mesmo (avisa na tela): o atualizador pode reiniciá-lo sem risco.
   validarConfig(cfg, { escopo: 'painel' }).avisos.forEach((a) => log.aviso(a));
@@ -133,8 +156,9 @@ async function iniciarPainel() {
   const lacoParceiro = parceiro.iniciar();
   const lacoAgenda = agenda.iniciar();
   const lacoSaude = vigiaSaude.iniciar();
+  const pararLiberados = liberadosUra.iniciar();
   if (trava.ativa) log.info(`Dois PCs: este é o PC "${trava.nome}"; trava em ${cfg.trava.url}${parceiro.ativo ? `, outro PC em ${cfg.trava.parceiroUrl}` : ' (sem o outro PC configurado: os usuários não são copiados)'}.`);
-  registrarDesligamento({ logger: log, etapas: [() => lacoTrava.parar(), () => lacoParceiro.parar(), () => lacoAgenda.parar(), () => lacoSaude.parar(), () => fecharServidor(servidor)] });
+  registrarDesligamento({ logger: log, etapas: [() => lacoTrava.parar(), () => lacoParceiro.parar(), () => lacoAgenda.parar(), () => lacoSaude.parar(), () => pararLiberados(), () => fecharServidor(servidor)] });
   log.info(`Painel da supervisão no ar: http://localhost:${cfg.painel.porta} (na rede: http://<IP deste PC>:${cfg.painel.porta}).`);
 }
 

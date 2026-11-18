@@ -390,6 +390,20 @@ function carregarConfig(overrides = {}) {
     arquivo: env('WEBHOOKS_CLIENTES_FILE', path.join(DADOS, 'state-webhooks-clientes.json')),
   };
 
+  // --- [NOVO] Liberados da URA (aba Relatórios do painel) ---
+  // Todo dia, quem pode iniciar na URA (meta do dia anterior + fixos) e o comunicado do grupo.
+  cfg.liberadosUra = {
+    meta: envNum('LIBERADOS_URA_META', 50_000),
+    fixos: env('LIBERADOS_URA_FIXOS', 'Stephanny, Jamily, Renato, Eduardo (CLT)'),
+    horario: env('LIBERADOS_URA_HORARIO', '08:30'),
+    // Dias com operação (0 = domingo … 6 = sábado): o "dia anterior" é o último deles; e é neles que gera.
+    diasOperacao: env('LIBERADOS_URA_DIAS_OPERACAO', '1,2,3,4,5,6'),
+    // Grupo do BenHub (desligado sem endereço): mesmo assim, só envia depois do clique e da confirmação no painel.
+    webhook: { url: env('LIBERADOS_URA_WEBHOOK_URL', ''), token: env('LIBERADOS_URA_WEBHOOK_TOKEN', '') },
+    arquivo: env('LIBERADOS_URA_FILE', path.join(DADOS, 'state-liberados-ura.json')),
+    arquivoVendas: env('VENDAS_POR_DIA_FILE', path.join(DADOS, 'state-vendas-por-dia.json')),
+  };
+
   // --- Notificações (avisos e resumos) ---
   cfg.notificacoes = {
     tipo: env('NOTIFICADOR', 'log'),
@@ -545,6 +559,8 @@ function validarConfig(cfg, { escopo = 'roteador' } = {}) {
   if (cfg.argus.gruposAtivosIds.includes(cfg.argus.grupoUraId)) fatais.push('GRUPO_URA_ID não pode estar em GRUPOS_ATIVOS_IDS.');
   if (!horaValida(cfg.agenda.horarioCarga)) fatais.push(`HORARIO_CARGA inválido: "${cfg.agenda.horarioCarga}" (use HH:MM).`);
   if (!horaValida(cfg.agenda.horarioFim)) fatais.push(`HORARIO_FIM inválido: "${cfg.agenda.horarioFim}" (use HH:MM).`);
+  if (cfg.liberadosUra && !horaValida(cfg.liberadosUra.horario)) fatais.push(`LIBERADOS_URA_HORARIO inválido: "${cfg.liberadosUra.horario}" (use HH:MM).`);
+  if (cfg.liberadosUra && !(cfg.liberadosUra.meta > 0)) fatais.push('LIBERADOS_URA_META deve ser maior que zero.');
   if (cfg.regras.metaDiaria <= 0) fatais.push('META_DIARIA deve ser maior que zero.');
   if (cfg.agenda.pollVendasMs < 5_000) avisos.push('POLL_VENDAS_MS < 5s pode sobrecarregar a API do Carrossel.');
   if (!cfg.http.tokenAdmin) avisos.push('WEBHOOK_TOKEN vazio: /webhook/venda e /recarregar estão sem autenticação.');

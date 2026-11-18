@@ -90,7 +90,7 @@ test('painel: lê os logs do dia aos poucos e recomeça na virada do dia', () =>
 });
 
 /** Painel de verdade (porta aleatória) com os serviços respondendo por um fetch falso. */
-async function subir(cfgExtra = {}, usuarios = semUsuarios(), { robos = false, robosFora = false, alertas = null } = {}) {
+async function subir(cfgExtra = {}, usuarios = semUsuarios(), { robos = false, robosFora = false, alertas = null, liberadosUra = null } = {}) {
   const chamadas = [];
   const fetchFalso = async (url, opcoes) => {
     chamadas.push({ url, metodo: opcoes.method, auth: opcoes.headers.Authorization, corpo: opcoes.body });
@@ -121,6 +121,7 @@ async function subir(cfgExtra = {}, usuarios = semUsuarios(), { robos = false, r
       definirSimulacao: (ligada, por) => { chamadas.push({ url: 'simulacao', ligada, por }); return { iniciado: true }; },
     },
     cfg: { fuso: 'America/Sao_Paulo', ...cfgExtra },
+    liberadosUra,
     logger: { ...loggerNulo, info: (m) => logs.push(m), aviso: (m) => logs.push(m) },
   });
   const logs = [];
@@ -422,4 +423,39 @@ test('[NOVO] alertas de cliente de risco: uma resposta perdida não some com o b
   alertas.fora = false;
   alertas.risco = 4;
   assert.equal((await visao()).perfis.risco, 4);
+});
+
+test('liberados da URA: ver é para todos; gerar, configurar e enviar só supervisor', async (t) => {
+  const usuarios = semUsuarios();
+  await usuarios.criar({ email: 'vi@empresa.com', nome: 'Vi', papel: 'visualizacao', senha: 'senha-da-vi-12' });
+  await usuarios.criar({ email: 'su@empresa.com', nome: 'Su', papel: 'supervisor', senha: 'senha-do-su-12' });
+  const pedidos = [];
+  const liberadosUra = {
+    resumo: (dia) => ({ dia: dia ?? '2026-11-18', registro: null, datas: [], config: { meta: 50000 } }),
+    gerar: async (p) => { pedidos.push(['gerar', p]); return { diaUra: p.diaUra ?? '2026-11-18' }; },
+    definirConfig: (c, por) => { pedidos.push(['config', c, por]); if (c.meta === 0) throw new Error('A meta deve ser maior que zero.'); },
+    enviar: async (dia) => { pedidos.push(['enviar', dia]); throw Object.assign(new Error('Envio ao grupo desligado: configure LIBERADOS_URA_WEBHOOK_URL.'), { status: 409 }); },
+  };
+  const { servidor, pedir } = await subir({}, usuarios, { liberadosUra });
+  t.after(() => servidor.close());
+  const entrar = async (email, senha) => (await pedir('POST', '/api/entrar', { corpo: { email, senha } })).headers.get('set-cookie').split(';')[0];
+  const vi = await entrar('vi@empresa.com', 'senha-da-vi-12');
+  const su = await entrar('su@empresa.com', 'senha-do-su-12');
+
+  const ver = await pedir('GET', '/api/liberados-ura?data=2026-11-17', { cookie: vi });
+  assert.equal(ver.status, 200);
+  assert.equal((await ver.json()).dia, '2026-11-17');
+  assert.equal((await pedir('GET', '/api/liberados-ura?data=ontem', { cookie: vi })).status, 400);
+  assert.equal((await pedir('POST', '/api/liberados-ura/gerar', { cookie: vi, corpo: {} })).status, 403, 'visualização não gera');
+  assert.equal((await pedir('POST', '/api/liberados-ura/enviar', { cookie: vi, corpo: { data: '2026-11-18' } })).status, 403, 'visualização não envia');
+  assert.equal((await pedir('PUT', '/api/liberados-ura/config', { cookie: vi, corpo: { meta: 1 } })).status, 403);
+  assert.equal(pedidos.length, 0);
+
+  assert.equal((await pedir('POST', '/api/liberados-ura/gerar', { cookie: su, corpo: { data: '2026-11-17' } })).status, 200);
+  assert.equal(pedidos[0][1].diaUra, '2026-11-17');
+  assert.match(pedidos[0][1].por, /su@empresa\.com|Su/);
+  assert.equal((await pedir('PUT', '/api/liberados-ura/config', { cookie: su, corpo: { meta: 0 } })).status, 400, 'meta inválida');
+  const envio = await pedir('POST', '/api/liberados-ura/enviar', { cookie: su, corpo: { data: '2026-11-18' } });
+  assert.equal(envio.status, 409, 'sem o webhook configurado, não envia');
+  assert.match((await envio.json()).erro, /LIBERADOS_URA_WEBHOOK_URL/);
 });

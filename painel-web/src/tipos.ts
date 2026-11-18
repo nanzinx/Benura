@@ -518,3 +518,47 @@ export interface ConfiguracaoEmUso { lidaEm: string; opcoes: OpcaoEmUso[]; aviso
 
 /** [NOVO] Cliente do webhook de transferências (GET /api/webhooks/clientes; sem o segredo). */
 export interface ClienteWebhook { id: string; nome: string | null; url: string; criadoEm: string; ultimoEnvio?: string | null; ultimoErro?: string | null }
+
+/** [NOVO] Liberados da URA (aba Relatórios): uma pessoa no ranking do dia anterior. */
+export interface VendedorLiberados {
+  nome: string;
+  valor: number;
+  pct: number;
+  bateu: boolean;
+  status: 'bateu' | 'quase' | 'abaixo';
+  fixo: { nome: string; obs: string | null } | null;
+  diferenca: number;
+  semVenda?: boolean;
+}
+
+/** [NOVO] O que ficou gravado de um dia da URA (ok: com comunicado; senão, o motivo). */
+export interface RegistroLiberados {
+  diaUra: string;
+  diaVendas: string;
+  meta: number;
+  fixos: { nome: string; obs: string | null }[];
+  geradoEm: string;
+  por: string;
+  ok: boolean;
+  motivo?: string;
+  origem?: string;
+  total?: number;
+  ranking?: VendedorLiberados[];
+  liberados?: VendedorLiberados[];
+  bateram?: string[];
+  coroa?: string | null;
+  fixosNaUra?: number;
+  pelaMeta?: number;
+  texto?: string;
+  ultimaFalha?: { em: string; motivo: string };
+  envios?: { em: string; por: string; ok: boolean; erro: string | null }[];
+}
+
+export interface ResumoLiberados {
+  dia: string;
+  hoje: string;
+  registro: RegistroLiberados | null;
+  datas: string[];
+  config: { meta: number; fixos: string; horario: string; diasOperacao: number[] };
+  envioAoGrupo: boolean;
+}
