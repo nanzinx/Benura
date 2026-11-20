@@ -1,3 +1,5 @@
 # Scripts do Windows: CRLF ao fazer checkout (o PowerShell 5.1 lê melhor).
 *.ps1 text eol=crlf
 *.cmd text eol=crlf
+# [NOVO] Scripts do Linux (o Ubuntu do WSL roda direto da pasta do Windows): sempre LF.
+*.sh text eol=lf
