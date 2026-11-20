@@ -34,7 +34,7 @@ $versao = [Environment]::OSVersion.Version
 # 19044 = Windows 10 21H2: WSL2 com systemd (pelo "wsl --update").
 if ($versao.Build -lt 19044) { Falhar "Windows $($versao.ToString()) é antigo: atualize para o Windows 10 21H2 ou mais novo (Windows Update) e rode de novo." }
 if (-not (Test-Path (Join-Path $Pasta '.env'))) { Falhar "Não achei o .env em $Pasta (é o mesmo do PM2)." }
-if (-not (Test-Path (Join-Path $Pasta 'docker-compose.yml'))) { Falhar "Não achei o docker-compose.yml em $Pasta: rode o script dentro da pasta do BenURA." }
+if (-not (Test-Path (Join-Path $Pasta 'docker-compose.yml'))) { Falhar "Não achei o docker-compose.yml em ${Pasta}: rode o script dentro da pasta do BenURA." }
 Write-Host "Windows $($versao.ToString()) · pasta do BenURA: $Pasta"
 
 if ((Distros-Instaladas) -notcontains $Distro) {
