@@ -1,4 +1,4 @@
-# BenURA no Docker (alternativa ao PM2 como serviço do Windows). README: "Docker (alternativa)".
+# BenURA no Docker. README: "Docker". [NOVO] No servidor (Windows 10 + WSL2): scripts\windows\docker-instalar.ps1.
 #
 #   docker compose up -d --build          sobe (e reconstrói depois de um git pull)
 #   docker compose logs -f                acompanha
@@ -29,7 +29,12 @@ services:
     container_name: benura
     restart: unless-stopped
     # A mesma configuração do servidor. DADOS_DIR, LOGS_DIR e as travas vêm do Dockerfile.
-    env_file: .env
+    # [NOVO] .env.docker (opcional, lido depois): os caminhos de arquivo do .env do Windows apontados
+    # para /dados. O scripts\windows\docker-instalar.ps1 cria na migração do PM2 para o Docker.
+    env_file:
+      - path: .env
+      - path: .env.docker
+        required: false
     volumes:
       # Estado do dia, chaves (painel-segredo.key, perfis-segredo.key), logs e os JSON da esteira.
       - ./dados:/dados

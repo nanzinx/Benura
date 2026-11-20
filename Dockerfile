@@ -1,7 +1,7 @@
 # BenURA em container: os quatro serviços (roteador, rodízio, rotinas e painel) no PM2,
 # dentro de um container só (eles conversam pelo localhost, como no servidor).
-# A produção continua no PM2 como serviço do Windows; isto é a alternativa pronta.
-# README: "Docker (alternativa)".
+# [NOVO] No servidor (Windows 10) roda no Docker Engine do Ubuntu no WSL2:
+# scripts\windows\docker-instalar.ps1. README: "Docker" e "Docker no servidor".
 #
 # [NOVO] Endurecido (o compose completa com read_only, cap_drop e no-new-privileges):
 #  - duas etapas: a instalação (npm ci) fica fora da imagem final;

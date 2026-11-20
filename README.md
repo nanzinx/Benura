@@ -859,9 +859,9 @@ npm run servico:instalar
 ---
 
 <a id="docker"></a>
-### 🐳 Docker (alternativa)
+### 🐳 Docker
 
-A produção segue no **PM2 como serviço do Windows**, que tem o atualizador automático e sobe sem ninguém logado. O Docker fica pronto para quando quiserem migrar ou rodar o BenURA em outra máquina.
+A imagem abaixo roda em qualquer máquina com Docker. [NOVO] No **servidor (Windows 10)** ela roda num Linux (Ubuntu no WSL2), com início automático e atualização: veja [Docker no servidor](#docker-servidor). O PM2 como serviço do Windows continua instalado, como volta.
 
 **Como roda:**
 - **Um container só,** com os quatro serviços no PM2 (`pm2-runtime`): roteador, rodízio, rotinas e painel conversam pelo `localhost`, como no servidor. Os botões **Desligar/Religar automação** e **Modo simulação** do painel funcionam igual.
@@ -913,6 +913,42 @@ A produção segue no **PM2 como serviço do Windows**, que tem o atualizador au
 | Parar (o estado fica em `dados\`) | `docker compose down` |
 
 **Teste da imagem:** o job `docker` do CI constrói a imagem e sobe endurecida, com uma Argus falsa. Ele confere os quatro serviços no ar, o endurecimento, o estado no volume, o Desligar/Religar pelo painel e um `docker restart`. Para rodar o mesmo teste no seu PC: `docker build -t benura:ci .` e depois `node test/docker/fumaca.js`.
+
+<a id="docker-servidor"></a>
+#### [NOVO] Docker no servidor (Windows 10, sem Docker Desktop)
+
+O Docker Desktop só sobe com alguém logado e não deixa a Argus chegar nas portas pela rede. No servidor, o BenURA roda no **Docker Engine dentro do Ubuntu do WSL2**, com tudo isto:
+
+| O quê | Como |
+|---|---|
+| Sobe sem ninguém logado | Tarefa **"BenURA Docker"** (ao ligar o PC e a cada 5 min): liga o Ubuntu, confere o container e segura o WSL ligado |
+| A rede da empresa chega nas portas | A mesma tarefa repassa `3000`, `3001` e `3010` do IP do servidor para o WSL (`netsh portproxy`; o IP do WSL muda a cada boot). Firewall: regra **"BenURA Docker"**, só rede local |
+| O túnel da Cloudflare | Continua o serviço `cloudflared` do Windows: o `localhost:3010` do Windows já chega no WSL |
+| Atualização automática | Tarefa **"BenURA Docker atualizador"** (a cada minuto): fora do expediente (`HORARIO_CARGA`–`HORARIO_FIM`, dias úteis), traz a `main`, reconstrói e reinicia o container; se não ficar saudável em 3 min, volta ao commit anterior. Histórico em `dados\logs\deploy-docker.jsonl` |
+| Estado | Na pasta `dados\` do BenURA (a mesma pasta do Windows, vista pelo Ubuntu). O `.env` é o mesmo; o `.env.docker` (gerado) aponta os caminhos de arquivo do `.env` para `/dados` |
+
+**Migrar (uma vez, como administrador, na pasta do BenURA, fora do expediente):**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows\docker-instalar.ps1
+```
+1. Na primeira vez ele ativa o WSL2 e pede para **reiniciar**; depois, rode de novo.
+2. Instala o Ubuntu e o Docker (`scripts/wsl/instalar-docker.sh`), liga o systemd e deixa a pasta gravável pelo container.
+3. Pede `MIGRAR` para confirmar: desliga a tarefa "BenURA" e para o PM2 (sem desinstalar), copia o estado para `dados\` e sobe o container.
+4. Se o container não ficar saudável, **volta sozinho para o PM2**.
+5. Pede a senha do usuário do Windows para criar as tarefas (como o `instalar-servico.ps1`).
+
+**Dia a dia:**
+
+| Para… | Rode |
+|---|---|
+| Ver tudo (container, PM2 de dentro, versão, repasse, implantações) | `powershell -ExecutionPolicy Bypass -File scripts\windows\docker-servidor.ps1 -Acao status` |
+| Logs | `wsl -d Ubuntu -u root -- docker logs -f benura` (e `dados\logs\`) |
+| Atualizar agora, no expediente (emergência) | `...docker-servidor.ps1 -Acao atualizar -Agora` |
+| **Voltar para o PM2** | `powershell -ExecutionPolicy Bypass -File scripts\windows\docker-voltar-pm2.ps1` (para o container, copia o estado de volta, roda `npm ci` e religa a tarefa "BenURA") |
+
+> [!WARNING]
+> Nunca deixe o PM2 e o container ligados ao mesmo tempo no mesmo servidor: os dois mexeriam na Argus. Os scripts sempre param um antes de subir o outro.
+
 
 ---
 

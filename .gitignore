@@ -18,3 +18,5 @@ perfis-segredo.key
 painel-segredo.key
 *.tsbuildinfo
 dados/
+# [NOVO] gerado pelo scripts/windows/docker-instalar.ps1 (caminhos do .env dentro do container)
+.env.docker
