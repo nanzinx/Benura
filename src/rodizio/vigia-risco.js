@@ -85,7 +85,7 @@ class VigiaRisco {
       ja.vistoEm = agora;
       return null;
     }
-    const perfil = this.perfis.consultar(telefoneDaLigacao(ligacao));
+    const perfil = this.perfis.consultar(telefoneDaLigacao(ligacao), agora);
     if (!perfil?.motivos.length) return null;
 
     const alerta = {
