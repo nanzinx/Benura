@@ -615,7 +615,7 @@ Uma página só, nas cores da Benconsig, com tudo o que antes ficava espalhado p
 
 ### Liberados da URA
 
-[NOVO] No topo da aba **Relatórios**: quem inicia na URA hoje e o comunicado do grupo.
+[NOVO] Na aba **Relatórios**, logo depois do relatório do dia: quem inicia na URA hoje e o comunicado do grupo. O bloco abre e fecha (fechado, só o resumo e **Copiar comunicado**).
 - **Regra:** entram os fixos (`LIBERADOS_URA_FIXOS`, padrão Stephanny, Jamily, Renato e Eduardo, que é CLT) e quem vendeu `LIBERADOS_URA_META` (**R$ 50.000**) ou mais no último dia com operação (`LIBERADOS_URA_DIAS_OPERACAO`, seg a sáb: na segunda conta o sábado). Fixo que bateu aparece nas duas listas. O fixo casa pelo primeiro nome, sem acento.
 - **Vendas:** do Carrossel, como o roteador (`/ranking/vendedores`, `CARROSSEL_METRICA`). O "ontem" do Carrossel pula o fim de semana, então o painel guarda a cada 10 min uma foto do ranking "hoje" (`VENDAS_POR_DIA_FILE`, 15 dias). Na geração, vale o "ontem" do Carrossel se for o mesmo dia; senão a foto; senão "sem dados", com o motivo na tela. Nunca sai comunicado vazio. A fonte fica em `src/integrations/vendas/fonte-carrossel.js`, para trocar depois sem mexer no resto.
 - **Agenda:** às `LIBERADOS_URA_HORARIO` (**08:30**) nos dias com operação; sem dados, tenta de novo a cada 10 min até o meio-dia. Cada geração fica no histórico por dia (`LIBERADOS_URA_FILE`, 90 dias).
