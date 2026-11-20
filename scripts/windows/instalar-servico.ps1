@@ -27,11 +27,14 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$Pasta = (Resolve-Path ([IO.Path]::Combine($PSScriptRoot, '..', '..'))).Path,
+  [string]$Pasta = '',
   [switch]$ComAtualizador,
   [switch]$SemVigia,
   [switch]$Reserva
 )
+# [NOVO] A pasta do BenURA, calculada aqui: no valor padrão do param(), o $PSScriptRoot pode vir vazio
+# no PowerShell 5.1 (aí a pasta virava C:\ e o script não achava o .env).
+if (-not $Pasta) { $Pasta = (Resolve-Path ([IO.Path]::Combine($PSScriptRoot, '..', '..'))).Path }
 
 $ErrorActionPreference = 'Stop'
 $NomeTarefa = 'BenURA'
