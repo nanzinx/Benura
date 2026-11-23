@@ -10,6 +10,10 @@
  * Só o de fila entra na taxa da célula.
  *
  * Etapa 1: só mede e mostra. A etapa 2 (o automático escolher os robôs pelo mapa) vem com dados.
+ *
+ * [NOVO] Por que os de fila: o raio-x de cada callback (domain/raio-x-callback.js) diz o que faltou.
+ * O mapa guarda, por célula, quantos foram cada motivo (MOTIVOS_FILA), para separar o que os robôs
+ * causam do que é falta de gente (o livre atendeu outra, saiu, pausou ou estava na carência).
  */
 
 const FAIXAS_LIVRES = Object.freeze(['0', '1', '2', '3', '4+']);
@@ -61,6 +65,35 @@ function anotar(mapa, foto, { derivou, invisivel }) {
   return true;
 }
 
+/** Os motivos dos callbacks de fila (a conclusão do raio-x), como chaves curtas. */
+const MOTIVOS_FILA = Object.freeze(['juntas', 'semLivre', 'carencia']);
+
+/**
+ * [NOVO] Troca o motivo de um callback de fila numa célula: tira o antigo (se havia) e põe o novo
+ * (null = só tira, ex.: virou invisível).
+ * @param {Record<string, Record<string, number>>} motivos - por célula ("livres|robôs|status")
+ */
+function trocarMotivo(motivos, k, antigo, novo) {
+  if (antigo === novo || !k) return false;
+  const c = (motivos[k] ??= {});
+  if (antigo && c[antigo]) c[antigo] -= 1;
+  if (novo) c[novo] = (c[novo] ?? 0) + 1;
+  return true;
+}
+
+function somarMotivos(lista) {
+  const total = {};
+  for (const motivos of lista) {
+    for (const [k, c] of Object.entries(motivos ?? {})) {
+      for (const [m, n] of Object.entries(c ?? {})) {
+        if (!n) continue;
+        (total[k] ??= {})[m] = (total[k][m] ?? 0) + n;
+      }
+    }
+  }
+  return total;
+}
+
 function somarMapas(mapas) {
   const total = {};
   for (const mapa of mapas) {
@@ -101,4 +134,6 @@ function celulas(mapa, { status = null } = {}) {
   return grade;
 }
 
-module.exports = { faixaDeLivres, faixaDeRobos, chave, anotar, somarMapas, celulas, FAIXAS_LIVRES, FAIXAS_ROBOS, STATUS, AMOSTRA_MINIMA };
+module.exports = {
+  faixaDeLivres, faixaDeRobos, chave, anotar, somarMapas, celulas, trocarMotivo, somarMotivos, FAIXAS_LIVRES, FAIXAS_ROBOS, STATUS, AMOSTRA_MINIMA, MOTIVOS_FILA,
+};

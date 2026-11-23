@@ -230,3 +230,27 @@ test('[NOVO] mapa de risco: o tipo do callback segue a conclusão do raio-x (web
   assert.deepEqual(e.estado.mapaRisco['2|41+|calma'], { leads: 0, fila: 2, invisiveis: 0 });
   assert.equal(e.estado.transbordos, 2, 'a correção não conta o callback de novo');
 });
+
+test('[NOVO] mapa de risco: o motivo de cada callback de fila fica na célula (e sai se ele virar invisível)', () => {
+  const e = new EstatisticasDia({ fusoHorario: FUSO, expediente: EXPEDIENTE });
+  const t = (hhmm, s = 0) => em('2026-11-06', hhmm) + s * 1000;
+  e.amostrar(t('10:00'), { livres: 0, robosLigados: 0, termometro: 'normal' });
+  e.registrarEncerramento(t('10:00', 30), { chave: 'a', derivou: false, motivo: 'time-out na fila', filaSeg: 20 });
+  e.registrarEncerramento(t('10:00', 40), { chave: 'b', derivou: false, motivo: 'time-out na fila', filaSeg: 20 });
+  const k = '0|0|normal';
+  e.corrigirCallbackNoMapa('a', false, 'juntas');
+  e.corrigirCallbackNoMapa('b', false, 'semLivre');
+  assert.deepEqual(e.estado.motivosMapa[k], { juntas: 1, semLivre: 1 });
+  e.corrigirCallbackNoMapa('b', false, 'semLivre'); // repetido: nada muda
+  e.corrigirCallbackNoMapa('a', false, 'carencia'); // o raio-x mudou de ideia: troca
+  assert.deepEqual(e.estado.motivosMapa[k], { juntas: 0, semLivre: 1, carencia: 1 });
+  e.corrigirCallbackNoMapa('b', true, null); // virou invisível: sai dos motivos
+  assert.deepEqual(e.estado.motivosMapa[k], { juntas: 0, semLivre: 0, carencia: 1 });
+  assert.deepEqual(e.estado.mapaRisco[k], { leads: 0, fila: 1, invisiveis: 1 });
+  // o raio-x antes do encerramento: o motivo entra quando ele chega
+  e.corrigirCallbackNoMapa('c', false, 'juntas');
+  e.registrarEncerramento(t('10:00', 50), { chave: 'c', derivou: false, motivo: 'abandonou a fila', filaSeg: 20 });
+  assert.equal(e.estado.motivosMapa[k].juntas, 1);
+  // vai para o relatório do período (somado por célula)
+  assert.deepEqual(e.periodo(7, t('11:00')).motivosMapa[k], { juntas: 1, carencia: 1 }, 'os zerados não vão');
+});
