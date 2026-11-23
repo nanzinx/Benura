@@ -925,7 +925,7 @@ O Docker Desktop só sobe com alguém logado e não deixa a Argus chegar nas por
 | Sobe sem ninguém logado | Tarefa **"BenURA Docker"** (ao ligar o PC e a cada 5 min): liga o Ubuntu, confere o container e segura o WSL ligado |
 | A rede da empresa chega nas portas | A mesma tarefa repassa `3000`, `3001` e `3010` do IP do servidor para o WSL (`netsh portproxy`; o IP do WSL muda a cada boot). Firewall: regra **"BenURA Docker"**, só rede local |
 | O túnel da Cloudflare | Continua o serviço `cloudflared` do Windows: o `localhost:3010` do Windows já chega no WSL |
-| Atualização automática | Tarefa **"BenURA Docker atualizador"** (a cada minuto): fora do expediente (`HORARIO_CARGA`–`HORARIO_FIM`, dias úteis), traz a `main`, reconstrói e reinicia o container; se não ficar saudável em 3 min, volta ao commit anterior. Histórico em `dados\logs\deploy-docker.jsonl` |
+| Atualização automática | Tarefa **"BenURA Docker atualizador"** (a cada minuto): fora do expediente (`HORARIO_CARGA`–`HORARIO_FIM`, dias úteis), traz a `main`, reconstrói e reinicia o container; se não ficar saudável em 3 min, volta ao commit anterior (e não tenta de novo a mesma versão sozinho). [NOVO] Compara com o commit que está **no container** (`dados\deploy-docker-commit.txt`): `git pull` sozinho não muda o container, mas a próxima atualização implanta. Histórico em `dados\logs\deploy-docker.jsonl` |
 | Estado | Na pasta `dados\` do BenURA (a mesma pasta do Windows, vista pelo Ubuntu). O `.env` é o mesmo; o `.env.docker` (gerado) aponta os caminhos de arquivo do `.env` para `/dados` |
 
 **Migrar (uma vez, como administrador, na pasta do BenURA, fora do expediente):**
@@ -944,7 +944,7 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\docker-instalar.ps1
 |---|---|
 | Ver tudo (container, PM2 de dentro, versão, repasse, implantações) | `powershell -ExecutionPolicy Bypass -File scripts\windows\docker-servidor.ps1 -Acao status` |
 | Logs | `wsl -d Ubuntu -u root -- docker logs -f benura` (e `dados\logs\`) |
-| Atualizar agora, no expediente (emergência) | `...docker-servidor.ps1 -Acao atualizar -Agora` |
+| **Atualizar agora** | Dois cliques em **`atualizar.cmd`** na pasta do BenURA (ou `.\atualizar` no PowerShell, na pasta). Pede administrador sozinho, traz a `main`, reconstrói o container e mostra o resultado. No expediente, 1 a 3 min fora do ar |
 | **Voltar para o PM2** | `powershell -ExecutionPolicy Bypass -File scripts\windows\docker-voltar-pm2.ps1` (para o container, copia o estado de volta, roda `npm ci` e religa a tarefa "BenURA") |
 
 > [!WARNING]

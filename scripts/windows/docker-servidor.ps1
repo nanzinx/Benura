@@ -7,11 +7,13 @@
   iniciar    ao ligar o PC (tarefa "BenURA Docker"): liga o Ubuntu do WSL, confere o container,
              refaz o repasse das portas e fica segurando o WSL ligado (sem isso ele desliga sozinho).
   atualizar  a cada minuto (tarefa "BenURA Docker atualizador"): fora do expediente, traz a main;
-             se mudou, reconstrói e reinicia o container e volta ao commit anterior se não ficar saudável.
+             se o container não está nela, reconstrói e reinicia e volta ao commit anterior se não ficar
+             saudável. [NOVO] Compara com o commit do container (dados\deploy-docker-commit.txt), então
+             um "git pull" à mão também é implantado. À mão: atualizar.cmd na pasta do BenURA.
   status     mostra o container, os serviços no PM2 de dentro, o repasse e as últimas implantações.
 
 .PARAMETER Agora
-  Com "atualizar": implanta mesmo dentro do expediente (emergência).
+  Com "atualizar": implanta mesmo dentro do expediente e mostra o que fez (o atualizar.cmd usa).
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\windows\docker-servidor.ps1 -Acao status
@@ -79,33 +81,56 @@ if (-not $Agora) {
   if ($diaUtil -and $agoraHora -ge $inicio -and $agoraHora -lt $fim) { exit 0 }
 }
 
+# [NOVO] O que vale é o commit que está NO CONTAINER (gravado a cada implantação), não o da pasta:
+# depois de um "git pull" à mão a pasta já está na frente, mas o container não mudou.
+$arquivoImplantado = [IO.Path]::Combine($Pasta, 'dados', 'deploy-docker-commit.txt')
+$arquivoFalhou = [IO.Path]::Combine($Pasta, 'dados', 'deploy-docker-falhou.txt')
+$implantado = if (Test-Path $arquivoImplantado) { (Get-Content $arquivoImplantado -Raw).Trim() } else { $null }
+function Dizer([string]$texto, [string]$cor = 'Gray') { if ($Agora) { Write-Host $texto -ForegroundColor $cor } }
+
 & git -C $Pasta fetch --quiet origin $ramo 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) { Anotar 'git fetch falhou (sem rede ou sem acesso ao GitHub).'; exit 1 }
+if ($LASTEXITCODE -ne 0) { Anotar 'git fetch falhou (sem rede ou sem acesso ao GitHub).'; Dizer 'Não consegui falar com o GitHub (git fetch). Confira a internet e tente de novo.' 'Red'; exit 1 }
 $atual = (& git -C $Pasta rev-parse HEAD).Trim()
 $novo = (& git -C $Pasta rev-parse "origin/$ramo").Trim()
-if ($atual -eq $novo) { exit 0 }
 
-if (& git -C $Pasta status --porcelain --untracked-files=no) {
-  Anotar-Deploy $Pasta @{ resultado = 'ABORTADO'; motivo = 'alteração local em arquivo versionado'; de = $atual; para = $novo }
-  exit 1
+if ($atual -ne $novo) {
+  if (& git -C $Pasta status --porcelain --untracked-files=no) {
+    Anotar-Deploy $Pasta @{ resultado = 'ABORTADO'; motivo = 'alteração local em arquivo versionado'; de = $atual; para = $novo }
+    Dizer 'Há arquivos do BenURA alterados à mão nesta pasta ("git status" mostra quais): não atualizei.' 'Red'
+    exit 1
+  }
+  & git -C $Pasta merge-base --is-ancestor $atual $novo
+  if ($LASTEXITCODE -ne 0) {
+    Anotar-Deploy $Pasta @{ resultado = 'ABORTADO'; motivo = "a pasta divergiu de origin/$ramo"; de = $atual; para = $novo }
+    Dizer "A pasta divergiu da $ramo do GitHub: não atualizei. Mande o print de ""git status"" e ""git log -3 --oneline""." 'Red'
+    exit 1
+  }
+  & git -C $Pasta merge --ff-only --quiet "origin/$ramo" 2>&1 | Out-Null
 }
-& git -C $Pasta merge-base --is-ancestor $atual $novo
-if ($LASTEXITCODE -ne 0) {
-  Anotar-Deploy $Pasta @{ resultado = 'ABORTADO'; motivo = "a pasta divergiu de origin/$ramo"; de = $atual; para = $novo }
-  exit 1
-}
+$alvo = (& git -C $Pasta rev-parse HEAD).Trim()
+$curto = $alvo.Substring(0, 7)
+if ($alvo -eq $implantado) { Dizer "O BenURA já está na versão mais nova ($curto)." 'Green'; exit 0 }
+# Uma versão que já falhou não é tentada de novo a cada minuto pelo automático (só à mão, com -Agora).
+if (-not $Agora -and (Test-Path $arquivoFalhou) -and (Get-Content $arquivoFalhou -Raw).Trim() -eq $alvo) { exit 0 }
 
-& git -C $Pasta merge --ff-only --quiet "origin/$ramo" 2>&1 | Out-Null
+Dizer "Atualizando para $curto (reconstrói o container: 1 a 3 min fora do ar)..." 'Cyan'
 $r = Compose $pastaWsl 'up -d --build'
 if ($LASTEXITCODE -eq 0 -and (Esperar-Saudavel 180)) {
-  Anotar-Deploy $Pasta @{ resultado = 'IMPLANTADO'; de = $atual; para = $novo }
+  Set-Content -Path $arquivoImplantado -Value $alvo -Encoding ASCII
+  Remove-Item $arquivoFalhou -ErrorAction SilentlyContinue
+  Anotar-Deploy $Pasta @{ resultado = 'IMPLANTADO'; de = $implantado; para = $alvo }
+  Dizer "Atualizado para $curto. O BenURA está no ar." 'Green'
   exit 0
 }
 
-# Não ficou saudável: volta ao commit anterior e reconstrói.
+# Não ficou saudável: volta ao commit que estava no container (ou ao de antes do pull) e reconstrói.
 $erro = ($r | Select-Object -Last 5) -join ' '
-& git -C $Pasta reset --hard --quiet $atual
+$voltarPara = if ($implantado) { $implantado } else { $atual }
+Set-Content -Path $arquivoFalhou -Value $alvo -Encoding ASCII
+& git -C $Pasta reset --hard --quiet $voltarPara
 Compose $pastaWsl 'up -d --build' | Out-Null
 $voltou = Esperar-Saudavel 180
-Anotar-Deploy $Pasta @{ resultado = 'REVERTIDO'; de = $atual; para = $novo; erro = $erro; saudavelDepois = $voltou }
+if ($voltou -and $voltarPara -ne $alvo) { Set-Content -Path $arquivoImplantado -Value $voltarPara -Encoding ASCII }
+Anotar-Deploy $Pasta @{ resultado = 'REVERTIDO'; de = $voltarPara; para = $alvo; erro = $erro; saudavelDepois = $voltou }
+Dizer "A versão $curto não subiu saudável: voltei para $($voltarPara.Substring(0, 7))$(if ($voltou) { ' (no ar)' } else { ' (e ela também não respondeu: veja docker logs)' }). Erro: $erro" 'Red'
 exit 1

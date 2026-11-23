@@ -145,6 +145,8 @@ if ($LASTEXITCODE -ne 0 -or -not (Esperar-Saudavel 180)) {
   Falhar 'A migração não foi concluída: o BenURA voltou para o PM2. Mande o log acima para análise.'
 }
 Write-Host 'Container saudável.' -ForegroundColor Green
+# [NOVO] O commit que está no container: o atualizador compara com ele (docker-servidor.ps1 -Acao atualizar).
+Set-Content -Path (Join-Path $dados 'deploy-docker-commit.txt') -Value ((& git -C $Pasta rev-parse HEAD).Trim()) -Encoding ASCII
 
 # --- 7. Firewall, repasse e tarefas ---
 Passo 'Liberando as portas na rede da empresa'

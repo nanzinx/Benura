@@ -39,3 +39,20 @@ test('.env.docker: opcional no compose, fora do git e fora da imagem', () => {
   assert.match(texto('.gitignore'), /^\.env\.docker$/m);
   assert.match(texto('.dockerignore'), /^\.env\.\*$/m);
 });
+
+test('[NOVO] atualizar.cmd: um comando só, que pede administrador e chama o atualizador com -Agora', () => {
+  const cmd = texto('atualizar.cmd');
+  assert.ok(!ler('atualizar.cmd').subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])), '.cmd não pode ter BOM');
+  assert.match(cmd, /net session/, 'confere se é administrador');
+  assert.match(cmd, /-Verb RunAs/, 'pede administrador sozinho');
+  assert.match(cmd, /scripts\\windows\\docker-servidor\.ps1" -Acao atualizar -Agora/);
+  assert.match(texto('.gitattributes'), /^\*\.cmd text eol=crlf$/m);
+});
+
+test('[NOVO] o atualizador compara com o commit do container (um git pull à mão também é implantado)', () => {
+  const ps = texto('scripts/windows/docker-servidor.ps1');
+  assert.match(ps, /deploy-docker-commit\.txt/);
+  assert.match(ps, /if \(\$alvo -eq \$implantado\)/);
+  assert.match(ps, /deploy-docker-falhou\.txt/, 'versão que falhou não é tentada de novo a cada minuto');
+  assert.match(texto('scripts/windows/docker-instalar.ps1'), /deploy-docker-commit\.txt/, 'a migração grava o primeiro');
+});
