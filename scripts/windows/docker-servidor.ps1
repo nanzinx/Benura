@@ -19,9 +19,12 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)] [ValidateSet('iniciar', 'atualizar', 'status')] [string]$Acao,
-  [string]$Pasta = (Resolve-Path ([IO.Path]::Combine($PSScriptRoot, '..', '..'))).Path,
+  [string]$Pasta = '',
   [switch]$Agora
 )
+# [NOVO] A pasta do BenURA, calculada aqui: no valor padrão do param(), o $PSScriptRoot pode vir vazio
+# no PowerShell 5.1 (aí a pasta virava C:\ e o script não achava o .env).
+if (-not $Pasta) { $Pasta = (Resolve-Path ([IO.Path]::Combine($PSScriptRoot, '..', '..'))).Path }
 
 # 'Continue': no PowerShell 5.1, saída de erro de programa redirecionada com 'Stop' vira exceção.
 $ErrorActionPreference = 'Continue'
