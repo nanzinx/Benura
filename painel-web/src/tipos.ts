@@ -304,6 +304,9 @@ export interface Sugestao {
 export type StatusDoMapa = 'calma' | 'normal' | 'agressiva' | 'medindo';
 export type MapaDeRisco = Record<string, { leads: number; fila: number; invisiveis: number }>;
 export interface CelulaDoMapa { livres: string; robos: string; leads: number; fila: number; invisiveis: number }
+/** [NOVO] Por que os callbacks de fila (o raio-x): derivações juntas, URA sem livre, carência. */
+export type MotivoDaFila = 'juntas' | 'semLivre' | 'carencia';
+export type MotivosDoMapa = Record<string, Partial<Record<MotivoDaFila, number>>>;
 
 export interface RelatorioDoPeriodo {
   tamanho: 7 | 30;
@@ -317,6 +320,8 @@ export interface RelatorioDoPeriodo {
   /** [NOVO] mapa de risco do período (sem ele, servidor antigo) e as ligações sem foto da URA */
   mapaRisco?: MapaDeRisco;
   semFotoNoMapa?: number;
+  /** [NOVO] por célula, os motivos dos callbacks de fila */
+  motivosMapa?: MotivosDoMapa;
 }
 
 /** [NOVO] Os totais de um dia passado (histórico do relatório). */

@@ -8,6 +8,13 @@
 
 const { Classe, AcaoRobos, ultimoLivreQueSai, decidirRobos, alvoDeRobos, livresUteis, VALIDADE_STATUS_MS } = require('../domain/rodizio');
 const { raioXDoCallback, horaNoFuso, Conclusao } = require('../domain/raio-x-callback');
+
+/** [NOVO] A conclusão do raio-x → o motivo do callback de fila no mapa de risco (domain/mapa-risco.js). */
+const MOTIVO_NO_MAPA = Object.freeze({
+  [Conclusao.DERIVACOES_JUNTAS]: 'juntas',
+  [Conclusao.URA_SEM_LIVRE]: 'semLivre',
+  [Conclusao.CARENCIA]: 'carencia',
+});
 const { robosPorLivrePelaTaxa, roboMinutos, CALCULO_PADRAO } = require('../domain/robos-por-taxa');
 const { dataLocal } = require('../utils/datas');
 
@@ -418,7 +425,10 @@ const metodosDosRobos = {
       : raioXDoCallback({ fotos: this.fotos, inicio, fim: fim ?? inicio, grupoUraId: this.cfg.grupoUraId, fuso, robo });
     this.log.aviso(raioX.linha);
     // [NOVO] o mapa de risco segue a mesma conclusão (sem histórico do BenURA, não dá para dizer)
-    if (raioX.conclusao && raioX.conclusao !== Conclusao.SEM_HISTORICO) this.estatisticas?.corrigirCallbackNoMapa?.(chave, raioX.conclusao === Conclusao.INVISIVEL);
+    // [NOVO] e guarda o motivo do de fila (derivações juntas, URA sem livre ou carência)
+    if (raioX.conclusao && raioX.conclusao !== Conclusao.SEM_HISTORICO) {
+      this.estatisticas?.corrigirCallbackNoMapa?.(chave, raioX.conclusao === Conclusao.INVISIVEL, MOTIVO_NO_MAPA[raioX.conclusao] ?? null);
+    }
     const quando = inicio == null ? '' : ` às ${horaNoFuso(inicio, fuso)}`;
     this.registrarCallback({ motivo, chave }, `relatório da Argus${quando}`, inicio ?? Date.now());
   },

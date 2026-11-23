@@ -210,7 +210,7 @@ test('[NOVO] o raio-x do callback corrige o tipo no mapa de risco (a mesma concl
     cfg: { fusoHorario: 'America/Sao_Paulo', grupoUraId: 2 },
     log: loggerNulo,
     registrarCallback() {},
-    estatisticas: { corrigirCallbackNoMapa: (chave, invisivel) => correcoes.push([chave, invisivel]) },
+    estatisticas: { corrigirCallbackNoMapa: (chave, invisivel, motivo) => correcoes.push([chave, invisivel, motivo]) },
   };
   // livre no começo, ocupado no meio: não é invisível (é de fila)
   svc.fotos = [foto(t0, Classe.LIVRE), foto(t0 + 20_000, Classe.ATENDIMENTO), foto(t0 + 40_000, Classe.LIVRE)];
@@ -222,7 +222,8 @@ test('[NOVO] o raio-x do callback corrige o tipo no mapa de risco (a mesma concl
   svc.fotos = [];
   svc.registrarCallbackDoRelatorio({ motivo: 'abandono em fila', chave: 'ligacao:3', inicio: t0, fim: t0 + 25_000, robo: null });
   svc.registrarCallbackDoRelatorio({ motivo: 'abandono em fila', chave: 'ligacao:4', inicio: null, fim: null, robo: null });
-  assert.deepEqual(correcoes, [['ligacao:1', false], ['ligacao:2', true]]);
+  // [NOVO] o de fila leva o motivo (o livre atendeu outra: derivações juntas); o invisível, nenhum
+  assert.deepEqual(correcoes, [['ligacao:1', false, 'juntas'], ['ligacao:2', true, null]]);
 });
 
 test('vigia de callbacks: consulta o relatório dos grupos atuais, que mudam entre leituras', async () => {

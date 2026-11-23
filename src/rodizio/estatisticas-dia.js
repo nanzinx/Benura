@@ -16,7 +16,7 @@
 const { dataLocal, horaLocal } = require('../utils/datas');
 const { sugestoes } = require('../domain/sugestoes');
 const { limitesMin: LIMITES_PAUSA } = require('../config/pausas');
-const { anotar, somarMapas, chave: chaveDoMapa } = require('../domain/mapa-risco');
+const { anotar, somarMapas, chave: chaveDoMapa, trocarMotivo, somarMotivos } = require('../domain/mapa-risco');
 
 /** Entre dois ciclos, no máximo isto conta (o rodízio pode ter ficado parado). */
 const MAX_INTERVALO_MS = 30_000;
@@ -380,13 +380,17 @@ class EstatisticasDia {
     // livres, então na entrada quase sempre há alguém, e os livres podem ir a 0 antes do time-out.
     const entrou = quando ?? agora - (filaSeg ?? 0) * 1000;
     // O raio-x do callback (a ligação inteira) manda no tipo: se a correção dele já chegou, vale ela.
-    const corrigido = !derivou && chave && this.correcoes.has(chave) ? this.correcoes.get(chave) : undefined;
-    if (corrigido !== undefined) this.correcoes.delete(chave);
+    const correcao = !derivou && chave && this.correcoes.has(chave) ? this.correcoes.get(chave) : undefined;
+    if (correcao !== undefined) this.correcoes.delete(chave);
+    const corrigido = correcao?.invisivel;
     const invisivel = derivou ? undefined : corrigido ?? this.livresAEsperaToda(entrou, Math.max(entrou, fim ?? agora)) ?? undefined;
     const foto = this.fotoEm(entrou);
     if (!anotar((e.mapaRisco ??= {}), foto, { derivou, invisivel })) e.semFotoNoMapa = (e.semFotoNoMapa ?? 0) + 1;
     else if (!derivou && chave) {
-      (e.callbacksNoMapa ??= {})[chave] = { k: chaveDoMapa(foto), tipo: (invisivel ?? foto.livres > 0) ? 'invisivel' : 'fila' };
+      const c = { k: chaveDoMapa(foto), tipo: (invisivel ?? foto.livres > 0) ? 'invisivel' : 'fila', motivo: null };
+      (e.callbacksNoMapa ??= {})[chave] = c;
+      // [NOVO] o raio-x chegou antes: já sabe o motivo
+      if (c.tipo === 'fila' && correcao?.motivo && trocarMotivo((e.motivosMapa ??= {}), c.k, null, correcao.motivo)) c.motivo = correcao.motivo;
     }
     return true;
   }
@@ -398,26 +402,36 @@ class EstatisticasDia {
    * encerramento ainda não chegou, guarda para quando chegar.
    * @returns {boolean} true se mudou o mapa
    */
-  corrigirCallbackNoMapa(chave, invisivel) {
+  corrigirCallbackNoMapa(chave, invisivel, motivo = null) {
     if (!chave || typeof invisivel !== 'boolean') return false;
     const e = this.estado;
     const c = e.callbacksNoMapa?.[chave];
     if (!c) {
       if (!this.contadas.has(chave)) {
-        this.correcoes.set(chave, invisivel);
+        this.correcoes.set(chave, { invisivel, motivo: invisivel ? null : motivo });
         while (this.correcoes.size > 500) this.correcoes.delete(this.correcoes.keys().next().value);
       }
       return false;
     }
     const novo = invisivel ? 'invisivel' : 'fila';
     const cel = e.mapaRisco?.[c.k];
-    if (c.tipo === novo || !cel) return false;
-    const campo = (t) => (t === 'invisivel' ? 'invisiveis' : 'fila');
-    cel[campo(c.tipo)] = Math.max(0, (cel[campo(c.tipo)] ?? 0) - 1);
-    cel[campo(novo)] = (cel[campo(novo)] ?? 0) + 1;
-    c.tipo = novo;
-    this.gravadoEm = 0;
-    return true;
+    if (!cel) return false;
+    let mudou = false;
+    if (c.tipo !== novo) {
+      const campo = (t) => (t === 'invisivel' ? 'invisiveis' : 'fila');
+      cel[campo(c.tipo)] = Math.max(0, (cel[campo(c.tipo)] ?? 0) - 1);
+      cel[campo(novo)] = (cel[campo(novo)] ?? 0) + 1;
+      c.tipo = novo;
+      mudou = true;
+    }
+    // [NOVO] o motivo do de fila (o invisível não tem): troca na mesma célula
+    const motivoNovo = novo === 'fila' ? (motivo ?? c.motivo ?? null) : null;
+    if (trocarMotivo((e.motivosMapa ??= {}), c.k, c.motivo ?? null, motivoNovo)) {
+      c.motivo = motivoNovo;
+      mudou = true;
+    }
+    if (mudou) this.gravadoEm = 0;
+    return mudou;
   }
 
   /** O pânico começou (ou trocou de motivo) agora. */
@@ -461,6 +475,8 @@ class EstatisticasDia {
       ...(e.configMudou ? { configMudou: true } : {}),
       porStatus: this.porStatusDoDia(horas),
       mapaRisco: e.mapaRisco ?? {},
+      // [NOVO] por que os callbacks de fila (o raio-x): por célula
+      motivosMapa: e.motivosMapa ?? {},
       semFotoNoMapa: e.semFotoNoMapa ?? 0,
       porAtendente: Object.entries(e.porRamal ?? {}).map(([ramal, a]) => ({
         ramal, nome: a.nome ?? null, atendimentos: a.atendimentos ?? 0, livreMin: minutos(a.livreMs ?? 0),
@@ -504,6 +520,7 @@ class EstatisticasDia {
       sugestoes: sugestoes([...historico, hoje]),
       // [NOVO] mapa de risco dos robôs do período (painel: livres × robôs)
       mapaRisco: somarMapas(noPeriodo.map((d) => d.mapaRisco)),
+      motivosMapa: somarMotivos(noPeriodo.map((d) => d.motivosMapa)),
       semFotoNoMapa: noPeriodo.reduce((t, d) => t + (d.semFotoNoMapa ?? 0), 0),
     };
   }

@@ -8,7 +8,8 @@ import { clsx } from 'clsx';
 import { ArrowRightLeft, Bell, BellRing, Bot, Calculator, PowerOff, Search, ShieldAlert } from 'lucide-react';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import type { ComandoUra } from '../api';
-import { useComandoUra, useGrupoRobos, useModoRobos, useRisco, useTransferirGrupoRobos, useVisao } from '../dados';
+import { useComandoUra, useGrupoRobos, useModoRobos, useRelatorioPeriodo, useRisco, useTransferirGrupoRobos, useVisao } from '../dados';
+import { celulasDoMapa, pontoSeguro, tetoSugerido } from '../mapa-risco';
 import { dataBr, horaCurta, motivoLegivel } from '../formatos';
 import { descreverCalculo } from '../calculo-robos';
 import { StatusUra } from '../componentes/StatusUra';
@@ -123,6 +124,7 @@ function RodizioRobos({ r }: { r: SaudeRodizio }) {
         </div>
         <div className="flex gap-6 text-right">
           <div><span className="rotulo block">Ligados agora</span><b className="text-2xl tabular-nums">{robos?.ligados ?? '–'}</b><span className="text-sm text-slate-500"> / {robos?.total ?? '–'}</span></div>
+          {modo === 'automatico' && <TetoSugerido livres={r.termometro?.livresAgora} ligados={robos?.ligados} />}
           {modo === 'automatico' && (
             <div title="Robôs por humano livre: pela taxa real de derivação e a meta do status da URA">
               <span className="rotulo block">Por livre</span>
@@ -473,5 +475,28 @@ export function Ura() {
       </div>
       {risco?.ativo && <ClientesDeRisco />}
     </>
+  );
+}
+
+/**
+ * [NOVO] Etapa 2 do mapa de risco, só sugestão: com os livres de agora, até quantos robôs ficou na meta
+ * nos últimos 30 dias (aba Relatórios → mapa). Não muda os robôs: é para comparar com o automático.
+ */
+function TetoSugerido({ livres, ligados }: { livres: number | null | undefined; ligados: number | null | undefined }) {
+  const { data } = useRelatorioPeriodo(30);
+  const { teto, ponto } = tetoSugerido(pontoSeguro(celulasDoMapa(data?.mapaRisco, null)), livres);
+  const texto = !data?.mapaRisco ? '–' : teto == null ? '?' : teto === Infinity ? 'sem teto' : `até ${teto}`;
+  const acima = teto != null && teto !== Infinity && ligados != null && ligados > teto;
+  const dica = livres == null || livres < 1
+    ? 'Sem gente livre agora: o automático já desliga os robôs.'
+    : teto == null
+      ? `O mapa ainda não sabe o teto com ${livres >= 4 ? '4 ou mais livres' : `${livres} livre(s)`}: ${ponto?.parou ? `nem ${ponto.parou} robôs ficou na meta` : 'pouca amostra'} nos últimos 30 dias.`
+      : `Com ${livres >= 4 ? '4 ou mais livres' : `${livres} livre(s)`}, até onde ficou na meta (1 callback de fila a cada 200 leads) nos últimos 30 dias. Só sugestão: não muda os robôs.`;
+  return (
+    <div title={dica}>
+      <span className="rotulo block">Teto do mapa</span>
+      <b className={clsx('text-2xl tabular-nums', acima ? 'text-amber-600 dark:text-amber-400' : teto == null ? 'text-slate-400' : '')}>{texto}</b>
+      <span className="block text-[11px] text-slate-400">só sugestão</span>
+    </div>
   );
 }

@@ -1,14 +1,17 @@
 /**
  * [NOVO] Mapa de risco dos robôs (relatório de 7 e 30 dias): livres × robôs ligados → quanto custou
- * em callback de fila. A meta é 1 em 200 (0,5%). Etapa 1: só mostra; o automático ainda não usa.
+ * em callback de fila. A meta é 1 em 200 (0,5%). O automático ainda não usa: o teto sai só como sugestão.
+ * [NOVO] Colunas de 20 em 20 robôs e o porquê dos callbacks de fila (o raio-x de cada um).
  * Limpo de propósito: no topo um número só, na grade só a cor e o %, e o detalhe aparece ao tocar.
  */
 
 import { clsx } from 'clsx';
 import { CircleHelp, ShieldCheck, X } from 'lucide-react';
 import { useState } from 'react';
-import { celulasDoMapa, FAIXAS_LIVRES, FAIXAS_ROBOS, foraDoMapa, nivelDaCelula, pontoSeguro, resumoDoMapa, taxaEmTexto, type NivelDaCelula, type PontoSeguro } from '../mapa-risco';
-import type { CelulaDoMapa, MapaDeRisco as Mapa, StatusDoMapa } from '../tipos';
+import {
+  celulasDoMapa, FAIXAS_LIVRES, FAIXAS_ROBOS, foraDoMapa, MOTIVOS_DA_FILA, motivosDe, nivelDaCelula, pontoSeguro, resumoDoMapa, taxaEmTexto, type NivelDaCelula, type PontoSeguro,
+} from '../mapa-risco';
+import type { CelulaDoMapa, MapaDeRisco as Mapa, MotivoDaFila, MotivosDoMapa, StatusDoMapa } from '../tipos';
 import { Segmentado } from '../ui/base';
 
 const COR: Record<NivelDaCelula, string> = {
@@ -31,7 +34,7 @@ const teto = (r: string) => (r === '41+' ? '41 ou mais robôs' : `até ${r.split
 const virgula = (n: number) => String(n).replace('.', ',');
 
 /** transbordos: os do período (o quadro Transbordos), para mostrar quantos o mapa não tem. */
-export function MapaDeRisco({ mapa, transbordos }: { mapa: Mapa | undefined; transbordos?: number }) {
+export function MapaDeRisco({ mapa, transbordos, motivos }: { mapa: Mapa | undefined; transbordos?: number; motivos?: MotivosDoMapa }) {
   const [status, setStatus] = useState<StatusDoMapa | 'todos'>('todos');
   const [escolhida, setEscolhida] = useState<{ livres: string; robos: string } | null>(null);
   const [comoLer, setComoLer] = useState(false);
@@ -73,9 +76,11 @@ export function MapaDeRisco({ mapa, transbordos }: { mapa: Mapa | undefined; tra
         <Contagem cor="bg-slate-100 text-slate-500 dark:bg-noite-800 dark:text-slate-400" ponto="bg-slate-400" n={fora}
           texto="fora do mapa" dica="Callbacks do período que o mapa não tem: de antes de ele começar a anotar ou logo depois de um reinício (sem a foto da URA daquela hora). Estão no quadro Transbordos." />
       </ul>
+      {/* [NOVO] por que os de fila (o raio-x de cada um) */}
+      <PorQue soma={motivosDe(motivos, filtro)} fila={resumo.fila} titulo="Por que os de fila" />
 
       {/* a grade: só a cor e o %; o detalhe aparece ao tocar */}
-      <div role="grid" aria-label="Mapa de risco: livres × robôs ligados" className="grid grid-cols-[3.25rem_repeat(6,minmax(0,1fr))] gap-1 sm:grid-cols-[6.5rem_repeat(6,minmax(0,1fr))] sm:gap-1.5">
+      <div role="grid" aria-label="Mapa de risco: livres × robôs ligados" className="grid grid-cols-[3.25rem_repeat(4,minmax(0,1fr))] gap-1 sm:grid-cols-[6.5rem_repeat(4,minmax(0,1fr))] sm:gap-1.5">
         <span className="self-end text-[10px] font-semibold uppercase tracking-wide text-slate-400 sm:text-xs">livres</span>
         {FAIXAS_ROBOS.map((r) => (
           <span key={r} className="self-end text-center text-[10px] font-semibold text-slate-500 sm:text-xs dark:text-slate-400">
@@ -87,12 +92,12 @@ export function MapaDeRisco({ mapa, transbordos }: { mapa: Mapa | undefined; tra
             aoEscolher={(robos) => setEscolhida(escolhida?.livres === l && escolhida.robos === robos ? null : { livres: l, robos })} />
         ))}
         <span />
-        <span className="col-span-6 text-center text-[10px] text-slate-400 sm:text-xs">robôs ligados →</span>
+        <span className="col-span-4 text-center text-[10px] text-slate-400 sm:text-xs">robôs ligados →</span>
       </div>
 
       {/* embaixo: o detalhe do quadrinho tocado ou, sem nenhum, o ponto seguro */}
       <div className="min-h-24 rounded-xl bg-slate-50 p-3 dark:bg-noite-800/60">
-        {atual ? <Detalhe c={atual} aoFechar={() => setEscolhida(null)} /> : <PontosSeguros pontos={pontoSeguro(celulas)} />}
+        {atual ? <Detalhe c={atual} motivos={motivosDe(motivos, filtro, atual.livres, atual.robos)} aoFechar={() => setEscolhida(null)} /> : <PontosSeguros pontos={pontoSeguro(celulas)} />}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-slate-500 dark:text-slate-400">
@@ -111,7 +116,8 @@ export function MapaDeRisco({ mapa, transbordos }: { mapa: Mapa | undefined; tra
       {comoLer && (
         <div className="animate-entrar grid gap-1.5 text-sm text-slate-600 dark:text-slate-300">
           <p>Cada quadrinho é um momento da URA: quanta gente estava livre (linha) e quantos robôs estavam ligados (coluna) quando o cliente entrou. O % é quantas dessas ligações viraram callback de fila. A meta é 1 a cada 200 (0,5%).</p>
-          <p>Ainda não muda os robôs: com umas duas semanas de dados, o automático poderá ligar o máximo que fica no verde.</p>
+          <p>Ainda não muda os robôs: o <b>teto sugerido</b> (embaixo da grade e na aba URA e robôs) mostra o máximo que ficou no verde, só como sugestão, para comparar com o que o automático liga.</p>
+          <p><b>Por que os de fila</b>: o raio-x de cada callback diz o que faltou. <b>Derivações juntas</b>: o livre atendeu outra ligação (faltou gente, não robô). <b>URA sem livre</b>: o livre saiu, pausou ou caiu. <b>Carência</b>: só havia livre com a telefonia recém-trocada.</p>
           <p>Callback <b>de fila</b>: não havia ninguém livre quando o cliente entrou. Só esses entram no %. <b>Invisível</b>: tinha gente livre e a ligação não chegou (telefonia ou Argus). <b>Fora do mapa</b>: de antes de o mapa começar a anotar ou logo depois de um reinício.</p>
         </div>
       )}
@@ -137,7 +143,7 @@ function Linha({ livres, indice, de, escolhida, aoEscolher }: {
         return (
           <button key={r} type="button" onClick={() => aoEscolher(r)} aria-pressed={marcada}
             aria-label={`${nomeDosLivres(livres)}, ${nomeDosRobos(r)}: ${taxaEmTexto(c)}, ${FRASE[nivel]}${c.invisiveis ? `, ${c.invisiveis} invisível(is)` : ''}`}
-            style={{ animationDelay: `${(indice * 6 + ri) * 18}ms` }}
+            style={{ animationDelay: `${(indice * FAIXAS_ROBOS.length + ri) * 18}ms` }}
             className={clsx('animate-entrar [animation-duration:0.3s] [animation-fill-mode:backwards] relative h-10 cursor-pointer rounded-lg text-[11px] font-bold tabular-nums transition duration-150 sm:h-12 sm:text-sm',
               'hover:scale-[1.06] hover:shadow-md focus-visible:outline-2 focus-visible:outline-azul-500',
               COR[nivel], marcada && 'scale-[1.06] shadow-md ring-2 ring-azul-500 dark:ring-azul-300', apagada && 'opacity-45')}>
@@ -154,7 +160,7 @@ function Linha({ livres, indice, de, escolhida, aoEscolher }: {
   );
 }
 
-function Detalhe({ c, aoFechar }: { c: CelulaDoMapa; aoFechar: () => void }) {
+function Detalhe({ c, motivos, aoFechar }: { c: CelulaDoMapa; motivos: Record<MotivoDaFila, number>; aoFechar: () => void }) {
   const nivel = nivelDaCelula(c);
   const total = c.leads + c.fila;
   const porDuzentos = total ? Math.round((c.fila / total) * 200 * 10) / 10 : 0;
@@ -180,7 +186,24 @@ function Detalhe({ c, aoFechar }: { c: CelulaDoMapa; aoFechar: () => void }) {
           </span>
         )}
       </p>
+      <PorQue soma={motivos} fila={c.fila} titulo="Por quê" />
     </div>
+  );
+}
+
+/** [NOVO] "Por que os de fila: 3 derivações juntas · 1 URA sem livre · 2 sem raio-x". */
+function PorQue({ soma, fila, titulo }: { soma: Record<MotivoDaFila, number>; fila: number; titulo: string }) {
+  if (!fila) return null;
+  const explicados = MOTIVOS_DA_FILA.reduce((t, m) => t + soma[m.id], 0);
+  const sem = Math.max(0, fila - explicados);
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+      <span className="font-semibold">{titulo}:</span>
+      {MOTIVOS_DA_FILA.filter((m) => soma[m.id]).map((m) => (
+        <span key={m.id} title={m.dica} className="rounded-md bg-slate-100 px-1.5 py-0.5 dark:bg-noite-800"><b className="tabular-nums">{soma[m.id]}</b> {m.nome}</span>
+      ))}
+      {sem > 0 && <span className="text-slate-400" title="Sem o raio-x do callback (anteriores a esta versão, ou o relatório da Argus não trouxe a hora)"><b className="tabular-nums">{sem}</b> sem raio-x</span>}
+    </p>
   );
 }
 
@@ -189,7 +212,8 @@ function PontosSeguros({ pontos }: { pontos: PontoSeguro[] }) {
   return (
     <div className="grid gap-2">
       <p className="flex flex-wrap items-center gap-x-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
-        <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden /> Até onde ficou na meta
+        <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden /> Teto sugerido: até onde ficou na meta
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-200">só sugestão</span>
         <span className="font-normal text-slate-500 max-sm:w-full max-sm:text-xs dark:text-slate-400"><span className="max-sm:hidden">· </span>toque num quadrinho para ver o detalhe</span>
       </p>
       {algum ? (

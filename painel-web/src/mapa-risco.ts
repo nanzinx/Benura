@@ -5,10 +5,19 @@
  * O servidor anota (src/domain/mapa-risco.js); aqui só monta a grade e as cores.
  */
 
-import type { CelulaDoMapa, MapaDeRisco, StatusDoMapa } from './tipos';
+import type { CelulaDoMapa, MapaDeRisco, MotivoDaFila, MotivosDoMapa, StatusDoMapa } from './tipos';
 
 export const FAIXAS_LIVRES = ['0', '1', '2', '3', '4+'] as const;
-export const FAIXAS_ROBOS = ['0', '1-10', '11-20', '21-30', '31-40', '41+'] as const;
+/**
+ * [NOVO] Faixas largas de robôs (o servidor anota de 10 em 10): com poucas ligações por dia, juntar
+ * em faixas de 20 enche os quadrinhos mais rápido (menos cinza de "pouca amostra").
+ */
+export const FAIXAS_ROBOS = ['0', '1-20', '21-40', '41+'] as const;
+const LARGA: Record<string, (typeof FAIXAS_ROBOS)[number]> = {
+  '0': '0', '1-10': '1-20', '11-20': '1-20', '21-30': '21-40', '31-40': '21-40', '41+': '41+',
+};
+/** "11-20" (como o servidor anota) → "1-20" (a coluna do mapa); null se não for uma faixa conhecida. */
+export const faixaLarga = (r: string) => LARGA[r] ?? null;
 const STATUS: StatusDoMapa[] = ['calma', 'normal', 'agressiva', 'medindo'];
 
 /** A meta (1 em 200) e o limite do âmbar (1 em 100). */
@@ -19,21 +28,20 @@ export const AMOSTRA_MINIMA = 50;
 
 /** A grade inteira, de um status (ou de todos, com null). */
 export function celulasDoMapa(mapa: MapaDeRisco | undefined, status: StatusDoMapa | null): CelulaDoMapa[] {
-  const grade: CelulaDoMapa[] = [];
+  const grade = new Map<string, CelulaDoMapa>();
   for (const livres of FAIXAS_LIVRES) {
-    for (const robos of FAIXAS_ROBOS) {
-      const c: CelulaDoMapa = { livres, robos, leads: 0, fila: 0, invisiveis: 0 };
-      for (const s of status ? [status] : STATUS) {
-        const v = mapa?.[`${livres}|${robos}|${s}`];
-        if (!v) continue;
-        c.leads += v.leads ?? 0;
-        c.fila += v.fila ?? 0;
-        c.invisiveis += v.invisiveis ?? 0;
-      }
-      grade.push(c);
-    }
+    for (const robos of FAIXAS_ROBOS) grade.set(`${livres}|${robos}`, { livres, robos, leads: 0, fila: 0, invisiveis: 0 });
   }
-  return grade;
+  for (const [k, v] of Object.entries(mapa ?? {})) {
+    const [livres, robosFinos, s] = k.split('|');
+    const robos = faixaLarga(robosFinos ?? '');
+    const c = robos ? grade.get(`${livres}|${robos}`) : undefined;
+    if (!c || (status ? s !== status : !STATUS.includes(s as StatusDoMapa))) continue;
+    c.leads += v.leads ?? 0;
+    c.fila += v.fila ?? 0;
+    c.invisiveis += v.invisiveis ?? 0;
+  }
+  return [...grade.values()];
 }
 
 const taxa = (c: { leads: number; fila: number }) => (c.leads + c.fila ? c.fila / (c.leads + c.fila) : null);
@@ -92,4 +100,39 @@ export function resumoDoMapa(mapa: MapaDeRisco | undefined, status: StatusDoMapa
   const soma = celulasDoMapa(mapa, status).reduce((t, c) => ({ leads: t.leads + c.leads, fila: t.fila + c.fila, invisiveis: t.invisiveis + c.invisiveis }), { leads: 0, fila: 0, invisiveis: 0 });
   const t = taxa(soma);
   return { ...soma, porDuzentos: t == null ? null : Math.round(t * 200 * 10) / 10 };
+}
+
+/** [NOVO] Os motivos dos callbacks de fila, na ordem e com o nome que o painel mostra. */
+export const MOTIVOS_DA_FILA: { id: MotivoDaFila; nome: string; dica: string }[] = [
+  { id: 'juntas', nome: 'derivações juntas', dica: 'o(s) livre(s) atenderam outra ligação e a fila ficou sem ninguém: faltou gente, não robô' },
+  { id: 'semLivre', nome: 'URA sem livre', dica: 'o livre saiu da URA, pausou ou caiu durante a espera' },
+  { id: 'carencia', nome: 'carência', dica: 'só havia livre com a telefonia recém-trocada para a URA' },
+];
+
+/**
+ * [NOVO] Os motivos dos de fila de um quadrinho (livres × faixa larga de robôs) ou, sem `livres`, do
+ * período todo. Só os que o raio-x explicou; o resto (sem raio-x) é `fila - soma`.
+ */
+export function motivosDe(motivos: MotivosDoMapa | undefined, status: StatusDoMapa | null, livres?: string, robos?: string) {
+  const soma: Record<MotivoDaFila, number> = { juntas: 0, semLivre: 0, carencia: 0 };
+  for (const [k, v] of Object.entries(motivos ?? {})) {
+    const [l, r, s] = k.split('|');
+    if (livres != null && l !== livres) continue;
+    if (robos != null && faixaLarga(r ?? '') !== robos) continue;
+    if (status ? s !== status : !STATUS.includes(s as StatusDoMapa)) continue;
+    for (const m of MOTIVOS_DA_FILA) soma[m.id] += v[m.id] ?? 0;
+  }
+  return soma;
+}
+
+/**
+ * [NOVO] Etapa 2, só sugestão: o teto de robôs que o mapa sugere para o tanto de livres de agora (o
+ * "até onde ficou na meta"). null = o mapa ainda não sabe (sem amostra, ou nem a menor faixa ficou na
+ * meta); Infinity = a faixa 41+ ficou na meta (sem teto). Com 0 livre, o automático já desliga tudo.
+ */
+export function tetoSugerido(pontos: PontoSeguro[], livresAgora: number | null | undefined): { teto: number | null; ponto: PontoSeguro | null } {
+  if (livresAgora == null || livresAgora < 1) return { teto: null, ponto: null };
+  const ponto = pontos.find((p) => p.livres === (livresAgora >= 4 ? '4+' : String(Math.floor(livresAgora)))) ?? null;
+  if (!ponto?.ate) return { teto: null, ponto };
+  return { teto: ponto.ate === '41+' ? Infinity : Number(ponto.ate.split('-')[1]), ponto };
 }
