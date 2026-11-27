@@ -57,6 +57,12 @@ function Conteudo({ r, aoEscolher }: { r: ResumoLiberados; aoEscolher: (dia: str
             </p>
           ) : (
             <>
+              {reg.aviso && (
+                <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  <b>Ninguém bateu a meta: hoje iniciam só os fixos.</b> {reg.aviso}
+                  <span className="mt-1 block text-xs opacity-80">A agenda segue tentando a cada 10 min até o meio-dia; se chegarem vendas, o comunicado é refeito.</span>
+                </p>
+              )}
               <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
                 <Liberados reg={reg} />
                 <Comunicado r={r} reg={reg} />
@@ -83,7 +89,8 @@ function Faixa({ r, reg, aberto, alternar, idConteudo }: { r: ResumoLiberados; r
         <ChevronDown className={clsx('size-4 shrink-0 text-slate-400 transition-transform duration-200 group-hover:text-azul-600 motion-reduce:transition-none', !aberto && '-rotate-90')} aria-hidden />
         <h2 className="text-base font-semibold">Liberados da <span className="text-amarelo-500">URA</span> · {dataBr(r.dia).slice(0, 5)}</h2>
       </button>
-      {ok ? <Selo tom="ok">gerado às {horaDe(ok.geradoEm)}</Selo>
+      {ok?.aviso ? <Selo tom="alerta">só os fixos · confira</Selo>
+        : ok ? <Selo tom="ok">gerado às {horaDe(ok.geradoEm)}</Selo>
         : reg ? <Selo tom="alerta">sem dados</Selo>
           : <Selo>ainda não gerado</Selo>}
       {ok && (
@@ -96,6 +103,7 @@ function Faixa({ r, reg, aberto, alternar, idConteudo }: { r: ResumoLiberados; r
         </p>
       )}
       {reg && !ok && <p className="min-w-0 truncate text-sm text-amber-800 dark:text-amber-300" title={reg.motivo}>{reg.motivo}</p>}
+      {ok?.aviso && <p className="min-w-0 truncate text-sm text-amber-800 dark:text-amber-300" title={ok.aviso}>{ok.aviso}</p>}
       {ok?.texto && (
         <span className="ml-auto flex items-center gap-3">
           {deHoje && falta > 0 && <span className="hidden text-xs text-slate-500 sm:inline dark:text-slate-400">até {HORA_DO_COMUNICADO}: faltam <b className="tabular-nums">{contagem(falta)}</b></span>}

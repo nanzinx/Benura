@@ -546,6 +546,8 @@ export interface RegistroLiberados {
   por: string;
   ok: boolean;
   motivo?: string;
+  /** [NOVO] gerado, mas com algo a conferir (ex.: o Carrossel mandou todos com R$ 0) */
+  aviso?: string;
   origem?: string;
   total?: number;
   ranking?: VendedorLiberados[];

@@ -101,7 +101,8 @@ const numeral = (i) => (i < 9 ? `${i + 1}️⃣` : i === 9 ? '🔟' : `${i + 1}.
 function comunicado({ diaUra, diaVendas, meta, fixos, bateram }) {
   const lista = bateram.length
     ? bateram.map((r, i) => `${numeral(i)} *${r.nome}* — ${reais(r.valor)} (${Math.round(r.pct)}%${i === 0 ? ' da meta) 🥇' : ')'}`)
-    : ['Ninguém bateu a meta ontem.'];
+    // [NOVO] ninguém bateu: o comunicado sai assim mesmo, deixando claro que só os fixos iniciam
+    : ['Ninguém bateu a meta ontem.', '👉 Hoje ficam na URA *apenas os fixos*.'];
   return [
     `📢 *URA — Lista de hoje (${ddmm(diaUra)})*`,
     '',

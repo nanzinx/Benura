@@ -99,13 +99,14 @@ class LiberadosUra {
     let registro;
     if (!lido.vendas?.length) {
       registro = { ...base, ok: false, motivo: lido.motivo ?? 'Sem vendas para esse dia.' };
-    } else if (lido.vendas.every((v) => !(Number(v.valor) > 0))) {
-      // Todo mundo com R$ 0 é Carrossel com problema, não um dia sem venda: não vira comunicado.
-      registro = { ...base, ok: false, motivo: `O Carrossel mandou ${lido.vendas.length} consultor(es), todos com R$ 0, para ${diaVendas.split('-').reverse().join('/')}: os dados parecem incompletos.` };
     } else {
+      // [NOVO] Todo mundo com R$ 0 pode ser Carrossel incompleto: o comunicado sai (só os fixos), com
+      // o aviso na tela, e a agenda segue tentando até o meio-dia; chegando venda, o comunicado é refeito.
+      const tudoZero = lido.vendas.every((v) => !(Number(v.valor) > 0));
       const r = calcular({ vendas: lido.vendas, meta: c.meta, fixos });
       registro = {
         ...base, ok: true, origem: lido.origem,
+        ...(tudoZero ? { aviso: `O Carrossel mandou ${lido.vendas.length} consultor(es), todos com R$ 0, para ${diaVendas.split('-').reverse().join('/')}: confira se os dados estão completos antes de mandar.` } : {}),
         total: r.total, ranking: r.ranking, liberados: r.liberados, bateram: r.bateram.map((x) => x.nome),
         coroa: r.coroa, fixosNaUra: r.fixosNaUra, pelaMeta: r.pelaMeta,
         texto: comunicado({ diaUra, diaVendas, meta: c.meta, fixos, bateram: r.bateram }),
@@ -154,7 +155,9 @@ class LiberadosUra {
     if (!c.diasOperacao.includes(semana)) return null;
     const min = minutos(horaLocal(this.fuso, agora));
     if (min < minutos(c.horario) || min >= minutos(TENTAR_ATE)) return null;
-    if (this.historico[hoje]?.ok || agora.getTime() - this.ultimaTentativa < NOVA_TENTATIVA_MS) return null;
+    const r = this.historico[hoje];
+    // com aviso (tudo R$ 0) segue tentando: as vendas podem chegar
+    if ((r?.ok && !r.aviso) || agora.getTime() - this.ultimaTentativa < NOVA_TENTATIVA_MS) return null;
     this.ultimaTentativa = agora.getTime();
     return this.gerar({ diaUra: hoje });
   }

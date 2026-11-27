@@ -74,7 +74,7 @@ Parabéns a quem bateu e bora pra cima! 🚀`);
 
 test('liberados: ninguém bateu; do 10º em diante a numeração vira 🔟 e "11."', () => {
   const nada = comunicado({ diaUra: '2026-11-18', diaVendas: '2026-11-17', meta: 50000, fixos: FIXOS, bateram: [] });
-  assert.match(nada, /\(17\/11\):\*\nNinguém bateu a meta ontem\.\n\n/);
+  assert.match(nada, /\(17\/11\):\*\nNinguém bateu a meta ontem\.\n👉 Hoje ficam na URA \*apenas os fixos\*\.\n\n/);
   const muitos = Array.from({ length: 11 }, (_, i) => ({ nome: `Pessoa ${i}`, valor: 60000 - i }));
   const r = calcular({ vendas: muitos, meta: 50000, fixos: [] });
   const texto = comunicado({ diaUra: '2026-11-18', diaVendas: '2026-11-17', meta: 50000, fixos: [], bateram: r.bateram });
@@ -195,4 +195,26 @@ test('serviço: a agenda gera na hora, só nos dias com operação, e tenta de n
   const envio = await s.enviar('2026-11-23', 'Ana');
   assert.equal(envio.ok, true);
   assert.match(enviados[0].texto, /Emilly/);
+});
+
+test('[NOVO] serviço: todos com R$ 0 gera o comunicado só com os fixos, com aviso, e a agenda segue tentando', async () => {
+  const dir = pasta();
+  let agora = new Date('2026-11-27T11:31:00Z'); // sexta 08:31
+  let vendas = [{ nome: 'Emilly Souza', valor: 0 }, { nome: 'Igor Reis', valor: 0 }];
+  const fonte = { vendasDoDia: async () => ({ vendas, origem: 't' }) };
+  const s = new LiberadosUra({ fonte, cfg: cfgServico(dir), fuso: 'America/Sao_Paulo', logger: loggerNulo, agora: () => agora });
+  const r = await s.verificar();
+  assert.equal(r.ok, true);
+  assert.match(r.aviso, /todos com R\$ 0/);
+  assert.equal(r.pelaMeta, 0);
+  assert.match(r.texto, /Ninguém bateu a meta ontem\.\n👉 Hoje ficam na URA \*apenas os fixos\*\./);
+  assert.match(r.texto, /• Stephanny\n• Jamily\n• Renato\n• Eduardo/);
+  // chegou venda: a agenda refaz e o aviso some
+  vendas = [{ nome: 'Emilly Souza', valor: 60000 }];
+  agora = new Date('2026-11-27T11:42:00Z');
+  const refeito = await s.verificar();
+  assert.equal(refeito.aviso, undefined);
+  assert.equal(refeito.pelaMeta, 1);
+  agora = new Date('2026-11-27T11:55:00Z');
+  assert.equal(await s.verificar(), null, 'com venda de verdade, para de tentar');
 });
